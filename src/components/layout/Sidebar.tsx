@@ -29,7 +29,7 @@ interface SidebarProps {
   currentPath: string
 }
 
-export function Sidebar({ onNavigate, currentPath }: SidebarProps) {
+export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps) {
   const {
     projects,
     currentProject,

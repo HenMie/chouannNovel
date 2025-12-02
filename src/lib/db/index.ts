@@ -4,7 +4,6 @@ import type {
   Workflow,
   WorkflowNode,
   Setting,
-  SettingPrompt,
   GlobalConfig,
   Execution,
   NodeResult,

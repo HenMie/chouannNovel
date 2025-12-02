@@ -36,7 +36,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -47,6 +47,8 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Header } from '@/components/layout/Header'
+import { NodeConfigDrawer } from '@/components/node/NodeConfigDrawer'
+import { StreamingOutput } from '@/components/execution/StreamingOutput'
 import { useProjectStore } from '@/stores/project-store'
 import { cn } from '@/lib/utils'
 import type { WorkflowNode, NodeType } from '@/types'
@@ -77,10 +79,14 @@ const nodeTypeConfig: Record<
 // 可排序的节点卡片
 function SortableNodeCard({
   node,
+  isActive,
+  isRunning,
   onDelete,
   onEdit,
 }: {
   node: WorkflowNode
+  isActive?: boolean
+  isRunning?: boolean
   onDelete: () => void
   onEdit: () => void
 }) {
@@ -106,9 +112,12 @@ function SortableNodeCard({
     >
       <Card
         className={cn(
-          'transition-all hover:shadow-md',
-          isDragging && 'shadow-lg ring-2 ring-primary'
+          'cursor-pointer transition-all hover:shadow-md',
+          isDragging && 'shadow-lg ring-2 ring-primary',
+          isActive && 'ring-2 ring-primary',
+          isRunning && 'ring-2 ring-yellow-500'
         )}
+        onClick={onEdit}
       >
         <CardHeader className="flex flex-row items-center gap-3 space-y-0 p-4">
           {/* 拖拽手柄 */}
@@ -116,9 +125,18 @@ function SortableNodeCard({
             {...attributes}
             {...listeners}
             className="cursor-grab touch-none opacity-50 hover:opacity-100"
+            onClick={(e) => e.stopPropagation()}
           >
             <GripVertical className="h-5 w-5" />
           </button>
+
+          {/* 状态指示器 */}
+          {isRunning && (
+            <div className="absolute -left-1 top-1/2 h-3 w-3 -translate-y-1/2">
+              <div className="absolute h-full w-full animate-ping rounded-full bg-yellow-500 opacity-75" />
+              <div className="relative h-full w-full rounded-full bg-yellow-500" />
+            </div>
+          )}
 
           {/* 节点图标 */}
           <div
@@ -138,14 +156,25 @@ function SortableNodeCard({
 
           {/* 操作按钮 */}
           <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onEdit}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={(e) => {
+                e.stopPropagation()
+                onEdit()
+              }}
+            >
               <Settings className="h-4 w-4" />
             </Button>
             <Button
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-destructive hover:text-destructive"
-              onClick={onDelete}
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete()
+              }}
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -156,7 +185,7 @@ function SortableNodeCard({
   )
 }
 
-export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPageProps) {
+export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _onNavigate }: WorkflowPageProps) {
   const {
     currentWorkflow,
     nodes,
@@ -166,10 +195,17 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     createNode,
     deleteNode,
     reorderNodes,
+    updateNode,
   } = useProjectStore()
 
+  // 状态
   const [isRunning, setIsRunning] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
+  const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null)
+  const [isConfigOpen, setIsConfigOpen] = useState(false)
+  const [currentNodeIndex, setCurrentNodeIndex] = useState<number | null>(null)
+  const [outputContent, setOutputContent] = useState('')
+  const [isStreaming, setIsStreaming] = useState(false)
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -218,26 +254,59 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     }
   }
 
+  const handleEditNode = (node: WorkflowNode) => {
+    setSelectedNode(node)
+    setIsConfigOpen(true)
+  }
+
+  const handleSaveNode = async (updatedNode: WorkflowNode) => {
+    await updateNode(updatedNode.id, {
+      name: updatedNode.name,
+      config: updatedNode.config,
+    })
+    // 更新本地状态中的选中节点
+    setSelectedNode(updatedNode)
+  }
+
   const handleRun = () => {
     setIsRunning(true)
     setIsPaused(false)
-    // TODO: 实现执行逻辑
+    setOutputContent('')
+    setCurrentNodeIndex(0)
+    // TODO: 实现完整的执行引擎
+    // 这里只是演示流式输出效果
+    simulateExecution()
   }
 
   const handlePause = () => {
     setIsPaused(true)
-    // TODO: 实现暂停逻辑
   }
 
   const handleResume = () => {
     setIsPaused(false)
-    // TODO: 实现继续逻辑
   }
 
   const handleStop = () => {
     setIsRunning(false)
     setIsPaused(false)
-    // TODO: 实现停止逻辑
+    setCurrentNodeIndex(null)
+    setIsStreaming(false)
+  }
+
+  // 模拟执行过程（演示用，实际执行引擎在 Phase 4 实现）
+  const simulateExecution = async () => {
+    setIsStreaming(true)
+    const demoText = '这是一个演示输出。\n\n工作流执行引擎将在后续阶段实现，届时将支持：\n\n- AI 对话节点的流式输出\n- 变量插值和引用\n- 条件判断和循环控制\n- 执行暂停和继续\n\n敬请期待！'
+
+    for (let i = 0; i <= demoText.length; i++) {
+      if (!isRunning) break
+      await new Promise((resolve) => setTimeout(resolve, 30))
+      setOutputContent(demoText.slice(0, i))
+    }
+
+    setIsStreaming(false)
+    setIsRunning(false)
+    setCurrentNodeIndex(null)
   }
 
   if (!currentWorkflow) {
@@ -362,15 +431,14 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
               >
                 <SortableContext items={nodes} strategy={verticalListSortingStrategy}>
                   <div className="space-y-3">
-                    {nodes.map((node) => (
+                    {nodes.map((node, index) => (
                       <SortableNodeCard
                         key={node.id}
                         node={node}
+                        isActive={selectedNode?.id === node.id}
+                        isRunning={isRunning && currentNodeIndex === index}
                         onDelete={() => handleDeleteNode(node.id)}
-                        onEdit={() => {
-                          // TODO: 打开节点配置面板
-                          console.log('编辑节点:', node)
-                        }}
+                        onEdit={() => handleEditNode(node)}
                       />
                     ))}
                   </div>
@@ -385,15 +453,33 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
         <div className="flex w-96 flex-col border-l">
           <div className="flex items-center justify-between border-b px-4 py-2">
             <span className="text-sm font-medium">输出</span>
+            {isStreaming && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+                生成中...
+              </span>
+            )}
           </div>
-          <ScrollArea className="flex-1 p-4">
-            <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
-              <p>运行工作流后，输出将显示在这里</p>
-            </div>
-          </ScrollArea>
+          <div className="flex-1 overflow-hidden">
+            <StreamingOutput
+              content={outputContent}
+              isStreaming={isStreaming}
+              className="h-full"
+            />
+          </div>
         </div>
       </div>
+
+      {/* 节点配置抽屉 */}
+      <NodeConfigDrawer
+        node={selectedNode}
+        open={isConfigOpen}
+        onClose={() => {
+          setIsConfigOpen(false)
+          setSelectedNode(null)
+        }}
+        onSave={handleSaveNode}
+      />
     </div>
   )
 }
-

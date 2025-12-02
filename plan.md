@@ -257,13 +257,13 @@ src/
 - [x] 节点 CRUD
 - [x] 节点拖拽排序
 
-### Phase 3: AI节点 (P0) 🚧
+### Phase 3: AI节点 (P0) ✅
 - [x] 全局 API 配置页面
-- [ ] AI 服务封装 (OpenAI/Gemini/Claude)
-- [ ] AI 对话节点配置表单
-- [ ] 流式输出显示
+- [x] AI 服务封装 (OpenAI/Gemini/Claude)
+- [x] AI 对话节点配置表单
+- [x] 流式输出显示
 
-### Phase 4: 执行引擎 (P0)
+### Phase 4: 执行引擎 (P0) 🚧
 - [ ] 基础执行引擎
 - [ ] 执行状态管理
 - [ ] 暂停/继续/终止
@@ -431,4 +431,217 @@ AI节点执行时，根据引用的设定自动拼接到提示词中。
 - 设定库管理
 - 导出功能
 - 主题切换
+
+---
+
+## 已实现项目结构
+
+```
+src/
+├── components/
+│   ├── layout/                   # 布局组件
+│   │   ├── Header.tsx            # 顶部导航栏（含主题切换）
+│   │   ├── MainLayout.tsx        # 主布局（含简易路由）
+│   │   └── Sidebar.tsx           # 侧边栏（项目树）
+│   └── ui/                       # shadcn/ui 组件
+│       ├── button.tsx
+│       ├── card.tsx
+│       ├── dialog.tsx
+│       ├── dropdown-menu.tsx
+│       ├── input.tsx
+│       ├── label.tsx
+│       ├── scroll-area.tsx
+│       ├── select.tsx
+│       ├── separator.tsx
+│       ├── sheet.tsx
+│       ├── sonner.tsx            # Toast 通知
+│       ├── tabs.tsx
+│       ├── textarea.tsx
+│       └── tooltip.tsx
+│
+├── lib/
+│   ├── db/index.ts               # 数据库操作模块
+│   └── utils.ts                  # 工具函数 (cn)
+│
+├── pages/                        # 页面组件
+│   ├── index.ts                  # 导出所有页面
+│   ├── HomePage.tsx              # 首页/项目列表
+│   ├── ProjectPage.tsx           # 项目详情页
+│   ├── WorkflowPage.tsx          # 工作流编辑页
+│   ├── SettingsPage.tsx          # 全局设置页
+│   ├── NewProjectPage.tsx        # 新建项目页
+│   └── NewWorkflowPage.tsx       # 新建工作流页
+│
+├── stores/                       # Zustand 状态管理
+│   ├── theme-store.ts            # 主题状态
+│   └── project-store.ts          # 项目/工作流/节点状态
+│
+├── types/
+│   └── index.ts                  # TypeScript 类型定义
+│
+├── App.tsx                       # 应用入口
+├── main.tsx                      # React 入口
+└── index.css                     # Tailwind CSS + 主题变量
+```
+
+---
+
+## 关键模块说明
+
+### 1. 数据库操作 (`src/lib/db/index.ts`)
+
+```typescript
+// 获取数据库连接（单例模式）
+import { getDatabase, generateId } from '@/lib/db'
+
+// 项目操作
+getProjects()                                    // 获取所有项目
+getProject(id)                                   // 获取单个项目
+createProject(name, description?)                // 创建项目
+updateProject(id, { name?, description? })       // 更新项目
+deleteProject(id)                                // 删除项目
+
+// 工作流操作
+getWorkflows(projectId)                          // 获取项目下所有工作流
+createWorkflow(projectId, name, description?)    // 创建工作流
+updateWorkflow(id, { name?, description?, ... }) // 更新工作流
+deleteWorkflow(id)                               // 删除工作流
+
+// 节点操作
+getNodes(workflowId)                             // 获取工作流下所有节点
+createNode(workflowId, type, name, config?)      // 创建节点
+updateNode(id, { name?, config? })               // 更新节点
+deleteNode(id)                                   // 删除节点
+reorderNodes(workflowId, nodeIds[])              // 重新排序节点
+
+// 全局配置
+getGlobalConfig()                                // 获取全局配置
+updateGlobalConfig({ ai_providers?, theme?, ... }) // 更新全局配置
+```
+
+### 2. 状态管理 (`src/stores/`)
+
+**主题状态 (`theme-store.ts`)**
+```typescript
+const { theme, setTheme } = useThemeStore()
+// theme: 'light' | 'dark' | 'system'
+```
+
+**项目状态 (`project-store.ts`)**
+```typescript
+const {
+  // 状态
+  projects,           // 项目列表
+  currentProject,     // 当前项目
+  workflows,          // 当前项目的工作流列表
+  currentWorkflow,    // 当前工作流
+  nodes,              // 当前工作流的节点列表
+  
+  // 操作
+  loadProjects,       // 加载项目列表
+  createProject,      // 创建项目
+  setCurrentProject,  // 设置当前项目
+  loadNodes,          // 加载节点
+  createNode,         // 创建节点
+  reorderNodes,       // 重新排序节点
+  // ...
+} = useProjectStore()
+```
+
+### 3. 路由机制
+
+当前使用简易路由（在 `MainLayout.tsx` 中实现）：
+
+```typescript
+// 路由格式
+'/'                                    -> HomePage
+'/settings'                            -> SettingsPage
+'/project/new'                         -> NewProjectPage
+'/project/:id'                         -> ProjectPage
+'/project/:id/workflow/new'            -> NewWorkflowPage
+'/project/:id/workflow/:wid'           -> WorkflowPage
+
+// 导航方法
+onNavigate('/project/xxx')             // 传递给各页面组件
+```
+
+### 4. 节点拖拽排序
+
+使用 `@dnd-kit` 实现，参考 `WorkflowPage.tsx`：
+
+```typescript
+import { DndContext, closestCenter } from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+```
+
+---
+
+## 开发注意事项
+
+### 1. 数据库连接
+
+- 数据库文件：`chouann_novel.db`（存储在 Tauri 应用数据目录）
+- 连接字符串：`sqlite:chouann_novel.db`
+- 迁移在 `src-tauri/src/lib.rs` 中定义
+
+### 2. 路径别名
+
+```typescript
+// tsconfig.json 已配置
+import { something } from '@/lib/utils'  // -> src/lib/utils
+```
+
+### 3. 添加 shadcn 组件
+
+```bash
+npx shadcn@latest add <component-name>
+```
+
+### 4. 类型定义
+
+所有类型定义在 `src/types/index.ts`，包括：
+- `Project`, `Workflow`, `WorkflowNode`
+- `NodeType`, `NodeConfig` 及各节点配置类型
+- `Setting`, `SettingPrompt`, `GlobalConfig`
+- `Execution`, `NodeResult`
+
+### 5. 主题切换
+
+主题通过在 `<html>` 元素上添加 `light` 或 `dark` class 实现，CSS 变量在 `src/index.css` 中定义。
+
+### 6. Toast 通知
+
+```typescript
+import { toast } from 'sonner'
+
+toast.success('操作成功')
+toast.error('操作失败')
+```
+
+---
+
+## 待开发功能清单
+
+### Phase 3: AI节点 ✅
+- [x] `src/lib/ai/providers/openai.ts` - OpenAI 服务封装
+- [x] `src/lib/ai/providers/gemini.ts` - Gemini 服务封装
+- [x] `src/lib/ai/providers/claude.ts` - Claude 服务封装
+- [x] `src/lib/ai/types.ts` - AI 类型定义
+- [x] `src/lib/ai/index.ts` - AI 服务统一入口
+- [x] `src/components/node/configs/AIChatConfig.tsx` - AI 节点配置表单
+- [x] `src/components/node/NodeConfigDrawer.tsx` - 节点配置抽屉
+- [x] `src/components/execution/StreamingOutput.tsx` - 流式输出组件
+
+### Phase 4: 执行引擎
+- [ ] `src/lib/engine/executor.ts` - 执行引擎核心
+- [ ] `src/lib/engine/context.ts` - 执行上下文
+- [ ] `src/stores/execution-store.ts` - 执行状态管理
+- [ ] 暂停/继续/终止控制逻辑
+
+### Phase 7: 变量系统
+- [ ] `src/lib/utils/interpolate.ts` - 变量插值解析（`{{变量名}}`）
+
+### Phase 8: 设定库
+- [ ] `src/pages/SettingsLibraryPage.tsx` - 设定库页面
+- [ ] `src/components/settings/` - 设定库相关组件
 

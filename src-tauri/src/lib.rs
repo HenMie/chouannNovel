@@ -118,6 +118,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_http::init())
         .plugin(
             Builder::default()
                 .add_migrations("sqlite:chouann_novel.db", migrations)
