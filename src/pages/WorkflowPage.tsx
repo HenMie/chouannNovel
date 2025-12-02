@@ -17,6 +17,9 @@ import {
   Variable,
   Type,
   Scissors,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
 } from 'lucide-react'
 import {
   DndContext,
@@ -46,12 +49,16 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
+import { Textarea } from '@/components/ui/textarea'
 import { Header } from '@/components/layout/Header'
 import { NodeConfigDrawer } from '@/components/node/NodeConfigDrawer'
-import { StreamingOutput } from '@/components/execution/StreamingOutput'
+import { StreamingOutput, NodeOutputPanel } from '@/components/execution/StreamingOutput'
 import { useProjectStore } from '@/stores/project-store'
+import { useExecutionStore } from '@/stores/execution-store'
+import { getGlobalConfig } from '@/lib/db'
 import { cn } from '@/lib/utils'
-import type { WorkflowNode, NodeType } from '@/types'
+import { toast } from 'sonner'
+import type { WorkflowNode, NodeType, GlobalConfig } from '@/types'
 
 interface WorkflowPageProps {
   projectId: string
@@ -198,14 +205,33 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
     updateNode,
   } = useProjectStore()
 
-  // 状态
-  const [isRunning, setIsRunning] = useState(false)
-  const [isPaused, setIsPaused] = useState(false)
+  // 执行状态
+  const {
+    status: executionStatus,
+    currentNodeIndex,
+    nodeOutputs,
+    finalOutput,
+    streamingContent,
+    streamingNodeId,
+    error: executionError,
+    startExecution,
+    pauseExecution,
+    resumeExecution,
+    cancelExecution,
+    reset: resetExecution,
+  } = useExecutionStore()
+
+  // 本地状态
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null)
   const [isConfigOpen, setIsConfigOpen] = useState(false)
-  const [currentNodeIndex, setCurrentNodeIndex] = useState<number | null>(null)
-  const [outputContent, setOutputContent] = useState('')
-  const [isStreaming, setIsStreaming] = useState(false)
+  const [globalConfig, setGlobalConfig] = useState<GlobalConfig | null>(null)
+  const [initialInput, setInitialInput] = useState('')
+  const [showInputDialog, setShowInputDialog] = useState(false)
+  
+  // 派生状态
+  const isRunning = executionStatus === 'running'
+  const isPaused = executionStatus === 'paused'
+  const isExecuting = isRunning || isPaused
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -227,10 +253,23 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
         setCurrentWorkflow(workflow)
         loadNodes(workflow.id)
       }
+
+      // 加载全局配置
+      try {
+        const config = await getGlobalConfig()
+        setGlobalConfig(config)
+      } catch (error) {
+        console.error('加载全局配置失败:', error)
+      }
     }
 
     loadData()
-  }, [workflowId, setCurrentWorkflow, loadNodes])
+
+    // 组件卸载时重置执行状态
+    return () => {
+      resetExecution()
+    }
+  }, [workflowId, setCurrentWorkflow, loadNodes, resetExecution])
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
@@ -268,45 +307,68 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
     setSelectedNode(updatedNode)
   }
 
-  const handleRun = () => {
-    setIsRunning(true)
-    setIsPaused(false)
-    setOutputContent('')
-    setCurrentNodeIndex(0)
-    // TODO: 实现完整的执行引擎
-    // 这里只是演示流式输出效果
-    simulateExecution()
+  // 检查是否有输入节点
+  const hasInputNode = nodes.some(n => n.type === 'input')
+
+  const handleRun = async () => {
+    // 检查全局配置
+    if (!globalConfig) {
+      toast.error('加载配置失败，请刷新页面重试')
+      return
+    }
+
+    // 检查是否有 AI 节点
+    const hasAINode = nodes.some(n => n.type === 'ai_chat')
+    if (hasAINode) {
+      // 检查是否配置了 AI 服务
+      const hasEnabledProvider = Object.values(globalConfig.ai_providers).some(
+        p => p.enabled && p.api_key
+      )
+      if (!hasEnabledProvider) {
+        toast.error('请先在设置页面配置 AI 服务')
+        return
+      }
+    }
+
+    // 如果有输入节点且没有输入，显示输入对话框
+    if (hasInputNode && !initialInput) {
+      setShowInputDialog(true)
+      return
+    }
+
+    // 开始执行
+    try {
+      await startExecution(currentWorkflow!, nodes, globalConfig, initialInput)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '执行失败'
+      toast.error(message)
+    }
+  }
+
+  const handleStartWithInput = async () => {
+    if (!globalConfig || !currentWorkflow) return
+    
+    setShowInputDialog(false)
+    
+    try {
+      await startExecution(currentWorkflow, nodes, globalConfig, initialInput)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '执行失败'
+      toast.error(message)
+    }
   }
 
   const handlePause = () => {
-    setIsPaused(true)
+    pauseExecution()
   }
 
   const handleResume = () => {
-    setIsPaused(false)
+    resumeExecution()
   }
 
   const handleStop = () => {
-    setIsRunning(false)
-    setIsPaused(false)
-    setCurrentNodeIndex(null)
-    setIsStreaming(false)
-  }
-
-  // 模拟执行过程（演示用，实际执行引擎在 Phase 4 实现）
-  const simulateExecution = async () => {
-    setIsStreaming(true)
-    const demoText = '这是一个演示输出。\n\n工作流执行引擎将在后续阶段实现，届时将支持：\n\n- AI 对话节点的流式输出\n- 变量插值和引用\n- 条件判断和循环控制\n- 执行暂停和继续\n\n敬请期待！'
-
-    for (let i = 0; i <= demoText.length; i++) {
-      if (!isRunning) break
-      await new Promise((resolve) => setTimeout(resolve, 30))
-      setOutputContent(demoText.slice(0, i))
-    }
-
-    setIsStreaming(false)
-    setIsRunning(false)
-    setCurrentNodeIndex(null)
+    cancelExecution()
+    setInitialInput('')
   }
 
   if (!currentWorkflow) {
@@ -322,7 +384,7 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
       <Header title={currentWorkflow.name}>
         {/* 执行控制按钮 */}
         <div className="flex items-center gap-2">
-          {!isRunning ? (
+          {!isExecuting ? (
             <Button size="sm" onClick={handleRun} disabled={nodes.length === 0}>
               <Play className="mr-2 h-4 w-4" />
               运行
@@ -431,16 +493,19 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
               >
                 <SortableContext items={nodes} strategy={verticalListSortingStrategy}>
                   <div className="space-y-3">
-                    {nodes.map((node, index) => (
-                      <SortableNodeCard
-                        key={node.id}
-                        node={node}
-                        isActive={selectedNode?.id === node.id}
-                        isRunning={isRunning && currentNodeIndex === index}
-                        onDelete={() => handleDeleteNode(node.id)}
-                        onEdit={() => handleEditNode(node)}
-                      />
-                    ))}
+                    {nodes.map((node, index) => {
+                      const nodeOutput = nodeOutputs.find(o => o.nodeId === node.id)
+                      return (
+                        <SortableNodeCard
+                          key={node.id}
+                          node={node}
+                          isActive={selectedNode?.id === node.id}
+                          isRunning={nodeOutput?.isRunning || (isExecuting && currentNodeIndex === index)}
+                          onDelete={() => handleDeleteNode(node.id)}
+                          onEdit={() => handleEditNode(node)}
+                        />
+                      )
+                    })}
                   </div>
                 </SortableContext>
               </DndContext>
@@ -452,23 +517,131 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
         <Separator orientation="vertical" />
         <div className="flex w-96 flex-col border-l">
           <div className="flex items-center justify-between border-b px-4 py-2">
-            <span className="text-sm font-medium">输出</span>
-            {isStreaming && (
+            <span className="text-sm font-medium">执行输出</span>
+            {/* 执行状态指示器 */}
+            {executionStatus === 'running' && (
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
-                生成中...
+                执行中...
+              </span>
+            )}
+            {executionStatus === 'paused' && (
+              <span className="flex items-center gap-1 text-xs text-yellow-500">
+                <Pause className="h-3 w-3" />
+                已暂停
+              </span>
+            )}
+            {executionStatus === 'completed' && (
+              <span className="flex items-center gap-1 text-xs text-green-500">
+                <CheckCircle2 className="h-3 w-3" />
+                完成
+              </span>
+            )}
+            {executionStatus === 'failed' && (
+              <span className="flex items-center gap-1 text-xs text-red-500">
+                <AlertCircle className="h-3 w-3" />
+                失败
+              </span>
+            )}
+            {executionStatus === 'timeout' && (
+              <span className="flex items-center gap-1 text-xs text-orange-500">
+                <Clock className="h-3 w-3" />
+                超时
               </span>
             )}
           </div>
-          <div className="flex-1 overflow-hidden">
-            <StreamingOutput
-              content={outputContent}
-              isStreaming={isStreaming}
-              className="h-full"
-            />
-          </div>
+          <ScrollArea className="flex-1">
+            <div className="space-y-4 p-4">
+              {/* 节点输出列表 */}
+              {nodeOutputs.map((output) => (
+                <NodeOutputPanel
+                  key={output.nodeId}
+                  nodeId={output.nodeId}
+                  nodeName={output.nodeName}
+                  nodeType={nodeTypeConfig[output.nodeType as NodeType]?.label || output.nodeType}
+                  output={output.output}
+                  isRunning={output.isRunning}
+                  isStreaming={output.isStreaming}
+                />
+              ))}
+              
+              {/* 最终输出 */}
+              {executionStatus === 'completed' && finalOutput && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="rounded-lg border-2 border-primary bg-card"
+                >
+                  <div className="flex items-center gap-2 border-b px-4 py-2">
+                    <div className="h-2 w-2 rounded-full bg-primary" />
+                    <span className="text-sm font-medium">最终输出</span>
+                  </div>
+                  <StreamingOutput content={finalOutput} className="max-h-[400px]" />
+                </motion.div>
+              )}
+
+              {/* 错误信息 */}
+              {executionError && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="rounded-lg border border-red-500 bg-red-50 p-4 dark:bg-red-950/20"
+                >
+                  <div className="flex items-center gap-2 text-red-500">
+                    <AlertCircle className="h-4 w-4" />
+                    <span className="font-medium">执行错误</span>
+                  </div>
+                  <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+                    {executionError}
+                  </p>
+                </motion.div>
+              )}
+
+              {/* 空状态 */}
+              {nodeOutputs.length === 0 && !executionError && (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <Play className="mb-4 h-12 w-12 text-muted-foreground/50" />
+                  <p className="text-sm text-muted-foreground">
+                    运行工作流后，输出将显示在这里
+                  </p>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
         </div>
       </div>
+
+      {/* 输入对话框 */}
+      {showInputDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-lg rounded-lg bg-background p-6 shadow-lg"
+          >
+            <h3 className="mb-4 text-lg font-semibold">输入内容</h3>
+            <Textarea
+              value={initialInput}
+              onChange={(e) => setInitialInput(e.target.value)}
+              placeholder="请输入要处理的内容..."
+              rows={6}
+              className="mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowInputDialog(false)}
+              >
+                取消
+              </Button>
+              <Button onClick={handleStartWithInput}>
+                <Play className="mr-2 h-4 w-4" />
+                开始执行
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* 节点配置抽屉 */}
       <NodeConfigDrawer

@@ -165,12 +165,14 @@ function createModel(
     case 'gemini': {
       const google = createGoogleGenerativeAI({
         apiKey: providerConfig.api_key,
+        baseURL: providerConfig.base_url || undefined,
       })
       return google(modelId)
     }
     case 'claude': {
       const anthropic = createAnthropic({
         apiKey: providerConfig.api_key,
+        baseURL: providerConfig.base_url || undefined,
       })
       return anthropic(modelId)
     }
