@@ -1,5 +1,7 @@
 // AI 对话节点配置表单
 
+import { useEffect } from 'react'
+import { Users, Globe, Palette, FileText, Check } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -13,14 +15,29 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
 import { Separator } from '@/components/ui/separator'
+import { Badge } from '@/components/ui/badge'
 import { getAvailableModels, getModelConfig, type ModelConfig } from '@/lib/ai'
-import type { AIChatConfig as AIChatConfigType, GlobalConfig, AIProvider } from '@/types'
+import { useSettingsStore } from '@/stores/settings-store'
+import type { AIChatConfig as AIChatConfigType, GlobalConfig, AIProvider, SettingCategory } from '@/types'
 
 interface AIChatConfigProps {
   config: Partial<AIChatConfigType>
   globalConfig: GlobalConfig | null
+  projectId?: string
   onChange: (config: Partial<AIChatConfigType>) => void
 }
+
+// 设定分类配置
+const SETTING_CATEGORIES: Array<{
+  key: SettingCategory
+  label: string
+  icon: React.ElementType
+}> = [
+  { key: 'character', label: '角色', icon: Users },
+  { key: 'worldview', label: '世界观', icon: Globe },
+  { key: 'style', label: '笔触风格', icon: Palette },
+  { key: 'outline', label: '大纲', icon: FileText },
+]
 
 // 默认配置
 const defaultConfig: AIChatConfigType = {
@@ -35,9 +52,19 @@ const defaultConfig: AIChatConfigType = {
   input_source: 'previous',
 }
 
-export function AIChatConfigForm({ config, globalConfig, onChange }: AIChatConfigProps) {
+export function AIChatConfigForm({ config, globalConfig, projectId, onChange }: AIChatConfigProps) {
   // 合并默认配置
   const currentConfig: AIChatConfigType = { ...defaultConfig, ...config }
+
+  // 获取设定库
+  const { settings, loadSettings, getSettingsByCategory } = useSettingsStore()
+
+  // 加载设定库
+  useEffect(() => {
+    if (projectId) {
+      loadSettings(projectId)
+    }
+  }, [projectId, loadSettings])
 
   // 获取可用模型列表
   const availableModels = globalConfig ? getAvailableModels(globalConfig) : []
@@ -271,6 +298,66 @@ export function AIChatConfigForm({ config, globalConfig, onChange }: AIChatConfi
       </div>
 
       <Separator />
+
+      {/* 设定引用 */}
+      {projectId && settings.length > 0 && (
+        <>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label className="text-base font-medium">设定引用</Label>
+              <p className="text-xs text-muted-foreground">
+                选择要注入到提示词中的设定
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {SETTING_CATEGORIES.map((category) => {
+                const categorySettings = getSettingsByCategory(category.key).filter(s => s.enabled)
+                if (categorySettings.length === 0) return null
+
+                return (
+                  <div key={category.key} className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                      <category.icon className="h-4 w-4" />
+                      <span>{category.label}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {categorySettings.map((setting) => {
+                        const isSelected = currentConfig.setting_ids?.includes(setting.id)
+                        return (
+                          <Badge
+                            key={setting.id}
+                            variant={isSelected ? 'default' : 'outline'}
+                            className="cursor-pointer transition-colors hover:bg-accent"
+                            onClick={() => {
+                              const currentIds = currentConfig.setting_ids || []
+                              const newIds = isSelected
+                                ? currentIds.filter((id) => id !== setting.id)
+                                : [...currentIds, setting.id]
+                              updateConfig({ setting_ids: newIds })
+                            }}
+                          >
+                            {isSelected && <Check className="mr-1 h-3 w-3" />}
+                            {setting.name}
+                          </Badge>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {currentConfig.setting_ids && currentConfig.setting_ids.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                已选择 {currentConfig.setting_ids.length} 个设定，将在执行时注入到提示词中
+              </p>
+            )}
+          </div>
+
+          <Separator />
+        </>
+      )}
 
       {/* 上下文设置 */}
       <div className="space-y-4">

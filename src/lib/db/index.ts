@@ -4,6 +4,7 @@ import type {
   Workflow,
   WorkflowNode,
   Setting,
+  SettingPrompt,
   GlobalConfig,
   Execution,
   NodeResult,
@@ -358,6 +359,97 @@ export async function updateSetting(
 export async function deleteSetting(id: string): Promise<void> {
   const db = await getDatabase()
   await db.execute('DELETE FROM settings WHERE id = ?', [id])
+}
+
+// ========== 设定注入提示词操作 ==========
+
+export async function getSettingPrompts(projectId: string): Promise<SettingPrompt[]> {
+  const db = await getDatabase()
+  const prompts = await db.select<Array<Omit<SettingPrompt, 'enabled'> & { enabled: number }>>(
+    'SELECT * FROM setting_prompts WHERE project_id = ? ORDER BY category',
+    [projectId]
+  )
+  return prompts.map((p) => ({ ...p, enabled: Boolean(p.enabled) }))
+}
+
+export async function getSettingPrompt(
+  projectId: string,
+  category: SettingPrompt['category']
+): Promise<SettingPrompt | null> {
+  const db = await getDatabase()
+  const results = await db.select<Array<Omit<SettingPrompt, 'enabled'> & { enabled: number }>>(
+    'SELECT * FROM setting_prompts WHERE project_id = ? AND category = ?',
+    [projectId, category]
+  )
+  if (!results[0]) return null
+  return { ...results[0], enabled: Boolean(results[0].enabled) }
+}
+
+export async function createSettingPrompt(
+  projectId: string,
+  category: SettingPrompt['category'],
+  promptTemplate: string
+): Promise<SettingPrompt> {
+  const db = await getDatabase()
+  const id = generateId()
+
+  await db.execute(
+    `INSERT INTO setting_prompts (id, project_id, category, prompt_template, enabled)
+     VALUES (?, ?, ?, ?, 1)`,
+    [id, projectId, category, promptTemplate]
+  )
+
+  return {
+    id,
+    project_id: projectId,
+    category,
+    prompt_template: promptTemplate,
+    enabled: true,
+  }
+}
+
+export async function updateSettingPrompt(
+  id: string,
+  data: Partial<Pick<SettingPrompt, 'prompt_template' | 'enabled'>>
+): Promise<void> {
+  const db = await getDatabase()
+  const updates: string[] = []
+  const values: (string | number)[] = []
+
+  if (data.prompt_template !== undefined) {
+    updates.push('prompt_template = ?')
+    values.push(data.prompt_template)
+  }
+  if (data.enabled !== undefined) {
+    updates.push('enabled = ?')
+    values.push(data.enabled ? 1 : 0)
+  }
+
+  if (updates.length > 0) {
+    values.push(id)
+    await db.execute(
+      `UPDATE setting_prompts SET ${updates.join(', ')} WHERE id = ?`,
+      values
+    )
+  }
+}
+
+export async function deleteSettingPrompt(id: string): Promise<void> {
+  const db = await getDatabase()
+  await db.execute('DELETE FROM setting_prompts WHERE id = ?', [id])
+}
+
+export async function upsertSettingPrompt(
+  projectId: string,
+  category: SettingPrompt['category'],
+  promptTemplate: string
+): Promise<SettingPrompt> {
+  const existing = await getSettingPrompt(projectId, category)
+  if (existing) {
+    await updateSettingPrompt(existing.id, { prompt_template: promptTemplate })
+    return { ...existing, prompt_template: promptTemplate }
+  }
+  return createSettingPrompt(projectId, category, promptTemplate)
 }
 
 // ========== 全局配置操作 ==========

@@ -14,6 +14,8 @@ import type {
   ConditionConfig,
   LoopConfig,
   ExecutionStatus,
+  Setting,
+  SettingPrompt,
 } from '@/types'
 import type { Message } from '@/lib/ai/types'
 import { chatStream } from '@/lib/ai'
@@ -66,6 +68,8 @@ export interface ExecutorOptions {
   nodes: WorkflowNode[]
   globalConfig: GlobalConfig
   initialInput?: string
+  settings?: Setting[]           // 项目设定
+  settingPrompts?: SettingPrompt[] // 设定注入提示词模板
   onEvent?: ExecutionEventListener
 }
 
@@ -80,6 +84,10 @@ export class WorkflowExecutor {
   private status: ExecutorStatus = 'idle'
   private currentNodeIndex: number = 0
   private onEvent?: ExecutionEventListener
+  
+  // 设定库
+  private settings: Setting[] = []
+  private settingPrompts: SettingPrompt[] = []
   
   // 暂停控制
   private pausePromise: Promise<void> | null = null
@@ -102,6 +110,8 @@ export class WorkflowExecutor {
     this.nodes = options.nodes
     this.globalConfig = options.globalConfig
     this.onEvent = options.onEvent
+    this.settings = options.settings || []
+    this.settingPrompts = options.settingPrompts || []
     this.context = new ExecutionContext({
       initialInput: options.initialInput,
       maxLoopCount: options.workflow.loop_max_count,
@@ -366,6 +376,86 @@ export class WorkflowExecutor {
   }
 
   /**
+   * 生成设定注入内容
+   */
+  private generateSettingsInjection(settingIds: string[]): string {
+    if (!settingIds || settingIds.length === 0) {
+      return ''
+    }
+
+    // 获取选中的设定，只选择启用的
+    const selectedSettings = this.settings.filter(
+      (s) => settingIds.includes(s.id) && s.enabled
+    )
+
+    if (selectedSettings.length === 0) {
+      return ''
+    }
+
+    // 按分类分组
+    const settingsByCategory: Record<string, Setting[]> = {}
+    selectedSettings.forEach((s) => {
+      if (!settingsByCategory[s.category]) {
+        settingsByCategory[s.category] = []
+      }
+      settingsByCategory[s.category].push(s)
+    })
+
+    // 分类名称映射
+    const categoryNames: Record<string, string> = {
+      character: '角色设定',
+      worldview: '世界观设定',
+      style: '笔触风格',
+      outline: '故事大纲',
+    }
+
+    // 默认模板
+    const defaultTemplates: Record<string, string> = {
+      character: '【角色设定】\n{{items}}',
+      worldview: '【世界观设定】\n{{items}}',
+      style: '【笔触风格】\n{{items}}',
+      outline: '【故事大纲】\n{{items}}',
+    }
+
+    // 生成各分类的注入内容
+    const parts: string[] = []
+
+    for (const [category, settings] of Object.entries(settingsByCategory)) {
+      // 查找该分类的自定义模板
+      const promptTemplate = this.settingPrompts.find(
+        (p) => p.category === category && p.enabled
+      )
+
+      let template = promptTemplate?.prompt_template || defaultTemplates[category]
+
+      // 生成设定项内容
+      const items = settings.map((s) => `${s.name}：${s.content}`).join('\n\n')
+
+      // 简单的模板替换（支持 {{items}} 和 {{#each items}}...{{/each}}）
+      if (template.includes('{{#each items}}')) {
+        // Handlebars 风格模板
+        const eachMatch = template.match(/\{\{#each items\}\}([\s\S]*?)\{\{\/each\}\}/)
+        if (eachMatch) {
+          const itemTemplate = eachMatch[1]
+          const renderedItems = settings.map((s) => {
+            return itemTemplate
+              .replace(/\{\{name\}\}/g, s.name)
+              .replace(/\{\{content\}\}/g, s.content)
+          }).join('')
+          template = template.replace(eachMatch[0], renderedItems)
+        }
+      } else {
+        // 简单替换
+        template = template.replace(/\{\{items\}\}/g, items)
+      }
+
+      parts.push(template)
+    }
+
+    return parts.join('\n\n')
+  }
+
+  /**
    * 执行 AI 对话节点
    */
   private async executeAIChatNode(node: WorkflowNode): Promise<string> {
@@ -384,7 +474,14 @@ export class WorkflowExecutor {
     this.context.updateNodeState(node.id, { input })
 
     // 构建提示词（变量插值）
-    const prompt = this.context.interpolate(config.prompt)
+    let prompt = this.context.interpolate(config.prompt)
+
+    // 注入设定
+    const settingsInjection = this.generateSettingsInjection(config.setting_ids || [])
+    if (settingsInjection) {
+      // 将设定注入到提示词开头
+      prompt = settingsInjection + '\n\n' + prompt
+    }
 
     // 构建消息列表
     const messages: Message[] = []

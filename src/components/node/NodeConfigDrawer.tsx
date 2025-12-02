@@ -29,6 +29,7 @@ import type {
 interface NodeConfigDrawerProps {
   node: WorkflowNode | null
   nodes?: WorkflowNode[]  // 所有节点，用于跳转目标选择
+  projectId?: string      // 项目 ID，用于加载设定库
   open: boolean
   onClose: () => void
   onSave: (node: WorkflowNode) => void
@@ -51,6 +52,7 @@ const nodeTypeLabels: Record<string, string> = {
 export function NodeConfigDrawer({
   node,
   nodes = [],
+  projectId,
   open,
   onClose,
   onSave,
@@ -119,6 +121,7 @@ export function NodeConfigDrawer({
           <AIChatConfigForm
             config={config as Partial<AIChatConfig>}
             globalConfig={globalConfig}
+            projectId={projectId}
             onChange={setConfig}
           />
         )

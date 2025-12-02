@@ -1,7 +1,7 @@
 // 执行状态管理
 
 import { create } from 'zustand'
-import type { WorkflowNode, Workflow, GlobalConfig } from '@/types'
+import type { WorkflowNode, Workflow, GlobalConfig, Setting, SettingPrompt } from '@/types'
 import {
   WorkflowExecutor,
   ExecutorStatus,
@@ -60,7 +60,9 @@ interface ExecutionState {
     workflow: Workflow,
     nodes: WorkflowNode[],
     globalConfig: GlobalConfig,
-    initialInput?: string
+    initialInput?: string,
+    settings?: Setting[],
+    settingPrompts?: SettingPrompt[]
   ) => Promise<void>
   pauseExecution: () => void
   resumeExecution: () => void
@@ -84,7 +86,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   elapsedSeconds: 0,
 
   // 开始执行
-  startExecution: async (workflow, nodes, globalConfig, initialInput) => {
+  startExecution: async (workflow, nodes, globalConfig, initialInput, settings, settingPrompts) => {
     const { executor: existingExecutor } = get()
     
     // 如果已有执行器在运行，先取消
@@ -115,6 +117,8 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       nodes,
       globalConfig,
       initialInput,
+      settings,
+      settingPrompts,
       onEvent: (event) => handleExecutionEvent(event, get, set),
     })
 

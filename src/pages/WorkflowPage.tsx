@@ -55,6 +55,7 @@ import { NodeConfigDrawer } from '@/components/node/NodeConfigDrawer'
 import { StreamingOutput, NodeOutputPanel } from '@/components/execution/StreamingOutput'
 import { useProjectStore } from '@/stores/project-store'
 import { useExecutionStore } from '@/stores/execution-store'
+import { useSettingsStore } from '@/stores/settings-store'
 import { getGlobalConfig } from '@/lib/db'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -192,7 +193,7 @@ function SortableNodeCard({
   )
 }
 
-export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _onNavigate }: WorkflowPageProps) {
+export function WorkflowPage({ projectId, workflowId, onNavigate: _onNavigate }: WorkflowPageProps) {
   const {
     currentWorkflow,
     nodes,
@@ -220,6 +221,9 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
     cancelExecution,
     reset: resetExecution,
   } = useExecutionStore()
+
+  // 设定库
+  const { settings, settingPrompts, loadSettings } = useSettingsStore()
 
   // 本地状态
   const [selectedNode, setSelectedNode] = useState<WorkflowNode | null>(null)
@@ -261,6 +265,11 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
       } catch (error) {
         console.error('加载全局配置失败:', error)
       }
+
+      // 加载项目设定
+      if (projectId) {
+        await loadSettings(projectId)
+      }
     }
 
     loadData()
@@ -269,7 +278,7 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
     return () => {
       resetExecution()
     }
-  }, [workflowId, setCurrentWorkflow, loadNodes, resetExecution])
+  }, [workflowId, projectId, setCurrentWorkflow, loadNodes, resetExecution, loadSettings])
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
@@ -338,7 +347,7 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
 
     // 开始执行
     try {
-      await startExecution(currentWorkflow!, nodes, globalConfig, initialInput)
+      await startExecution(currentWorkflow!, nodes, globalConfig, initialInput, settings, settingPrompts)
     } catch (error) {
       const message = error instanceof Error ? error.message : '执行失败'
       toast.error(message)
@@ -351,7 +360,7 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
     setShowInputDialog(false)
     
     try {
-      await startExecution(currentWorkflow, nodes, globalConfig, initialInput)
+      await startExecution(currentWorkflow, nodes, globalConfig, initialInput, settings, settingPrompts)
     } catch (error) {
       const message = error instanceof Error ? error.message : '执行失败'
       toast.error(message)
@@ -647,6 +656,7 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
       <NodeConfigDrawer
         node={selectedNode}
         nodes={nodes}
+        projectId={projectId}
         open={isConfigOpen}
         onClose={() => {
           setIsConfigOpen(false)

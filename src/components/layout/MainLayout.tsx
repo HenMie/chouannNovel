@@ -7,6 +7,7 @@ import { HomePage } from '@/pages/HomePage'
 import { ProjectPage } from '@/pages/ProjectPage'
 import { WorkflowPage } from '@/pages/WorkflowPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { SettingsLibraryPage } from '@/pages/SettingsLibraryPage'
 import { NewProjectPage } from '@/pages/NewProjectPage'
 import { NewWorkflowPage } from '@/pages/NewWorkflowPage'
 
@@ -35,6 +36,12 @@ export function MainLayout() {
     const newWorkflowMatch = currentPath.match(/^\/project\/([^/]+)\/workflow\/new$/)
     if (newWorkflowMatch) {
       return <NewWorkflowPage projectId={newWorkflowMatch[1]} onNavigate={navigate} />
+    }
+
+    // 匹配 /project/:id/settings (设定库)
+    const settingsLibraryMatch = currentPath.match(/^\/project\/([^/]+)\/settings$/)
+    if (settingsLibraryMatch) {
+      return <SettingsLibraryPage projectId={settingsLibraryMatch[1]} onNavigate={navigate} />
     }
 
     // 匹配 /project/:id/workflow/:wid

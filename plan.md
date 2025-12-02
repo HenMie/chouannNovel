@@ -235,11 +235,11 @@ CREATE TABLE node_results (
 - [x] 变量插值解析（`{{变量名}}`）
 - [x] 对话历史上下文
 
-### Phase 8: 设定库 (P1)
-- [ ] 设定库 CRUD
-- [ ] 设定分类管理
-- [ ] 注入提示词配置
-- [ ] AI 节点引用设定
+### Phase 8: 设定库 (P1) ✅
+- [x] 设定库 CRUD
+- [x] 设定分类管理
+- [x] 注入提示词配置
+- [x] AI 节点引用设定
 
 ### Phase 9: 历史与导出 (P2)
 - [ ] 执行历史记录
@@ -369,28 +369,30 @@ interface BatchConfig {
 
 ---
 
-## 设定库注入机制
+## 设定库注入机制 ✅
 
-每个设定分类可配置注入提示词模板：
+每个设定分类可配置注入提示词模板（支持 Handlebars 语法）：
 
-```
+```handlebars
 【角色设定】
-{{#each characters}}
-角色名：{{name}}
-{{content}}
+{{#each items}}
+{{name}}：{{content}}
 {{/each}}
-
-【世界观设定】
-{{worldview}}
-
-【笔触风格】
-{{style}}
-
-【大纲】
-{{outline}}
 ```
 
-AI节点执行时，根据引用的设定自动拼接到提示词中。
+**实现位置**：`src/lib/engine/executor.ts` 中的 `generateSettingsInjection()` 方法
+
+**注入流程**：
+1. AI 节点配置中通过 `setting_ids` 选择要引用的设定
+2. 执行时从 `settings` 和 `settingPrompts` 获取内容
+3. 按分类渲染模板，拼接到提示词开头
+4. 只注入 `enabled: true` 的设定
+
+**模板变量**：
+- `{{#each items}}...{{/each}}` - 遍历该分类下所有已启用设定
+- `{{name}}` - 设定名称
+- `{{content}}` - 设定内容
+- `{{items}}` - 简单替换为 `名称：内容` 格式的列表
 
 ---
 
@@ -435,13 +437,15 @@ src/
 │   ├── ProjectPage.tsx           # 项目详情页
 │   ├── WorkflowPage.tsx          # 工作流编辑页
 │   ├── SettingsPage.tsx          # 全局设置页
+│   ├── SettingsLibraryPage.tsx   # 设定库页面
 │   ├── NewProjectPage.tsx        # 新建项目页
 │   └── NewWorkflowPage.tsx       # 新建工作流页
 │
 ├── stores/                       # Zustand 状态管理
 │   ├── theme-store.ts            # 主题状态
 │   ├── project-store.ts          # 项目/工作流/节点状态
-│   └── execution-store.ts        # 执行状态管理
+│   ├── execution-store.ts        # 执行状态管理
+│   └── settings-store.ts         # 设定库状态管理
 │
 ├── types/
 │   └── index.ts                  # TypeScript 类型定义
@@ -514,6 +518,16 @@ updateNode(id, { name?, config? })               // 更新节点
 deleteNode(id)                                   // 删除节点
 reorderNodes(workflowId, nodeIds[])              // 重新排序节点
 
+// 设定库操作
+getSettings(projectId)                           // 获取项目所有设定
+createSetting(projectId, category, name, content) // 创建设定
+updateSetting(id, { name?, content?, enabled? }) // 更新设定
+deleteSetting(id)                                // 删除设定
+
+// 设定注入提示词
+getSettingPrompts(projectId)                     // 获取项目所有提示词模板
+upsertSettingPrompt(projectId, category, template) // 创建/更新提示词模板
+
 // 全局配置
 getGlobalConfig()                                // 获取全局配置
 updateGlobalConfig({ ai_providers?, theme?, ... }) // 更新全局配置
@@ -536,6 +550,22 @@ const { theme, setTheme } = useThemeStore()
 // theme: 'light' | 'dark' | 'system'
 ```
 
+**设定库状态 (`settings-store.ts`)**
+```typescript
+const {
+  settings,                     // 设定列表
+  settingPrompts,               // 设定注入提示词列表
+  loadSettings,                 // 加载项目设定
+  addSetting,                   // 添加设定
+  editSetting,                  // 编辑设定
+  removeSetting,                // 删除设定
+  toggleSetting,                // 切换设定启用状态
+  saveSettingPrompt,            // 保存注入提示词模板
+  getSettingsByCategory,        // 按分类获取设定
+  getEnabledSettings,           // 获取已启用设定
+} = useSettingsStore()
+```
+
 ### 4. 路由机制
 
 使用简易路由（在 `MainLayout.tsx` 中实现）：
@@ -545,6 +575,7 @@ const { theme, setTheme } = useThemeStore()
 '/settings'                            -> SettingsPage
 '/project/new'                         -> NewProjectPage
 '/project/:id'                         -> ProjectPage
+'/project/:id/settings'                -> SettingsLibraryPage  // 设定库
 '/project/:id/workflow/new'            -> NewWorkflowPage
 '/project/:id/workflow/:wid'           -> WorkflowPage
 
@@ -580,8 +611,8 @@ const {
   cancelExecution,     // 取消
 } = useExecutionStore()
 
-// 开始执行工作流
-await startExecution(workflow, nodes, globalConfig, initialInput)
+// 开始执行工作流（含设定注入）
+await startExecution(workflow, nodes, globalConfig, initialInput, settings, settingPrompts)
 ```
 
 **已支持的节点类型**：
@@ -614,6 +645,33 @@ type ExecutionEventType =
   | 'execution_completed' | 'execution_failed' | 'execution_cancelled' | 'execution_timeout'
   | 'node_started' | 'node_streaming' | 'node_completed' | 'node_failed' | 'node_skipped'
 ```
+
+### 7. 设定库 (`src/stores/settings-store.ts`)
+
+设定库用于管理小说创作的核心设定，支持 4 个分类：角色、世界观、笔触风格、大纲。
+
+**分类常量**：
+```typescript
+type SettingCategory = 'character' | 'worldview' | 'style' | 'outline'
+```
+
+**设定注入机制**：
+- 每个分类可配置注入提示词模板，支持 Handlebars 语法
+- AI 节点通过 `setting_ids` 引用设定
+- 执行时由 `executor.generateSettingsInjection()` 自动注入到提示词开头
+
+**默认注入模板示例**：
+```handlebars
+【角色设定】
+{{#each items}}
+{{name}}：{{content}}
+{{/each}}
+```
+
+**使用流程**：
+1. 进入项目 → 点击"设定库"按钮 → 管理设定
+2. 在 AI 节点配置中选择要引用的设定（Badge 多选）
+3. 执行工作流时设定自动注入
 
 ---
 
@@ -655,26 +713,20 @@ toast.error('操作失败')
 
 ## 待开发功能清单
 
-### 批量并发执行节点 (batch)
+### 批量并发执行节点 (batch) - Phase 5 遗留
 - [ ] `src/components/node/configs/BatchConfig.tsx` - 批量执行节点配置表单
 - [ ] `src/lib/engine/executor.ts` 中添加 `batch` 节点执行逻辑
 - [ ] 实现并发控制和输出汇总
 
-### 设定库 (Phase 8)
-- [ ] `src/pages/SettingsLibraryPage.tsx` - 设定库页面
-- [ ] `src/components/settings/` - 设定库相关组件
-- [ ] AI 节点配置表单中添加设定引用选择器
-- [ ] 设定注入机制实现
-
 ### 历史与导出 (Phase 9)
-- [ ] 执行历史记录保存到数据库
+- [ ] 执行历史记录保存到数据库（使用 `executions` 和 `node_results` 表）
 - [ ] 历史回溯查看页面
 - [ ] 导出 TXT/Markdown 功能
 
 ### 人工干预编辑器 (Phase 10)
-- [ ] UI 层人工干预编辑器组件（暂停时编辑节点输出）
+- [ ] UI 层人工干预编辑器组件（暂停时可编辑节点输出，底层 `executor.modifyNodeOutput` 已实现）
 
 ### 优化 (Phase 11)
-- [ ] 提示词编辑器（变量高亮）
+- [ ] 提示词编辑器（变量高亮，如 `{{变量名}}`）
 - [ ] 快捷键支持
 - [ ] 节点复制/粘贴
