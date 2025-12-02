@@ -17,9 +17,8 @@ export interface AIRequestOptions {
   model: string
   messages: Message[]
   temperature?: number
-  max_tokens?: number
-  top_p?: number
-  thinking_level?: 'low' | 'high'
+  maxTokens?: number
+  topP?: number
   stream?: boolean
 }
 
@@ -27,9 +26,9 @@ export interface AIRequestOptions {
 export interface AIResponse {
   content: string
   usage?: {
-    prompt_tokens: number
-    completion_tokens: number
-    total_tokens: number
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
   }
 }
 
@@ -39,18 +38,8 @@ export interface StreamChunk {
   done: boolean
 }
 
-// AI 服务接口
-export interface AIService {
-  chat(options: AIRequestOptions): Promise<AIResponse>
-  chatStream(
-    options: AIRequestOptions,
-    onChunk: (chunk: StreamChunk) => void
-  ): Promise<void>
-}
-
 // 提供商配置
 export interface ProviderSettings {
   apiKey: string
   baseUrl?: string
 }
-

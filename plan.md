@@ -16,6 +16,7 @@ ChouannNovel 是一个基于 Tauri 的桌面应用，用于辅助 AI 小说创�
 | 动画库 | Framer Motion |
 | 数据库 | SQLite (Tauri SQL插件) |
 | 样式 | Tailwind CSS |
+| AI SDK | Vercel AI SDK (ai, @ai-sdk/openai, @ai-sdk/google, @ai-sdk/anthropic) |
 
 ## 核心功能
 
@@ -193,54 +194,6 @@ CREATE TABLE node_results (
 
 ---
 
-## 目录结构
-
-```
-src/
-├── app/                          # 页面路由
-│   ├── layout.tsx
-│   ├── page.tsx                  # 首页/项目列表
-│   ├── settings/                 # 全局设置页
-│   └── project/
-│       └── [id]/
-│           ├── page.tsx          # 项目详情
-│           ├── settings/         # 设定库
-│           └── workflow/
-│               └── [wid]/
-│                   ├── page.tsx  # 工作流编辑
-│                   └── history/  # 执行历史
-│
-├── components/
-│   ├── ui/                       # shadcn 组件
-│   ├── layout/                   # 布局组件
-│   ├── project/                  # 项目相关组件
-│   ├── workflow/                 # 工作流相关组件
-│   ├── node/                     # 节点相关组件
-│   │   ├── NodeCard.tsx
-│   │   ├── NodeConfigDrawer.tsx
-│   │   └── configs/              # 各类型节点配置表单
-│   ├── execution/                # 执行相关组件
-│   └── settings/                 # 设定库组件
-│
-├── lib/
-│   ├── db/                       # 数据库操作
-│   ├── engine/                   # 执行引擎
-│   │   ├── executor.ts
-│   │   ├── context.ts
-│   │   └── nodes/                # 各节点执行逻辑
-│   ├── ai/                       # AI服务封装
-│   │   └── providers/
-│   └── utils/
-│
-├── stores/                       # Zustand 状态管理
-├── hooks/                        # 自定义 Hooks
-├── types/                        # TypeScript 类型
-└── styles/
-    └── globals.css
-```
-
----
-
 ## 开发计划
 
 ### Phase 1: 基础架构 (P0) ✅
@@ -411,29 +364,6 @@ AI节点执行时，根据引用的设定自动拼接到提示词中。
 
 ---
 
-## UI设计要点
-
-1. **布局**: 三栏式布局 - 左侧项目树、中间工作流编辑、底部输出面板
-2. **主题**: 支持浅色/深色/跟随系统，使用 CSS 变量实现
-3. **动画**: 使用 Framer Motion 实现流畅的过渡动画
-4. **响应式**: 支持窗口大小调整，面板可折叠
-5. **流式输出**: 打字机效果显示 AI 输出
-
----
-
-## E2E 测试要点
-
-- 项目 CRUD 操作
-- 工作流 CRUD 操作
-- 节点添加/编辑/删除/排序
-- 工作流执行（包含各类节点）
-- 执行控制（暂停/继续/终止）
-- 设定库管理
-- 导出功能
-- 主题切换
-
----
-
 ## 已实现项目结构
 
 ```
@@ -443,23 +373,21 @@ src/
 │   │   ├── Header.tsx            # 顶部导航栏（含主题切换）
 │   │   ├── MainLayout.tsx        # 主布局（含简易路由）
 │   │   └── Sidebar.tsx           # 侧边栏（项目树）
+│   ├── node/                     # 节点相关组件
+│   │   ├── NodeConfigDrawer.tsx  # 节点配置抽屉
+│   │   └── configs/
+│   │       └── AIChatConfig.tsx  # AI 对话节点配置表单
+│   ├── execution/                # 执行相关组件
+│   │   └── StreamingOutput.tsx   # 流式输出显示
 │   └── ui/                       # shadcn/ui 组件
-│       ├── button.tsx
-│       ├── card.tsx
-│       ├── dialog.tsx
-│       ├── dropdown-menu.tsx
-│       ├── input.tsx
-│       ├── label.tsx
-│       ├── scroll-area.tsx
-│       ├── select.tsx
-│       ├── separator.tsx
-│       ├── sheet.tsx
-│       ├── sonner.tsx            # Toast 通知
-│       ├── tabs.tsx
-│       ├── textarea.tsx
-│       └── tooltip.tsx
+│       ├── button.tsx, card.tsx, dialog.tsx, ...
+│       ├── slider.tsx, switch.tsx  # 新增
+│       └── ...
 │
 ├── lib/
+│   ├── ai/                       # AI 服务模块 (Vercel AI SDK)
+│   │   ├── index.ts              # 统一入口
+│   │   └── types.ts              # 类型定义
 │   ├── db/index.ts               # 数据库操作模块
 │   └── utils.ts                  # 工具函数 (cn)
 │
@@ -488,15 +416,49 @@ src/
 
 ## 关键模块说明
 
-### 1. 数据库操作 (`src/lib/db/index.ts`)
+### 1. AI 服务 (`src/lib/ai/`)
+
+使用 **Vercel AI SDK** 统一封装，支持 OpenAI、Gemini、Claude 三种提供商。
 
 ```typescript
-// 获取数据库连接（单例模式）
+import { chat, chatStream, getAvailableModels, getModelConfig } from '@/lib/ai'
+
+// 获取可用模型列表（根据全局配置）
+const models = getAvailableModels(globalConfig)
+
+// 非流式请求
+const response = await chat({
+  provider: 'openai',
+  model: 'gpt-4o',
+  messages: [{ role: 'user', content: 'Hello!' }],
+  temperature: 0.7,
+  maxTokens: 4096,
+}, globalConfig)
+
+// 流式请求
+await chatStream({
+  provider: 'claude',
+  model: 'claude-sonnet-4-20250514',
+  messages: [...],
+}, globalConfig, (chunk) => {
+  if (!chunk.done) {
+    console.log(chunk.content)  // 流式输出内容
+  }
+})
+```
+
+**支持的模型**：
+- OpenAI: `gpt-4o`, `gpt-4o-mini`, `o1`, `o1-mini`
+- Gemini: `gemini-2.0-flash-exp`, `gemini-2.5-pro-preview-06-05`, `gemini-1.5-pro`
+- Claude: `claude-sonnet-4-20250514`, `claude-3-5-haiku-20241022`, `claude-3-5-sonnet-20241022`
+
+### 2. 数据库操作 (`src/lib/db/index.ts`)
+
+```typescript
 import { getDatabase, generateId } from '@/lib/db'
 
 // 项目操作
 getProjects()                                    // 获取所有项目
-getProject(id)                                   // 获取单个项目
 createProject(name, description?)                // 创建项目
 updateProject(id, { name?, description? })       // 更新项目
 deleteProject(id)                                // 删除项目
@@ -504,7 +466,6 @@ deleteProject(id)                                // 删除项目
 // 工作流操作
 getWorkflows(projectId)                          // 获取项目下所有工作流
 createWorkflow(projectId, name, description?)    // 创建工作流
-updateWorkflow(id, { name?, description?, ... }) // 更新工作流
 deleteWorkflow(id)                               // 删除工作流
 
 // 节点操作
@@ -519,7 +480,16 @@ getGlobalConfig()                                // 获取全局配置
 updateGlobalConfig({ ai_providers?, theme?, ... }) // 更新全局配置
 ```
 
-### 2. 状态管理 (`src/stores/`)
+### 3. 状态管理 (`src/stores/`)
+
+**项目状态 (`project-store.ts`)**
+```typescript
+const {
+  projects, currentProject, workflows, currentWorkflow, nodes,
+  loadProjects, createProject, setCurrentProject,
+  loadNodes, createNode, updateNode, reorderNodes,
+} = useProjectStore()
+```
 
 **主题状态 (`theme-store.ts`)**
 ```typescript
@@ -527,33 +497,11 @@ const { theme, setTheme } = useThemeStore()
 // theme: 'light' | 'dark' | 'system'
 ```
 
-**项目状态 (`project-store.ts`)**
-```typescript
-const {
-  // 状态
-  projects,           // 项目列表
-  currentProject,     // 当前项目
-  workflows,          // 当前项目的工作流列表
-  currentWorkflow,    // 当前工作流
-  nodes,              // 当前工作流的节点列表
-  
-  // 操作
-  loadProjects,       // 加载项目列表
-  createProject,      // 创建项目
-  setCurrentProject,  // 设置当前项目
-  loadNodes,          // 加载节点
-  createNode,         // 创建节点
-  reorderNodes,       // 重新排序节点
-  // ...
-} = useProjectStore()
-```
+### 4. 路由机制
 
-### 3. 路由机制
-
-当前使用简易路由（在 `MainLayout.tsx` 中实现）：
+使用简易路由（在 `MainLayout.tsx` 中实现）：
 
 ```typescript
-// 路由格式
 '/'                                    -> HomePage
 '/settings'                            -> SettingsPage
 '/project/new'                         -> NewProjectPage
@@ -561,13 +509,12 @@ const {
 '/project/:id/workflow/new'            -> NewWorkflowPage
 '/project/:id/workflow/:wid'           -> WorkflowPage
 
-// 导航方法
-onNavigate('/project/xxx')             // 传递给各页面组件
+// 导航: onNavigate('/project/xxx')
 ```
 
-### 4. 节点拖拽排序
+### 5. 节点拖拽排序
 
-使用 `@dnd-kit` 实现，参考 `WorkflowPage.tsx`：
+使用 `@dnd-kit` 实现：
 
 ```typescript
 import { DndContext, closestCenter } from '@dnd-kit/core'
@@ -578,42 +525,34 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 
 ## 开发注意事项
 
-### 1. 数据库连接
-
+### 数据库连接
 - 数据库文件：`chouann_novel.db`（存储在 Tauri 应用数据目录）
 - 连接字符串：`sqlite:chouann_novel.db`
 - 迁移在 `src-tauri/src/lib.rs` 中定义
 
-### 2. 路径别名
-
+### 路径别名
 ```typescript
-// tsconfig.json 已配置
 import { something } from '@/lib/utils'  // -> src/lib/utils
 ```
 
-### 3. 添加 shadcn 组件
-
+### 添加 shadcn 组件
 ```bash
 npx shadcn@latest add <component-name>
 ```
 
-### 4. 类型定义
-
+### 类型定义
 所有类型定义在 `src/types/index.ts`，包括：
 - `Project`, `Workflow`, `WorkflowNode`
 - `NodeType`, `NodeConfig` 及各节点配置类型
 - `Setting`, `SettingPrompt`, `GlobalConfig`
 - `Execution`, `NodeResult`
 
-### 5. 主题切换
-
+### 主题切换
 主题通过在 `<html>` 元素上添加 `light` 或 `dark` class 实现，CSS 变量在 `src/index.css` 中定义。
 
-### 6. Toast 通知
-
+### Toast 通知
 ```typescript
 import { toast } from 'sonner'
-
 toast.success('操作成功')
 toast.error('操作失败')
 ```
@@ -621,16 +560,6 @@ toast.error('操作失败')
 ---
 
 ## 待开发功能清单
-
-### Phase 3: AI节点 ✅
-- [x] `src/lib/ai/providers/openai.ts` - OpenAI 服务封装
-- [x] `src/lib/ai/providers/gemini.ts` - Gemini 服务封装
-- [x] `src/lib/ai/providers/claude.ts` - Claude 服务封装
-- [x] `src/lib/ai/types.ts` - AI 类型定义
-- [x] `src/lib/ai/index.ts` - AI 服务统一入口
-- [x] `src/components/node/configs/AIChatConfig.tsx` - AI 节点配置表单
-- [x] `src/components/node/NodeConfigDrawer.tsx` - 节点配置抽屉
-- [x] `src/components/execution/StreamingOutput.tsx` - 流式输出组件
 
 ### Phase 4: 执行引擎
 - [ ] `src/lib/engine/executor.ts` - 执行引擎核心
@@ -644,4 +573,3 @@ toast.error('操作失败')
 ### Phase 8: 设定库
 - [ ] `src/pages/SettingsLibraryPage.tsx` - 设定库页面
 - [ ] `src/components/settings/` - 设定库相关组件
-
