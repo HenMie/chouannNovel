@@ -9,6 +9,10 @@ import type {
   OutputConfig,
   VarSetConfig,
   VarGetConfig,
+  TextExtractConfig,
+  TextConcatConfig,
+  ConditionConfig,
+  LoopConfig,
   ExecutionStatus,
 } from '@/types'
 import type { Message } from '@/lib/ai/types'
@@ -86,6 +90,12 @@ export class WorkflowExecutor {
   
   // 流式输出 AbortController
   private abortController: AbortController | null = null
+  
+  // 流程控制
+  private shouldEnd: boolean = false        // 是否结束工作流
+  private jumpTarget: string | null = null  // 跳转目标节点 ID
+  private loopStartNode: string | null = null  // 当前循环的起始节点 ID
+  private loopStartIndex: number = -1       // 当前循环的起始索引
 
   constructor(options: ExecutorOptions) {
     this.workflow = options.workflow
@@ -169,7 +179,33 @@ export class WorkflowExecutor {
         
         try {
           await this.executeNode(node)
-          this.currentNodeIndex++
+          
+          // 检查是否需要结束工作流
+          if (this.shouldEnd) {
+            this.status = 'completed'
+            this.emit({ type: 'execution_completed' })
+            break
+          }
+          
+          // 检查是否需要跳转
+          if (this.jumpTarget) {
+            const targetIndex = this.nodes.findIndex(n => n.id === this.jumpTarget)
+            if (targetIndex === -1) {
+              throw new Error(`跳转目标节点 ${this.jumpTarget} 不存在`)
+            }
+            this.currentNodeIndex = targetIndex
+            this.jumpTarget = null
+          } else {
+            // 正常前进到下一个节点
+            this.currentNodeIndex++
+            
+            // 检查是否是循环的最后一个节点（需要回到循环开始）
+            if (this.loopStartNode && this.currentNodeIndex >= this.nodes.length) {
+              // 回到循环节点检查条件
+              this.currentNodeIndex = this.loopStartIndex
+              this.loopStartNode = null
+            }
+          }
         } catch (error) {
           // 节点执行失败
           const errorMessage = error instanceof Error ? error.message : String(error)
@@ -259,6 +295,18 @@ export class WorkflowExecutor {
         break
       case 'var_get':
         output = await this.executeVarGetNode(node)
+        break
+      case 'text_extract':
+        output = await this.executeTextExtractNode(node)
+        break
+      case 'text_concat':
+        output = await this.executeTextConcatNode(node)
+        break
+      case 'condition':
+        output = await this.executeConditionNode(node)
+        break
+      case 'loop':
+        output = await this.executeLoopNode(node)
         break
       default:
         // 未实现的节点类型，跳过
@@ -441,6 +489,348 @@ export class WorkflowExecutor {
     }
     
     return value
+  }
+
+  /**
+   * 执行文本提取节点
+   */
+  private async executeTextExtractNode(node: WorkflowNode): Promise<string> {
+    const config = node.config as TextExtractConfig
+    
+    // 获取输入
+    let input: string
+    if (config.input_source === 'variable' && config.input_variable) {
+      input = this.context.getVariable(config.input_variable) ?? ''
+    } else {
+      input = this.context.getPreviousOutput()
+    }
+    
+    // 更新节点输入状态
+    this.context.updateNodeState(node.id, { input })
+    
+    let result: string = ''
+    
+    switch (config.extract_mode) {
+      case 'regex': {
+        if (!config.regex_pattern) {
+          throw new Error('正则表达式不能为空')
+        }
+        try {
+          const regex = new RegExp(config.regex_pattern, 'g')
+          const matches: string[] = []
+          let match
+          
+          while ((match = regex.exec(input)) !== null) {
+            // 如果有捕获组，使用捕获组的内容
+            if (match.length > 1) {
+              const groups = match.slice(1).filter(g => g !== undefined)
+              matches.push(groups.join('\n'))
+            } else {
+              matches.push(match[0])
+            }
+          }
+          
+          result = matches.join('\n')
+        } catch (e) {
+          throw new Error(`正则表达式无效: ${e instanceof Error ? e.message : String(e)}`)
+        }
+        break
+      }
+      
+      case 'start_end': {
+        if (!config.start_marker || !config.end_marker) {
+          throw new Error('起始标记和结束标记不能为空')
+        }
+        
+        const startIndex = input.indexOf(config.start_marker)
+        if (startIndex === -1) {
+          result = ''
+          break
+        }
+        
+        const contentStart = startIndex + config.start_marker.length
+        const endIndex = input.indexOf(config.end_marker, contentStart)
+        
+        if (endIndex === -1) {
+          // 如果没有结束标记，提取到末尾
+          result = input.slice(contentStart)
+        } else {
+          result = input.slice(contentStart, endIndex)
+        }
+        break
+      }
+      
+      case 'json_path': {
+        if (!config.json_path) {
+          throw new Error('JSON 路径不能为空')
+        }
+        
+        try {
+          const json = JSON.parse(input)
+          const value = this.getJsonPathValue(json, config.json_path)
+          
+          if (value === undefined) {
+            result = ''
+          } else if (typeof value === 'string') {
+            result = value
+          } else {
+            result = JSON.stringify(value)
+          }
+        } catch (e) {
+          throw new Error(`JSON 解析失败: ${e instanceof Error ? e.message : String(e)}`)
+        }
+        break
+      }
+      
+      default:
+        throw new Error(`不支持的提取模式: ${config.extract_mode}`)
+    }
+    
+    return result.trim()
+  }
+
+  /**
+   * 根据 JSON 路径获取值
+   */
+  private getJsonPathValue(obj: unknown, path: string): unknown {
+    const parts = path.split(/\.|\[|\]/).filter(p => p !== '')
+    let current: unknown = obj
+    
+    for (const part of parts) {
+      if (current === null || current === undefined) {
+        return undefined
+      }
+      
+      if (typeof current === 'object') {
+        // 尝试作为数组索引解析
+        const index = parseInt(part, 10)
+        if (!isNaN(index) && Array.isArray(current)) {
+          current = current[index]
+        } else {
+          current = (current as Record<string, unknown>)[part]
+        }
+      } else {
+        return undefined
+      }
+    }
+    
+    return current
+  }
+
+  /**
+   * 执行文本拼接节点
+   */
+  private async executeTextConcatNode(node: WorkflowNode): Promise<string> {
+    const config = node.config as TextConcatConfig
+    
+    const parts: string[] = []
+    
+    for (const source of config.sources || []) {
+      let value: string = ''
+      
+      switch (source.type) {
+        case 'previous':
+          value = this.context.getPreviousOutput()
+          break
+        case 'variable':
+          value = source.variable 
+            ? (this.context.getVariable(source.variable) ?? '')
+            : ''
+          break
+        case 'custom':
+          value = source.custom 
+            ? this.context.interpolate(source.custom)
+            : ''
+          break
+      }
+      
+      parts.push(value)
+    }
+    
+    const separator = config.separator ?? '\n'
+    return parts.join(separator)
+  }
+
+  /**
+   * 执行条件判断节点
+   */
+  private async executeConditionNode(node: WorkflowNode): Promise<string> {
+    const config = node.config as ConditionConfig
+    
+    // 获取输入
+    let input: string
+    if (config.input_source === 'variable' && config.input_variable) {
+      input = this.context.getVariable(config.input_variable) ?? ''
+    } else {
+      input = this.context.getPreviousOutput()
+    }
+    
+    // 更新节点输入状态
+    this.context.updateNodeState(node.id, { input })
+    
+    // 执行条件判断
+    const result = await this.evaluateCondition(config, input)
+    
+    // 保存判断结果到变量，方便后续使用
+    this.context.setVariable(`_condition_${node.id}`, result ? 'true' : 'false')
+    
+    // 获取要执行的动作
+    const action = result ? config.true_action : config.false_action
+    const target = result ? config.true_target : config.false_target
+    
+    // 根据动作决定下一步
+    if (action === 'end') {
+      // 结束工作流
+      this.shouldEnd = true
+    } else if (action === 'jump' && target) {
+      // 跳转到指定节点
+      this.jumpTarget = target
+    }
+    // action === 'next' 时不需要特殊处理，继续执行下一个节点
+    
+    return result ? 'true' : 'false'
+  }
+
+  /**
+   * 评估条件
+   */
+  private async evaluateCondition(config: ConditionConfig, input: string): Promise<boolean> {
+    switch (config.condition_type) {
+      case 'keyword': {
+        const keywords = config.keywords || []
+        if (keywords.length === 0) return true
+        
+        switch (config.keyword_mode) {
+          case 'any':
+            return keywords.some(k => input.includes(k))
+          case 'all':
+            return keywords.every(k => input.includes(k))
+          case 'none':
+            return keywords.every(k => !input.includes(k))
+          default:
+            return false
+        }
+      }
+      
+      case 'length': {
+        const length = input.length
+        const value = config.length_value || 0
+        
+        switch (config.length_operator) {
+          case '>': return length > value
+          case '<': return length < value
+          case '=': return length === value
+          case '>=': return length >= value
+          case '<=': return length <= value
+          default: return false
+        }
+      }
+      
+      case 'regex': {
+        if (!config.regex_pattern) return false
+        try {
+          const regex = new RegExp(config.regex_pattern)
+          return regex.test(input)
+        } catch {
+          return false
+        }
+      }
+      
+      case 'ai_judge': {
+        // AI 智能判断
+        if (!config.ai_provider || !config.ai_model || !config.ai_prompt) {
+          throw new Error('AI 判断缺少必要配置')
+        }
+        
+        const providerConfig = this.globalConfig.ai_providers[config.ai_provider as 'openai' | 'gemini' | 'claude']
+        if (!providerConfig?.enabled || !providerConfig.api_key) {
+          throw new Error(`AI 提供商 ${config.ai_provider} 未配置或未启用`)
+        }
+        
+        // 构建判断提示词
+        const prompt = `${config.ai_prompt}
+
+请根据以上要求判断以下内容，只需要回复 true 或 false：
+
+${input}`
+
+        let response = ''
+        await chatStream(
+          {
+            provider: config.ai_provider as 'openai' | 'gemini' | 'claude',
+            model: config.ai_model,
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0,
+            maxTokens: 10,
+          },
+          this.globalConfig,
+          (chunk) => {
+            if (!chunk.done) {
+              response += chunk.content
+            }
+          }
+        )
+        
+        // 解析 AI 回复
+        const lowerResponse = response.toLowerCase().trim()
+        return lowerResponse.includes('true') && !lowerResponse.includes('false')
+      }
+      
+      default:
+        return false
+    }
+  }
+
+  /**
+   * 执行循环节点
+   */
+  private async executeLoopNode(node: WorkflowNode): Promise<string> {
+    const config = node.config as LoopConfig
+    
+    // 获取当前循环次数
+    const loopCount = this.context.getLoopCount(node.id)
+    
+    // 检查是否达到最大迭代次数
+    if (loopCount >= config.max_iterations) {
+      this.context.resetLoopCount(node.id)
+      return `循环结束（已达到最大迭代次数 ${config.max_iterations}）`
+    }
+    
+    // 判断是否继续循环
+    let shouldContinue = false
+    
+    if (config.condition_type === 'count') {
+      // 固定次数循环，只要没到最大次数就继续
+      shouldContinue = loopCount < config.max_iterations
+    } else if (config.condition && loopCount > 0) {
+      // 条件循环，第一次无条件执行，之后根据条件判断
+      let input: string
+      if (config.condition.input_source === 'variable' && config.condition.input_variable) {
+        input = this.context.getVariable(config.condition.input_variable) ?? ''
+      } else {
+        input = this.context.getPreviousOutput()
+      }
+      
+      shouldContinue = await this.evaluateCondition(config.condition, input)
+    } else {
+      // 第一次执行
+      shouldContinue = true
+    }
+    
+    if (shouldContinue) {
+      // 增加循环计数
+      this.context.incrementLoopCount(node.id)
+      
+      // 设置循环开始位置（用于循环结束后回跳）
+      this.loopStartNode = node.id
+      this.loopStartIndex = this.currentNodeIndex
+      
+      return `开始第 ${loopCount + 1} 次循环`
+    } else {
+      // 循环结束
+      this.context.resetLoopCount(node.id)
+      return `循环结束（条件不满足，共执行 ${loopCount} 次）`
+    }
   }
 
   /**

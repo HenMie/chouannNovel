@@ -221,19 +221,19 @@ CREATE TABLE node_results (
 - [x] 执行状态管理
 - [x] 暂停/继续/终止
 
-### Phase 5: 流程控制节点 (P1)
-- [ ] 条件判断节点
-- [ ] 循环节点
+### Phase 5: 流程控制节点 (P1) ✅
+- [x] 条件判断节点
+- [x] 循环节点
 - [ ] 批量并发执行节点
 
-### Phase 6: 文本处理节点 (P1)
-- [ ] 内容提取节点
-- [ ] 文本拼接节点
+### Phase 6: 文本处理节点 (P1) ✅
+- [x] 内容提取节点
+- [x] 文本拼接节点
 
-### Phase 7: 变量系统 (P1)
-- [ ] 变量设置/读取节点
-- [ ] 变量插值解析
-- [ ] 对话历史上下文
+### Phase 7: 变量系统 (P1) ✅
+- [x] 变量设置/读取节点执行逻辑
+- [x] 变量插值解析（`{{变量名}}`）
+- [x] 对话历史上下文
 
 ### Phase 8: 设定库 (P1)
 - [ ] 设定库 CRUD
@@ -247,8 +247,8 @@ CREATE TABLE node_results (
 - [ ] 导出 TXT/Markdown
 
 ### Phase 10: 人工干预 (P2)
-- [ ] 暂停时编辑节点输出
-- [ ] 修改后继续执行
+- [x] 暂停时编辑节点输出（executor.modifyNodeOutput 已实现）
+- [ ] UI 层人工干预编辑器组件
 
 ### Phase 11: 优化 (P3)
 - [ ] 提示词编辑器（变量高亮）
@@ -287,7 +287,7 @@ interface AIChatConfig {
 }
 ```
 
-### 条件判断节点 (condition)
+### 条件判断节点 (condition) ✅
 ```typescript
 interface ConditionConfig {
   input_source: 'previous' | 'variable';
@@ -295,15 +295,18 @@ interface ConditionConfig {
   
   condition_type: 'keyword' | 'length' | 'regex' | 'ai_judge';
   
-  // 各类型配置...
+  // 关键词匹配
   keywords?: string[];
   keyword_mode?: 'any' | 'all' | 'none';
   
+  // 长度判断
   length_operator?: '>' | '<' | '=' | '>=' | '<=';
   length_value?: number;
   
+  // 正则匹配
   regex_pattern?: string;
   
+  // AI 智能判断
   ai_prompt?: string;
   ai_provider?: string;
   ai_model?: string;
@@ -316,22 +319,49 @@ interface ConditionConfig {
 }
 ```
 
-### 批量并发执行节点 (batch)
+### 文本提取节点 (text_extract) ✅
+```typescript
+interface TextExtractConfig {
+  input_source: 'previous' | 'variable';
+  input_variable?: string;
+  extract_mode: 'regex' | 'start_end' | 'json_path';
+  regex_pattern?: string;    // 正则模式：支持捕获组
+  start_marker?: string;     // 起止模式：起始标记
+  end_marker?: string;       // 起止模式：结束标记
+  json_path?: string;        // JSON路径：如 data.items[0].title
+}
+```
+
+### 文本拼接节点 (text_concat) ✅
+```typescript
+interface TextConcatConfig {
+  sources: Array<{
+    type: 'previous' | 'variable' | 'custom';
+    variable?: string;
+    custom?: string;         // 支持 {{变量}} 插值
+  }>;
+  separator: string;         // 拼接分隔符
+}
+```
+
+### 循环节点 (loop) ✅
+```typescript
+interface LoopConfig {
+  max_iterations: number;              // 最大迭代次数
+  condition_type: 'count' | 'condition';
+  condition?: ConditionConfig;         // 条件循环时的判断配置
+}
+```
+
+### 批量并发执行节点 (batch) - 待实现
 ```typescript
 interface BatchConfig {
-  // 输入：将输入拆分为多个任务
   input_source: 'previous' | 'variable';
   input_variable?: string;
   split_mode: 'line' | 'separator' | 'json_array';
   separator?: string;
-  
-  // 要并发执行的节点
-  target_nodes: string[];            // 节点ID列表
-  
-  // 并发控制
-  concurrency: number;               // 最大并发数
-  
-  // 输出汇总
+  target_nodes: string[];              // 节点ID列表
+  concurrency: number;                 // 最大并发数
   output_mode: 'array' | 'concat';
   output_separator?: string;
 }
@@ -374,9 +404,13 @@ src/
 │   │   ├── MainLayout.tsx        # 主布局（含简易路由）
 │   │   └── Sidebar.tsx           # 侧边栏（项目树）
 │   ├── node/                     # 节点相关组件
-│   │   ├── NodeConfigDrawer.tsx  # 节点配置抽屉
+│   │   ├── NodeConfigDrawer.tsx  # 节点配置抽屉（接收 nodes 用于跳转选择）
 │   │   └── configs/
-│   │       └── AIChatConfig.tsx  # AI 对话节点配置表单
+│   │       ├── AIChatConfig.tsx      # AI 对话节点配置
+│   │       ├── TextExtractConfig.tsx # 文本提取节点配置
+│   │       ├── TextConcatConfig.tsx  # 文本拼接节点配置
+│   │       ├── ConditionConfig.tsx   # 条件判断节点配置
+│   │       └── LoopConfig.tsx        # 循环节点配置
 │   ├── execution/                # 执行相关组件
 │   │   └── StreamingOutput.tsx   # 流式输出显示
 │   └── ui/                       # shadcn/ui 组件
@@ -526,6 +560,61 @@ import { DndContext, closestCenter } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 ```
 
+### 6. 执行引擎 (`src/lib/engine/`)
+
+工作流执行引擎，支持顺序执行节点、暂停/继续/取消、流式输出。
+
+```typescript
+import { WorkflowExecutor, ExecutionContext } from '@/lib/engine'
+import { useExecutionStore } from '@/stores/execution-store'
+
+// 使用执行状态 Store
+const {
+  status,              // 'idle' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'timeout'
+  nodeOutputs,         // 各节点输出列表
+  finalOutput,         // 最终输出
+  streamingContent,    // 当前流式内容
+  startExecution,      // 开始执行
+  pauseExecution,      // 暂停
+  resumeExecution,     // 继续
+  cancelExecution,     // 取消
+} = useExecutionStore()
+
+// 开始执行工作流
+await startExecution(workflow, nodes, globalConfig, initialInput)
+```
+
+**已支持的节点类型**：
+- `input` - 输入节点（获取初始输入或默认值）
+- `output` - 输出节点（返回上一节点输出）
+- `ai_chat` - AI 对话节点（流式输出）
+- `var_set` - 变量设置节点
+- `var_get` - 变量读取节点
+- `text_extract` - 文本提取节点（正则/起止标记/JSON路径）
+- `text_concat` - 文本拼接节点（多来源拼接，支持变量插值）
+- `condition` - 条件判断节点（关键词/长度/正则/AI判断，支持跳转/结束）
+- `loop` - 循环节点（固定次数/条件循环）
+
+**执行上下文功能**：
+- 变量存储：`ctx.setVariable(name, value)` / `ctx.getVariable(name)`
+- 变量插值：`ctx.interpolate('{{变量名}}')`，支持 `{{input}}`、`{{previous}}`
+- 对话历史：`ctx.addToHistory(nodeId, message)` / `ctx.getHistory(nodeId, limit)`
+- 循环控制：`ctx.incrementLoopCount(nodeId)` / `ctx.isLoopLimitReached(nodeId)`
+- 超时检查：`ctx.isTimeout()`
+
+**流程控制机制**：
+- `shouldEnd` - 条件节点可触发工作流结束
+- `jumpTarget` - 条件节点可跳转到指定节点
+- `loopStartNode/loopStartIndex` - 循环节点控制流程回跳
+
+**执行事件类型**：
+```typescript
+type ExecutionEventType =
+  | 'execution_started' | 'execution_paused' | 'execution_resumed'
+  | 'execution_completed' | 'execution_failed' | 'execution_cancelled' | 'execution_timeout'
+  | 'node_started' | 'node_streaming' | 'node_completed' | 'node_failed' | 'node_skipped'
+```
+
 ---
 
 ## 开发注意事项
@@ -566,17 +655,26 @@ toast.error('操作失败')
 
 ## 待开发功能清单
 
-### Phase 4: 执行引擎 ✅
-- [x] `src/lib/engine/executor.ts` - 执行引擎核心
-- [x] `src/lib/engine/context.ts` - 执行上下文
-- [x] `src/lib/engine/index.ts` - 模块入口
-- [x] `src/stores/execution-store.ts` - 执行状态管理
-- [x] 暂停/继续/终止控制逻辑
-- [x] 工作流页面集成执行引擎
+### 批量并发执行节点 (batch)
+- [ ] `src/components/node/configs/BatchConfig.tsx` - 批量执行节点配置表单
+- [ ] `src/lib/engine/executor.ts` 中添加 `batch` 节点执行逻辑
+- [ ] 实现并发控制和输出汇总
 
-### Phase 7: 变量系统
-- [ ] `src/lib/utils/interpolate.ts` - 变量插值解析（`{{变量名}}`）
-
-### Phase 8: 设定库
+### 设定库 (Phase 8)
 - [ ] `src/pages/SettingsLibraryPage.tsx` - 设定库页面
 - [ ] `src/components/settings/` - 设定库相关组件
+- [ ] AI 节点配置表单中添加设定引用选择器
+- [ ] 设定注入机制实现
+
+### 历史与导出 (Phase 9)
+- [ ] 执行历史记录保存到数据库
+- [ ] 历史回溯查看页面
+- [ ] 导出 TXT/Markdown 功能
+
+### 人工干预编辑器 (Phase 10)
+- [ ] UI 层人工干预编辑器组件（暂停时编辑节点输出）
+
+### 优化 (Phase 11)
+- [ ] 提示词编辑器（变量高亮）
+- [ ] 快捷键支持
+- [ ] 节点复制/粘贴

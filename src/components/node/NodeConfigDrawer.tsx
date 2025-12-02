@@ -9,12 +9,26 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { AIChatConfigForm } from './configs/AIChatConfig'
+import { TextExtractConfigForm } from './configs/TextExtractConfig'
+import { TextConcatConfigForm } from './configs/TextConcatConfig'
+import { ConditionConfigForm } from './configs/ConditionConfig'
+import { LoopConfigForm } from './configs/LoopConfig'
 import { toast } from 'sonner'
 import * as db from '@/lib/db'
-import type { WorkflowNode, NodeConfig, GlobalConfig, AIChatConfig } from '@/types'
+import type { 
+  WorkflowNode, 
+  NodeConfig, 
+  GlobalConfig, 
+  AIChatConfig,
+  TextExtractConfig,
+  TextConcatConfig,
+  ConditionConfig,
+  LoopConfig,
+} from '@/types'
 
 interface NodeConfigDrawerProps {
   node: WorkflowNode | null
+  nodes?: WorkflowNode[]  // 所有节点，用于跳转目标选择
   open: boolean
   onClose: () => void
   onSave: (node: WorkflowNode) => void
@@ -36,6 +50,7 @@ const nodeTypeLabels: Record<string, string> = {
 
 export function NodeConfigDrawer({
   node,
+  nodes = [],
   open,
   onClose,
   onSave,
@@ -213,6 +228,44 @@ export function NodeConfigDrawer({
               />
             </div>
           </div>
+        )
+
+      case 'text_extract':
+        return (
+          <TextExtractConfigForm
+            config={config as Partial<TextExtractConfig>}
+            onChange={setConfig}
+          />
+        )
+
+      case 'text_concat':
+        return (
+          <TextConcatConfigForm
+            config={config as Partial<TextConcatConfig>}
+            onChange={setConfig}
+          />
+        )
+
+      case 'condition':
+        return (
+          <ConditionConfigForm
+            config={config as Partial<ConditionConfig>}
+            globalConfig={globalConfig}
+            nodes={nodes}
+            currentNodeId={node.id}
+            onChange={setConfig}
+          />
+        )
+
+      case 'loop':
+        return (
+          <LoopConfigForm
+            config={config as Partial<LoopConfig>}
+            globalConfig={globalConfig}
+            nodes={nodes}
+            currentNodeId={node.id}
+            onChange={setConfig}
+          />
         )
 
       // 其他节点类型的配置表单将在后续阶段实现

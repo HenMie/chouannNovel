@@ -646,6 +646,7 @@ export function WorkflowPage({ projectId: _projectId, workflowId, onNavigate: _o
       {/* 节点配置抽屉 */}
       <NodeConfigDrawer
         node={selectedNode}
+        nodes={nodes}
         open={isConfigOpen}
         onClose={() => {
           setIsConfigOpen(false)
