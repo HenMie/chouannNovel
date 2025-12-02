@@ -21,24 +21,28 @@ const aiProviders: Array<{
   name: string
   description: string
   models: string[]
+  defaultBaseUrl: string
 }> = [
   {
     id: 'openai',
     name: 'OpenAI',
     description: 'GPT-4o、GPT-4o-mini、o1 等模型',
     models: ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini'],
+    defaultBaseUrl: 'https://api.openai.com/v1',
   },
   {
     id: 'gemini',
     name: 'Google Gemini',
     description: 'Gemini 2.0 Flash、Gemini 2.5 Pro 等模型',
     models: ['gemini-2.0-flash-exp', 'gemini-2.5-pro', 'gemini-1.5-pro'],
+    defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
   },
   {
     id: 'claude',
     name: 'Anthropic Claude',
     description: 'Claude Sonnet、Claude Haiku 等模型',
     models: ['claude-sonnet-4-20250514', 'claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022'],
+    defaultBaseUrl: 'https://api.anthropic.com',
   },
 ]
 
@@ -218,24 +222,22 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                             </div>
                           </div>
 
-                          {provider.id === 'openai' && (
-                            <div className="space-y-2">
-                              <Label htmlFor={`${provider.id}-base-url`}>
-                                Base URL（可选）
-                              </Label>
-                              <Input
-                                id={`${provider.id}-base-url`}
-                                placeholder="https://api.openai.com/v1"
-                                value={config?.ai_providers[provider.id]?.base_url || ''}
-                                onChange={(e) =>
-                                  updateProviderConfig(provider.id, 'base_url', e.target.value)
-                                }
-                              />
-                              <p className="text-xs text-muted-foreground">
-                                留空使用默认地址，可填写代理或兼容 API 地址
-                              </p>
-                            </div>
-                          )}
+                          <div className="space-y-2">
+                            <Label htmlFor={`${provider.id}-base-url`}>
+                              Base URL（可选）
+                            </Label>
+                            <Input
+                              id={`${provider.id}-base-url`}
+                              placeholder={provider.defaultBaseUrl}
+                              value={config?.ai_providers[provider.id]?.base_url || ''}
+                              onChange={(e) =>
+                                updateProviderConfig(provider.id, 'base_url', e.target.value)
+                              }
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              留空使用默认地址，可填写代理或兼容 API 地址
+                            </p>
+                          </div>
 
                           <div className="flex flex-wrap gap-2">
                             <span className="text-xs text-muted-foreground">支持的模型：</span>
