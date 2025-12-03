@@ -125,6 +125,16 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
+        // 迁移 3: 添加节点执行配置详情
+        Migration {
+            version: 3,
+            description: "add_resolved_config_to_node_results",
+            sql: r#"
+                -- 添加解析后的配置字段到节点结果表（用于存储执行时的实际配置）
+                ALTER TABLE node_results ADD COLUMN resolved_config TEXT;
+            "#,
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

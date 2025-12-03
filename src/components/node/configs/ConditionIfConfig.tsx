@@ -2,6 +2,7 @@
 
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { VariableSelect } from '@/components/ui/variable-select'
 import {
   Select,
   SelectContent,
@@ -15,20 +16,21 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { HelpCircle } from 'lucide-react'
-import type { ConditionIfConfig, GlobalConfig } from '@/types'
+import type { ConditionIfConfig, WorkflowNode } from '@/types'
 
 interface ConditionIfConfigFormProps {
   config: Partial<ConditionIfConfig>
-  globalConfig: GlobalConfig | null
   onChange: (config: Partial<ConditionIfConfig>) => void
+  nodes?: WorkflowNode[]
+  currentNodeId?: string
 }
 
 export function ConditionIfConfigForm({
   config,
-  globalConfig,
   onChange,
+  nodes = [],
+  currentNodeId,
 }: ConditionIfConfigFormProps) {
-  const inputSource = config.input_source || 'previous'
   const conditionType = config.condition_type || 'keyword'
 
   return (
@@ -36,46 +38,26 @@ export function ConditionIfConfigForm({
       {/* 输入来源 */}
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <Label>条件输入来源</Label>
+          <Label htmlFor="input_variable">条件输入变量</Label>
           <Tooltip>
             <TooltipTrigger>
               <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
             </TooltipTrigger>
             <TooltipContent>
-              选择用于判断条件的输入数据来源
+              选择用于判断条件的变量
             </TooltipContent>
           </Tooltip>
         </div>
-        <Select
-          value={inputSource}
-          onValueChange={(value: 'previous' | 'variable') =>
-            onChange({ ...config, input_source: value })
+        <VariableSelect
+          placeholder="选择引用变量"
+          value={config.input_variable || ''}
+          onChange={(value) =>
+            onChange({ ...config, input_variable: value })
           }
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="选择输入来源" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="previous">上一节点输出</SelectItem>
-            <SelectItem value="variable">指定变量</SelectItem>
-          </SelectContent>
-        </Select>
+          nodes={nodes}
+          currentNodeId={currentNodeId}
+        />
       </div>
-
-      {/* 变量名输入 */}
-      {inputSource === 'variable' && (
-        <div className="space-y-2">
-          <Label htmlFor="input_variable">变量名</Label>
-          <Input
-            id="input_variable"
-            placeholder="输入变量名（如：用户问题）"
-            value={config.input_variable || ''}
-            onChange={(e) =>
-              onChange({ ...config, input_variable: e.target.value })
-            }
-          />
-        </div>
-      )}
 
       {/* 条件类型 */}
       <div className="space-y-2">

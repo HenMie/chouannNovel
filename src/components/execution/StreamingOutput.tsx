@@ -1,14 +1,15 @@
 // 流式输出显示组件
 
 import { useEffect, useRef, useState, lazy, Suspense } from 'react'
-import { motion } from 'framer-motion'
-import { Copy, Check, Edit2, Save, X } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Copy, Check, Edit2, Save, X, ChevronDown, ChevronRight, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import type { ResolvedNodeConfig } from '@/lib/engine'
 
 const MarkdownRenderer = lazy(() => import('@/components/ui/markdown-renderer'))
 
@@ -106,6 +107,7 @@ interface NodeOutputPanelProps {
   isStreaming?: boolean
   canEdit?: boolean       // 是否可以编辑（暂停状态）
   onEdit?: (nodeId: string, newOutput: string) => void  // 编辑回调
+  resolvedConfig?: ResolvedNodeConfig  // 解析后的节点配置
 }
 
 export function NodeOutputPanel({
@@ -117,9 +119,11 @@ export function NodeOutputPanel({
   isStreaming = false,
   canEdit = false,
   onEdit,
+  resolvedConfig,
 }: NodeOutputPanelProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editedOutput, setEditedOutput] = useState(output)
+  const [showConfig, setShowConfig] = useState(false)  // 是否展开配置详情
 
   // 当输出变化时同步编辑内容
   useEffect(() => {
@@ -202,6 +206,38 @@ export function NodeOutputPanel({
         </div>
       </div>
 
+      {/* 解析后的配置详情（可折叠） */}
+      {resolvedConfig && hasResolvedConfig(resolvedConfig) && (
+        <div className="border-b">
+          <button
+            type="button"
+            onClick={() => setShowConfig(!showConfig)}
+            className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs hover:bg-muted/50 transition-colors"
+          >
+            {showConfig ? (
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+            )}
+            <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-muted-foreground">执行配置详情</span>
+          </button>
+          <AnimatePresence initial={false}>
+            {showConfig && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <ResolvedConfigDisplay config={resolvedConfig} nodeType={nodeType} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
       {/* 输出内容 */}
       <div className="max-h-[300px]">
         {isRunning && !output ? (
@@ -237,6 +273,270 @@ export function NodeOutputPanel({
   )
 }
 
+// 检查是否有解析后的配置
+export function hasResolvedConfig(config: ResolvedNodeConfig): boolean {
+  return !!(
+    config.systemPrompt ||
+    config.userPrompt ||
+    config.provider ||
+    config.model ||
+    config.inputText ||
+    config.conditionInput ||
+    config.variableName ||
+    (config.resolvedSources && config.resolvedSources.length > 0)
+  )
+}
+
+// 提取模式显示名称
+const extractModeLabels: Record<string, string> = {
+  regex: '正则表达式',
+  start_end: '起止标记',
+  json_path: 'JSON 路径',
+}
+
+// 条件类型显示名称
+const conditionTypeLabels: Record<string, string> = {
+  keyword: '关键词匹配',
+  length: '长度判断',
+  regex: '正则匹配',
+  ai_judge: 'AI 智能判断',
+}
+
+// 关键词模式显示名称
+const keywordModeLabels: Record<string, string> = {
+  any: '包含任一',
+  all: '包含全部',
+  none: '不包含任何',
+}
+
+// 解析后配置显示组件
+export function ResolvedConfigDisplay({ 
+  config, 
+  nodeType 
+}: { 
+  config: ResolvedNodeConfig
+  nodeType: string 
+}) {
+  return (
+    <div className="space-y-3 px-4 py-3 bg-muted/30 text-xs">
+      {/* === AI 对话节点 === */}
+      {(config.provider || config.model) && (
+        <div className="flex flex-wrap gap-2 pb-2 border-b border-border/50">
+          {config.provider && (
+            <ConfigBadge label="提供商" value={config.provider} />
+          )}
+          {config.model && (
+            <ConfigBadge label="模型" value={config.model} />
+          )}
+          {config.temperature !== undefined && (
+            <ConfigBadge label="温度" value={String(config.temperature)} />
+          )}
+          {config.maxTokens !== undefined && (
+            <ConfigBadge label="最大 Token" value={String(config.maxTokens)} />
+          )}
+          {config.topP !== undefined && (
+            <ConfigBadge label="Top P" value={String(config.topP)} />
+          )}
+          {config.enableHistory && (
+            <ConfigBadge label="对话历史" value={`${config.historyCount || 0} 轮`} />
+          )}
+        </div>
+      )}
+      
+      {/* 使用的设定 */}
+      {config.settingNames && config.settingNames.length > 0 && (
+        <div className="flex flex-wrap gap-1 pb-2 border-b border-border/50">
+          <span className="text-muted-foreground mr-1">使用设定:</span>
+          {config.settingNames.map((name, i) => (
+            <span key={i} className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px]">
+              {name}
+            </span>
+          ))}
+        </div>
+      )}
+      
+      {/* 用户问题 */}
+      {config.userPrompt && (
+        <ConfigItem 
+          label="用户问题" 
+          value={config.userPrompt}
+          highlight
+        />
+      )}
+      
+      {/* 系统提示词 */}
+      {config.systemPrompt && (
+        <ConfigItem 
+          label="系统提示词" 
+          value={config.systemPrompt}
+        />
+      )}
+      
+      {/* === 文本提取节点 === */}
+      {config.extractMode && (
+        <div className="flex flex-wrap gap-2 pb-2 border-b border-border/50">
+          <ConfigBadge label="提取模式" value={extractModeLabels[config.extractMode] || config.extractMode} />
+          {config.regexPattern && (
+            <ConfigBadge label="正则" value={config.regexPattern} />
+          )}
+          {config.startMarker && (
+            <ConfigBadge label="起始标记" value={config.startMarker} />
+          )}
+          {config.endMarker && (
+            <ConfigBadge label="结束标记" value={config.endMarker} />
+          )}
+          {config.jsonPath && (
+            <ConfigBadge label="JSON 路径" value={config.jsonPath} />
+          )}
+        </div>
+      )}
+      
+      {config.inputText && (
+        <ConfigItem 
+          label="输入文本" 
+          value={config.inputText}
+        />
+      )}
+      
+      {/* === 条件判断节点 === */}
+      {config.conditionType && (
+        <div className="flex flex-wrap gap-2 pb-2 border-b border-border/50">
+          <ConfigBadge label="条件类型" value={conditionTypeLabels[config.conditionType] || config.conditionType} />
+          {config.keywordMode && (
+            <ConfigBadge label="匹配模式" value={keywordModeLabels[config.keywordMode] || config.keywordMode} />
+          )}
+          {config.keywords && config.keywords.length > 0 && (
+            <ConfigBadge label="关键词" value={config.keywords.join(', ')} />
+          )}
+        </div>
+      )}
+      
+      {config.conditionInput && (
+        <ConfigItem 
+          label="条件输入" 
+          value={config.conditionInput}
+        />
+      )}
+      
+      {/* === 文本拼接节点 === */}
+      {config.resolvedSources && config.resolvedSources.length > 0 && (
+        <>
+          {config.separator && (
+            <div className="pb-2 border-b border-border/50">
+              <ConfigBadge label="分隔符" value={config.separator === '\n' ? '换行符' : `"${config.separator}"`} />
+            </div>
+          )}
+          <div className="space-y-2">
+            <span className="font-medium text-muted-foreground">拼接来源:</span>
+            {config.resolvedSources.map((source, index) => (
+              <ConfigItem 
+                key={index}
+                label={`来源 ${index + 1}`}
+                value={source}
+              />
+            ))}
+          </div>
+        </>
+      )}
+      
+      {/* === 变量节点 === */}
+      {config.variableName && (
+        <div className="flex flex-wrap gap-2 pb-2 border-b border-border/50">
+          <ConfigBadge label="变量名" value={config.variableName} />
+        </div>
+      )}
+      {config.variableValue && (
+        <ConfigItem 
+          label="变量值" 
+          value={config.variableValue}
+        />
+      )}
+      
+      {/* === 循环节点 === */}
+      {config.loopType && (
+        <div className="flex flex-wrap gap-2">
+          <ConfigBadge label="循环类型" value={config.loopType === 'count' ? '固定次数' : '条件循环'} />
+          {config.maxIterations !== undefined && (
+            <ConfigBadge label="最大次数" value={String(config.maxIterations)} />
+          )}
+          {config.currentIteration !== undefined && (
+            <ConfigBadge label="当前迭代" value={String(config.currentIteration)} />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 配置标签组件（用于显示简短的配置项）
+function ConfigBadge({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted text-[10px]">
+      <span className="text-muted-foreground">{label}:</span>
+      <span className="font-medium truncate max-w-[150px]" title={value}>{value}</span>
+    </span>
+  )
+}
+
+// 配置项显示组件
+function ConfigItem({ 
+  label, 
+  value, 
+  highlight = false 
+}: { 
+  label: string
+  value: string 
+  highlight?: boolean
+}) {
+  const [copied, setCopied] = useState(false)
+  
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      toast.success('已复制')
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast.error('复制失败')
+    }
+  }
+  
+  // 截断长文本显示
+  const displayValue = value.length > 500 ? value.slice(0, 500) + '...' : value
+  const isLong = value.length > 200
+  
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className={cn(
+          "font-medium",
+          highlight ? "text-primary" : "text-muted-foreground"
+        )}>
+          {label}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5"
+          onClick={handleCopy}
+        >
+          {copied ? (
+            <Check className="h-3 w-3 text-green-500" />
+          ) : (
+            <Copy className="h-3 w-3" />
+          )}
+        </Button>
+      </div>
+      <div className={cn(
+        "rounded-md border bg-background p-2 font-mono whitespace-pre-wrap break-all",
+        isLong && "max-h-[150px] overflow-y-auto"
+      )}>
+        {displayValue}
+      </div>
+    </div>
+  )
+}
+
 // 执行输出面板（显示所有节点输出）
 interface ExecutionOutputPanelProps {
   outputs: Array<{
@@ -246,6 +546,7 @@ interface ExecutionOutputPanelProps {
     output: string
     isRunning?: boolean
     isStreaming?: boolean
+    resolvedConfig?: ResolvedNodeConfig
   }>
   finalOutput?: string
   isExecuting?: boolean

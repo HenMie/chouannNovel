@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
+import { VariableSelect } from '@/components/ui/variable-select'
 import {
   Select,
   SelectContent,
@@ -17,18 +18,20 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { HelpCircle } from 'lucide-react'
-import type { LoopStartConfig, GlobalConfig } from '@/types'
+import type { LoopStartConfig, WorkflowNode } from '@/types'
 
 interface LoopStartConfigFormProps {
   config: Partial<LoopStartConfig>
-  globalConfig: GlobalConfig | null
   onChange: (config: Partial<LoopStartConfig>) => void
+  nodes?: WorkflowNode[]
+  currentNodeId?: string
 }
 
 export function LoopStartConfigForm({
   config,
-  globalConfig,
   onChange,
+  nodes = [],
+  currentNodeId,
 }: LoopStartConfigFormProps) {
   const loopType = config.loop_type || 'count'
   const maxIterations = config.max_iterations || 5
@@ -113,37 +116,20 @@ export function LoopStartConfigForm({
             
             {/* 输入来源 */}
             <div className="space-y-2">
-              <Label>条件输入来源</Label>
-              <Select
-                value={config.condition_source || 'previous'}
-                onValueChange={(value: 'previous' | 'variable') =>
-                  onChange({ ...config, condition_source: value })
+              <Label htmlFor="condition_variable">条件输入变量</Label>
+              <VariableSelect
+                placeholder="选择引用变量"
+                value={config.condition_variable || ''}
+                onChange={(value) =>
+                  onChange({ ...config, condition_variable: value })
                 }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="选择输入来源" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="previous">上一节点输出</SelectItem>
-                  <SelectItem value="variable">指定变量</SelectItem>
-                </SelectContent>
-              </Select>
+                nodes={nodes}
+                currentNodeId={currentNodeId}
+              />
+              <p className="text-xs text-muted-foreground">
+                选择用于判断循环条件的变量
+              </p>
             </div>
-
-            {/* 变量名输入 */}
-            {config.condition_source === 'variable' && (
-              <div className="space-y-2">
-                <Label htmlFor="condition_variable">变量名</Label>
-                <Input
-                  id="condition_variable"
-                  placeholder="输入变量名（如：用户问题）"
-                  value={config.condition_variable || ''}
-                  onChange={(e) =>
-                    onChange({ ...config, condition_variable: e.target.value })
-                  }
-                />
-              </div>
-            )}
 
             {/* 条件类型 */}
             <div className="space-y-2">

@@ -2,3 +2,4 @@
 alwaysApply: true
 ---
 - 当前项目为Tauri应用。组件库：shadcn，图标库：lucide，动画库：Framer Motion
+- 现在处于初期开发阶段，不需要考虑前后兼容性。为了实现目标，可大胆重构

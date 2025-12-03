@@ -3,6 +3,7 @@
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { VariableSelect } from '@/components/ui/variable-select'
 import {
   Select,
   SelectContent,
@@ -12,26 +13,21 @@ import {
 } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { getAvailableModels, getModelConfig, type ModelConfig } from '@/lib/ai'
 import type { 
   LoopConfig as LoopConfigType, 
   ConditionConfig as ConditionConfigType,
-  GlobalConfig, 
-  AIProvider,
-  WorkflowNode 
+  WorkflowNode,
 } from '@/types'
 
 interface LoopConfigProps {
   config: Partial<LoopConfigType>
-  globalConfig: GlobalConfig | null
+  onChange: (config: Partial<LoopConfigType>) => void
   nodes?: WorkflowNode[]
   currentNodeId?: string
-  onChange: (config: Partial<LoopConfigType>) => void
 }
 
 // 默认条件配置
 const defaultCondition: ConditionConfigType = {
-  input_source: 'previous',
   condition_type: 'keyword',
   keywords: [],
   keyword_mode: 'any',
@@ -55,10 +51,9 @@ const loopConditionTypeLabels: Record<Exclude<ConditionConfigType['condition_typ
 
 export function LoopConfigForm({ 
   config, 
-  globalConfig,
+  onChange,
   nodes = [],
   currentNodeId,
-  onChange 
 }: LoopConfigProps) {
   // 合并默认配置
   const currentConfig: LoopConfigType = { 
@@ -139,28 +134,16 @@ export function LoopConfigForm({
               {/* 数据源设置 */}
               <div className="space-y-2">
                 <Label>输入数据源</Label>
-                <Select
-                  value={currentConfig.condition?.input_source || 'previous'}
-                  onValueChange={(value: 'previous' | 'variable') =>
-                    updateCondition({ input_source: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="previous">上一节点输出</SelectItem>
-                    <SelectItem value="variable">引用变量</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {currentConfig.condition?.input_source === 'variable' && (
-                  <Input
-                    placeholder="变量名（如：用户问题）"
-                    value={currentConfig.condition?.input_variable || ''}
-                    onChange={(e) => updateCondition({ input_variable: e.target.value })}
-                  />
-                )}
+                <VariableSelect
+                  placeholder="选择引用变量"
+                  value={currentConfig.condition?.input_variable || ''}
+                  onChange={(value) => updateCondition({ input_variable: value })}
+                  nodes={nodes}
+                  currentNodeId={currentNodeId}
+                />
+                <p className="text-xs text-muted-foreground">
+                  选择用于判断循环条件的变量
+                </p>
               </div>
 
               {/* 条件类型 */}

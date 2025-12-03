@@ -696,10 +696,18 @@ export async function updateExecution(
 
 export async function getNodeResults(executionId: string): Promise<NodeResult[]> {
   const db = await getDatabase()
-  return db.select<NodeResult[]>(
+  const results = await db.select<Array<NodeResult & { resolved_config?: string }>>(
     'SELECT * FROM node_results WHERE execution_id = ? ORDER BY started_at ASC',
     [executionId]
   )
+  
+  // 解析 resolved_config JSON 字符串
+  return results.map(result => ({
+    ...result,
+    resolved_config: result.resolved_config 
+      ? JSON.parse(result.resolved_config as string) 
+      : undefined,
+  }))
 }
 
 export async function createNodeResult(
@@ -729,7 +737,7 @@ export async function createNodeResult(
 
 export async function updateNodeResult(
   id: string,
-  data: Partial<Pick<NodeResult, 'input' | 'output' | 'status' | 'finished_at'>>
+  data: Partial<Pick<NodeResult, 'input' | 'output' | 'status' | 'finished_at' | 'resolved_config'>>
 ): Promise<void> {
   const db = await getDatabase()
   const updates: string[] = []
@@ -750,6 +758,10 @@ export async function updateNodeResult(
   if (data.finished_at !== undefined) {
     updates.push('finished_at = ?')
     values.push(data.finished_at || null)
+  }
+  if (data.resolved_config !== undefined) {
+    updates.push('resolved_config = ?')
+    values.push(data.resolved_config ? JSON.stringify(data.resolved_config) : null)
   }
 
   values.push(id)

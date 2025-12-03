@@ -7,6 +7,7 @@ import {
   ExecutorStatus,
   ExecutionEvent,
   NodeExecutionState,
+  ResolvedNodeConfig,
   executorStatusToDbStatus,
 } from '@/lib/engine'
 import * as db from '@/lib/db'
@@ -19,6 +20,7 @@ export interface NodeOutputInfo {
   output: string
   isRunning: boolean
   isStreaming: boolean
+  resolvedConfig?: ResolvedNodeConfig  // 解析后的节点配置（变量已替换）
 }
 
 interface ExecutionState {
@@ -304,7 +306,13 @@ async function handleExecutionEvent(
         streamingNodeId: null,
         nodeOutputs: nodeOutputs.map(o =>
           o.nodeId === event.nodeId
-            ? { ...o, output: event.content || '', isRunning: false, isStreaming: false }
+            ? { 
+                ...o, 
+                output: event.content || '', 
+                isRunning: false, 
+                isStreaming: false,
+                resolvedConfig: event.resolvedConfig,
+              }
             : o
         ),
       })
@@ -318,6 +326,7 @@ async function handleExecutionEvent(
               output: event.content || '',
               status: 'completed',
               finished_at: new Date().toISOString(),
+              resolved_config: event.resolvedConfig,
             })
           } catch (error) {
             console.error('更新节点结果失败:', error)

@@ -18,6 +18,7 @@ import type {
   ExecutionStatus,
   Setting,
   SettingPrompt,
+  ResolvedNodeConfig,
 } from '@/types'
 import type { Message } from '@/lib/ai/types'
 import { chatStream } from '@/lib/ai'
@@ -49,6 +50,7 @@ export interface ExecutionEvent {
   nodeType?: string
   content?: string
   error?: string
+  resolvedConfig?: ResolvedNodeConfig  // 解析后的节点配置
   timestamp: Date
 }
 
@@ -254,7 +256,7 @@ export class WorkflowExecutor {
 
       return {
         status: this.status,
-        output: this.context.getPreviousOutput(),
+        output: this.context.getLastOutput(),
         nodeStates: this.context.getAllNodeStates(),
         elapsedSeconds: this.context.getElapsedSeconds(),
       }
@@ -290,6 +292,7 @@ export class WorkflowExecutor {
     })
 
     let output: string = ''
+    let resolvedConfig: ResolvedNodeConfig = {}
 
     // 根据节点类型执行
     switch (node.type) {
@@ -299,31 +302,55 @@ export class WorkflowExecutor {
       case 'output':
         output = await this.executeOutputNode(node)
         break
-      case 'ai_chat':
-        output = await this.executeAIChatNode(node)
+      case 'ai_chat': {
+        const result = await this.executeAIChatNode(node)
+        output = result.output
+        resolvedConfig = result.resolvedConfig
         break
-      case 'var_set':
-        output = await this.executeVarSetNode(node)
+      }
+      case 'var_set': {
+        const result = await this.executeVarSetNode(node)
+        output = result.output
+        resolvedConfig = result.resolvedConfig
         break
-      case 'var_get':
-        output = await this.executeVarGetNode(node)
+      }
+      case 'var_get': {
+        const result = await this.executeVarGetNode(node)
+        output = result.output
+        resolvedConfig = result.resolvedConfig
         break
-      case 'text_extract':
-        output = await this.executeTextExtractNode(node)
+      }
+      case 'text_extract': {
+        const result = await this.executeTextExtractNode(node)
+        output = result.output
+        resolvedConfig = result.resolvedConfig
         break
-      case 'text_concat':
-        output = await this.executeTextConcatNode(node)
+      }
+      case 'text_concat': {
+        const result = await this.executeTextConcatNode(node)
+        output = result.output
+        resolvedConfig = result.resolvedConfig
         break
-      case 'condition':
-        output = await this.executeConditionNode(node)
+      }
+      case 'condition': {
+        const result = await this.executeConditionNode(node)
+        output = result.output
+        resolvedConfig = result.resolvedConfig
         break
-      case 'loop':
-        output = await this.executeLoopNode(node)
+      }
+      case 'loop': {
+        const result = await this.executeLoopNode(node)
+        output = result.output
+        resolvedConfig = result.resolvedConfig
         break
+      }
       // 新的块结构节点
-      case 'loop_start':
-        output = await this.executeLoopStartNode(node)
+      case 'loop_start': {
+        const result = await this.executeLoopStartNode(node)
+        output = result.output
+        resolvedConfig = result.resolvedConfig
         break
+      }
       case 'loop_end':
         output = await this.executeLoopEndNode(node)
         break
@@ -333,9 +360,12 @@ export class WorkflowExecutor {
       case 'parallel_end':
         output = await this.executeParallelEndNode(node)
         break
-      case 'condition_if':
-        output = await this.executeConditionIfNode(node)
+      case 'condition_if': {
+        const result = await this.executeConditionIfNode(node)
+        output = result.output
+        resolvedConfig = result.resolvedConfig
         break
+      }
       case 'condition_else':
         output = await this.executeConditionElseNode(node)
         break
@@ -373,6 +403,7 @@ export class WorkflowExecutor {
       nodeName: node.name,
       nodeType: node.type,
       content: output,
+      resolvedConfig,
     })
   }
 
@@ -400,8 +431,8 @@ export class WorkflowExecutor {
    * 执行输出节点
    */
   private async executeOutputNode(_node: WorkflowNode): Promise<string> {
-    // 输出节点直接返回上一个节点的输出
-    return this.context.getPreviousOutput()
+    // 输出节点直接返回最后一个节点的输出
+    return this.context.getLastOutput()
   }
 
   /**
@@ -479,7 +510,7 @@ export class WorkflowExecutor {
   /**
    * 执行 AI 对话节点
    */
-  private async executeAIChatNode(node: WorkflowNode): Promise<string> {
+  private async executeAIChatNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
     const config = node.config as AIChatConfig
     const legacyConfig = node.config as any  // 兼容旧版配置
     
@@ -575,32 +606,57 @@ export class WorkflowExecutor {
       this.context.addToHistory(node.id, { role: 'assistant', content: fullOutput })
     }
 
-    return fullOutput
+    // 获取使用的设定名称
+    const settingNames = (config.setting_ids || [])
+      .map(id => this.settings.find(s => s.id === id)?.name)
+      .filter((name): name is string => !!name)
+
+    return {
+      output: fullOutput,
+      resolvedConfig: {
+        // 基本配置
+        provider: config.provider,
+        model: config.model,
+        // 提示词
+        systemPrompt,
+        userPrompt,
+        // 高级设置
+        temperature: config.temperature,
+        maxTokens: config.max_tokens,
+        topP: config.top_p,
+        // 对话历史
+        enableHistory: config.enable_history,
+        historyCount: config.history_count,
+        // 使用的设定
+        settingNames: settingNames.length > 0 ? settingNames : undefined,
+      },
+    }
   }
 
   /**
    * 执行变量设置节点
    */
-  private async executeVarSetNode(node: WorkflowNode): Promise<string> {
+  private async executeVarSetNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
     const config = node.config as VarSetConfig
     
-    let value: string
-    
-    if (config.value_source === 'previous') {
-      value = this.context.getPreviousOutput()
-    } else {
-      value = config.custom_value ? this.context.interpolate(config.custom_value) : ''
-    }
+    // 使用变量插值处理自定义值
+    const value = config.custom_value ? this.context.interpolate(config.custom_value) : ''
     
     this.context.setVariable(config.variable_name, value)
     
-    return value
+    return {
+      output: value,
+      resolvedConfig: {
+        variableName: config.variable_name,
+        variableValue: value,
+      },
+    }
   }
 
   /**
    * 执行变量读取节点
    */
-  private async executeVarGetNode(node: WorkflowNode): Promise<string> {
+  private async executeVarGetNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
     const config = node.config as VarGetConfig
     
     const value = this.context.getVariable(config.variable_name)
@@ -609,21 +665,28 @@ export class WorkflowExecutor {
       throw new Error(`变量 "${config.variable_name}" 不存在`)
     }
     
-    return value
+    return {
+      output: value,
+      resolvedConfig: {
+        variableName: config.variable_name,
+        variableValue: value,
+      },
+    }
   }
 
   /**
    * 执行文本提取节点
    */
-  private async executeTextExtractNode(node: WorkflowNode): Promise<string> {
+  private async executeTextExtractNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
     const config = node.config as TextExtractConfig
     
-    // 获取输入
-    let input: string
-    if (config.input_source === 'variable' && config.input_variable) {
-      input = this.context.getVariable(config.input_variable) ?? ''
-    } else {
-      input = this.context.getPreviousOutput()
+    // 获取输入（通过变量引用）
+    let input: string = ''
+    if (config.input_variable) {
+      // 优先从节点输出中获取
+      input = this.context.getNodeOutput(config.input_variable) 
+        ?? this.context.getVariable(config.input_variable) 
+        ?? ''
     }
     
     // 更新节点输入状态
@@ -707,7 +770,17 @@ export class WorkflowExecutor {
         throw new Error(`不支持的提取模式: ${config.extract_mode}`)
     }
     
-    return result.trim()
+    return {
+      output: result.trim(),
+      resolvedConfig: {
+        inputText: input,
+        extractMode: config.extract_mode,
+        regexPattern: config.regex_pattern,
+        startMarker: config.start_marker,
+        endMarker: config.end_marker,
+        jsonPath: config.json_path,
+      },
+    }
   }
 
   /**
@@ -741,7 +814,7 @@ export class WorkflowExecutor {
   /**
    * 执行文本拼接节点
    */
-  private async executeTextConcatNode(node: WorkflowNode): Promise<string> {
+  private async executeTextConcatNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
     const config = node.config as TextConcatConfig
     
     const parts: string[] = []
@@ -750,13 +823,13 @@ export class WorkflowExecutor {
       let value: string = ''
       
       switch (source.type) {
-        case 'previous':
-          value = this.context.getPreviousOutput()
-          break
         case 'variable':
-          value = source.variable 
-            ? (this.context.getVariable(source.variable) ?? '')
-            : ''
+          if (source.variable) {
+            // 优先从节点输出中获取
+            value = this.context.getNodeOutput(source.variable) 
+              ?? this.context.getVariable(source.variable) 
+              ?? ''
+          }
           break
         case 'custom':
           value = source.custom 
@@ -769,21 +842,28 @@ export class WorkflowExecutor {
     }
     
     const separator = config.separator ?? '\n'
-    return parts.join(separator)
+    return {
+      output: parts.join(separator),
+      resolvedConfig: {
+        resolvedSources: parts,
+        separator: separator,
+      },
+    }
   }
 
   /**
    * 执行条件判断节点
    */
-  private async executeConditionNode(node: WorkflowNode): Promise<string> {
+  private async executeConditionNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
     const config = node.config as ConditionConfig
     
-    // 获取输入
-    let input: string
-    if (config.input_source === 'variable' && config.input_variable) {
-      input = this.context.getVariable(config.input_variable) ?? ''
-    } else {
-      input = this.context.getPreviousOutput()
+    // 获取输入（通过变量引用）
+    let input: string = ''
+    if (config.input_variable) {
+      // 优先从节点输出中获取
+      input = this.context.getNodeOutput(config.input_variable) 
+        ?? this.context.getVariable(config.input_variable) 
+        ?? ''
     }
     
     // 更新节点输入状态
@@ -809,7 +889,15 @@ export class WorkflowExecutor {
     }
     // action === 'next' 时不需要特殊处理，继续执行下一个节点
     
-    return result ? 'true' : 'false'
+    return {
+      output: result ? 'true' : 'false',
+      resolvedConfig: {
+        conditionInput: input,
+        conditionType: config.condition_type,
+        keywords: config.keywords,
+        keywordMode: config.keyword_mode,
+      },
+    }
   }
 
   /**
@@ -905,7 +993,7 @@ ${input}`
   /**
    * 执行循环节点
    */
-  private async executeLoopNode(node: WorkflowNode): Promise<string> {
+  private async executeLoopNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
     const config = node.config as LoopConfig
     
     // 获取当前循环次数
@@ -914,7 +1002,14 @@ ${input}`
     // 检查是否达到最大迭代次数
     if (loopCount >= config.max_iterations) {
       this.context.resetLoopCount(node.id)
-      return `循环结束（已达到最大迭代次数 ${config.max_iterations}）`
+      return {
+        output: `循环结束（已达到最大迭代次数 ${config.max_iterations}）`,
+        resolvedConfig: {
+          loopType: config.condition_type,
+          maxIterations: config.max_iterations,
+          currentIteration: loopCount,
+        },
+      }
     }
     
     // 判断是否继续循环
@@ -925,11 +1020,11 @@ ${input}`
       shouldContinue = loopCount < config.max_iterations
     } else if (config.condition && loopCount > 0) {
       // 条件循环，第一次无条件执行，之后根据条件判断
-      let input: string
-      if (config.condition.input_source === 'variable' && config.condition.input_variable) {
-        input = this.context.getVariable(config.condition.input_variable) ?? ''
-      } else {
-        input = this.context.getPreviousOutput()
+      let input: string = ''
+      if (config.condition.input_variable) {
+        input = this.context.getNodeOutput(config.condition.input_variable) 
+          ?? this.context.getVariable(config.condition.input_variable) 
+          ?? ''
       }
       
       shouldContinue = await this.evaluateCondition(config.condition, input)
@@ -946,11 +1041,25 @@ ${input}`
       this.loopStartNode = node.id
       this.loopStartIndex = this.currentNodeIndex
       
-      return `开始第 ${loopCount + 1} 次循环`
+      return {
+        output: `开始第 ${loopCount + 1} 次循环`,
+        resolvedConfig: {
+          loopType: config.condition_type,
+          maxIterations: config.max_iterations,
+          currentIteration: loopCount + 1,
+        },
+      }
     } else {
       // 循环结束
       this.context.resetLoopCount(node.id)
-      return `循环结束（条件不满足，共执行 ${loopCount} 次）`
+      return {
+        output: `循环结束（条件不满足，共执行 ${loopCount} 次）`,
+        resolvedConfig: {
+          loopType: config.condition_type,
+          maxIterations: config.max_iterations,
+          currentIteration: loopCount,
+        },
+      }
     }
   }
 
@@ -959,7 +1068,7 @@ ${input}`
   /**
    * 执行循环开始节点（新块结构）
    */
-  private async executeLoopStartNode(node: WorkflowNode): Promise<string> {
+  private async executeLoopStartNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
     const config = node.config as LoopStartConfig
     const blockId = node.block_id
     
@@ -969,6 +1078,12 @@ ${input}`
     
     // 获取当前循环次数
     const loopCount = this.context.getLoopCount(blockId)
+    
+    const makeConfig = (iteration: number): ResolvedNodeConfig => ({
+      loopType: config.loop_type,
+      maxIterations: config.max_iterations,
+      currentIteration: iteration,
+    })
     
     // 检查是否达到最大迭代次数
     if (loopCount >= config.max_iterations) {
@@ -984,7 +1099,10 @@ ${input}`
         }
       }
       this.context.resetLoopCount(blockId)
-      return `循环结束（已达到最大迭代次数 ${config.max_iterations}）`
+      return {
+        output: `循环结束（已达到最大迭代次数 ${config.max_iterations}）`,
+        resolvedConfig: makeConfig(loopCount),
+      }
     }
     
     // 判断是否继续循环
@@ -995,16 +1113,15 @@ ${input}`
       shouldContinue = loopCount < config.max_iterations
     } else if (loopCount > 0) {
       // 条件循环（第一次无条件执行）
-      let input: string
-      if (config.condition_source === 'variable' && config.condition_variable) {
-        input = this.context.getVariable(config.condition_variable) ?? ''
-      } else {
-        input = this.context.getPreviousOutput()
+      let input: string = ''
+      if (config.condition_variable) {
+        input = this.context.getNodeOutput(config.condition_variable) 
+          ?? this.context.getVariable(config.condition_variable) 
+          ?? ''
       }
       
       // 使用条件配置进行判断
       const conditionConfig: ConditionConfig = {
-        input_source: config.condition_source || 'previous',
         input_variable: config.condition_variable,
         condition_type: config.condition_type || 'keyword',
         keywords: config.keywords,
@@ -1033,7 +1150,10 @@ ${input}`
       this.loopStartNode = node.id
       this.loopStartIndex = this.currentNodeIndex
       
-      return `开始第 ${loopCount + 1} 次循环`
+      return {
+        output: `开始第 ${loopCount + 1} 次循环`,
+        resolvedConfig: makeConfig(loopCount + 1),
+      }
     } else {
       // 跳过整个循环块
       const endNodeIndex = this.nodes.findIndex(
@@ -1046,7 +1166,10 @@ ${input}`
         }
       }
       this.context.resetLoopCount(blockId)
-      return `循环结束（条件不满足，共执行 ${loopCount} 次）`
+      return {
+        output: `循环结束（条件不满足，共执行 ${loopCount} 次）`,
+        resolvedConfig: makeConfig(loopCount),
+      }
     }
   }
 
@@ -1104,7 +1227,7 @@ ${input}`
     }
     
     // 保存当前输入，供所有并发节点使用
-    const parallelInput = this.context.getPreviousOutput()
+    const parallelInput = this.context.getLastOutput()
     this.context.setVariable(`_parallel_${blockId}_input`, parallelInput)
     
     // 并发执行所有节点
@@ -1117,17 +1240,13 @@ ${input}`
       
       const batchResults = await Promise.all(
         batch.map(async (parallelNode) => {
-          // 临时设置输入为并发输入
-          const originalPrevOutput = this.context.getPreviousOutput()
-          this.context.setPreviousOutput(parallelInput)
-          
           try {
             await this.executeNode(parallelNode)
             const nodeState = this.context.getNodeState(parallelNode.id)
             return nodeState?.output || ''
-          } finally {
-            // 恢复原始输出，避免并发执行污染上下文
-            this.context.setPreviousOutput(originalPrevOutput)
+          } catch (error) {
+            console.error(`并发执行节点 ${parallelNode.name} 失败:`, error)
+            return ''
           }
         })
       )
@@ -1162,16 +1281,13 @@ ${input}`
     // 获取并发结果
     const results = this.context.getVariable(`_parallel_${blockId}_results`) || ''
     
-    // 将结果设置为下一个节点的输入
-    this.context.setPreviousOutput(results)
-    
     return results
   }
 
   /**
    * 执行条件分支开始节点
    */
-  private async executeConditionIfNode(node: WorkflowNode): Promise<string> {
+  private async executeConditionIfNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
     const config = node.config as ConditionIfConfig
     const blockId = node.block_id
     
@@ -1179,17 +1295,16 @@ ${input}`
       throw new Error('条件节点缺少 block_id')
     }
     
-    // 获取输入
-    let input: string
-    if (config.input_source === 'variable' && config.input_variable) {
-      input = this.context.getVariable(config.input_variable) ?? ''
-    } else {
-      input = this.context.getPreviousOutput()
+    // 获取输入（通过变量引用）
+    let input: string = ''
+    if (config.input_variable) {
+      input = this.context.getNodeOutput(config.input_variable) 
+        ?? this.context.getVariable(config.input_variable) 
+        ?? ''
     }
     
     // 评估条件
     const conditionConfig: ConditionConfig = {
-      input_source: config.input_source,
       input_variable: config.input_variable,
       condition_type: config.condition_type,
       keywords: config.keywords,
@@ -1229,7 +1344,15 @@ ${input}`
       }
     }
     
-    return result ? 'true' : 'false'
+    return {
+      output: result ? 'true' : 'false',
+      resolvedConfig: {
+        conditionInput: input,
+        conditionType: config.condition_type,
+        keywords: config.keywords,
+        keywordMode: config.keyword_mode,
+      },
+    }
   }
 
   /**
@@ -1331,13 +1454,18 @@ ${input}`
     // 更新节点输出
     this.context.updateNodeState(nodeId, { output: newOutput })
     
-    // 如果是最后一个完成的节点，更新 previousOutput
+    // 同时更新节点输出映射
+    if (nodeState.nodeName) {
+      this.context.setNodeOutput(newOutput, nodeState.nodeName)
+    }
+    
+    // 如果是最后一个完成的节点，更新 lastOutput
     const completedNodes = this.context.getAllNodeStates()
       .filter(s => s.status === 'completed')
     
     const lastCompleted = completedNodes[completedNodes.length - 1]
     if (lastCompleted?.nodeId === nodeId) {
-      this.context.setPreviousOutput(newOutput)
+      this.context.setLastOutput(newOutput)
     }
   }
 }

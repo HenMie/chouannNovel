@@ -243,36 +243,19 @@ export function NodeConfigDrawer({
             </div>
             
             <div className="space-y-2">
-              <Label>值来源</Label>
-              <Select
-                value={(config as any).value_source || 'previous'}
-                onValueChange={(value) =>
-                  setConfig({ ...config, value_source: value })
+              <Label htmlFor="custom_value">变量值</Label>
+              <Input
+                id="custom_value"
+                placeholder="输入变量值，支持 {{变量名}} 引用"
+                value={(config as any).custom_value || ''}
+                onChange={(e) =>
+                  setConfig({ ...config, custom_value: e.target.value })
                 }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="选择值来源" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="previous">上一节点输出</SelectItem>
-                  <SelectItem value="custom">自定义值</SelectItem>
-                </SelectContent>
-              </Select>
+              />
+              <p className="text-xs text-muted-foreground">
+                支持使用 {'{{变量名}}'} 引用其他变量
+              </p>
             </div>
-
-            {(config as any).value_source === 'custom' && (
-              <div className="space-y-2">
-                <Label htmlFor="custom_value">自定义值</Label>
-                <Input
-                  id="custom_value"
-                  placeholder="输入自定义值"
-                  value={(config as any).custom_value || ''}
-                  onChange={(e) =>
-                    setConfig({ ...config, custom_value: e.target.value })
-                  }
-                />
-              </div>
-            )}
           </div>
         )
 
@@ -301,6 +284,8 @@ export function NodeConfigDrawer({
           <TextExtractConfigForm
             config={config as Partial<TextExtractConfig>}
             onChange={setConfig}
+            nodes={nodes}
+            currentNodeId={node.id}
           />
         )
 
@@ -309,6 +294,8 @@ export function NodeConfigDrawer({
           <TextConcatConfigForm
             config={config as Partial<TextConcatConfig>}
             onChange={setConfig}
+            nodes={nodes}
+            currentNodeId={node.id}
           />
         )
 
@@ -327,10 +314,9 @@ export function NodeConfigDrawer({
         return (
           <LoopConfigForm
             config={config as Partial<LoopConfig>}
-            globalConfig={globalConfig}
+            onChange={setConfig}
             nodes={nodes}
             currentNodeId={node.id}
-            onChange={setConfig}
           />
         )
 
@@ -349,8 +335,9 @@ export function NodeConfigDrawer({
         return (
           <LoopStartConfigForm
             config={config as Partial<LoopStartConfig>}
-            globalConfig={globalConfig}
             onChange={setConfig}
+            nodes={nodes}
+            currentNodeId={node.id}
           />
         )
 
@@ -382,8 +369,9 @@ export function NodeConfigDrawer({
         return (
           <ConditionIfConfigForm
             config={config as Partial<ConditionIfConfig>}
-            globalConfig={globalConfig}
             onChange={setConfig}
+            nodes={nodes}
+            currentNodeId={node.id}
           />
         )
 

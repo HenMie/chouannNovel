@@ -64,7 +64,6 @@ export interface LoopStartConfig {
   loop_type: 'count' | 'condition'    // 循环类型：固定次数或条件循环
   max_iterations: number               // 最大迭代次数
   // 条件循环配置
-  condition_source?: 'previous' | 'variable'
   condition_variable?: string
   condition_type?: 'keyword' | 'length' | 'regex' | 'ai_judge'
   keywords?: string[]
@@ -97,7 +96,6 @@ export interface ParallelEndConfig {
 
 // 条件分支开始配置
 export interface ConditionIfConfig {
-  input_source: 'previous' | 'variable'
   input_variable?: string
   condition_type: 'keyword' | 'length' | 'regex' | 'ai_judge'
   keywords?: string[]
@@ -140,7 +138,6 @@ export interface AIChatConfig {
 
 // 条件节点配置
 export interface ConditionConfig {
-  input_source: 'previous' | 'variable'
   input_variable?: string
   condition_type: 'keyword' | 'length' | 'regex' | 'ai_judge'
   keywords?: string[]
@@ -166,7 +163,6 @@ export interface LoopConfig {
 
 // 批量执行节点配置
 export interface BatchConfig {
-  input_source: 'previous' | 'variable'
   input_variable?: string
   split_mode: 'line' | 'separator' | 'json_array'
   separator?: string
@@ -178,7 +174,6 @@ export interface BatchConfig {
 
 // 文本提取节点配置
 export interface TextExtractConfig {
-  input_source: 'previous' | 'variable'
   input_variable?: string
   extract_mode: 'regex' | 'start_end' | 'json_path'
   regex_pattern?: string
@@ -190,7 +185,7 @@ export interface TextExtractConfig {
 // 文本拼接节点配置
 export interface TextConcatConfig {
   sources: Array<{
-    type: 'previous' | 'variable' | 'custom'
+    type: 'variable' | 'custom'
     variable?: string
     custom?: string
   }>
@@ -200,7 +195,6 @@ export interface TextConcatConfig {
 // 变量设置节点配置
 export interface VarSetConfig {
   variable_name: string
-  value_source: 'previous' | 'custom'
   custom_value?: string
 }
 
@@ -313,6 +307,51 @@ export interface Execution {
   finished_at?: string
 }
 
+// 解析后的节点配置（用于历史记录显示）
+export interface ResolvedNodeConfig {
+  // === AI 对话节点 ===
+  systemPrompt?: string     // 解析后的系统提示词
+  userPrompt?: string       // 解析后的用户问题
+  provider?: string         // AI 提供商
+  model?: string            // 模型名称
+  temperature?: number      // 温度
+  maxTokens?: number        // 最大 token 数
+  topP?: number             // Top P
+  enableHistory?: boolean   // 是否启用对话历史
+  historyCount?: number     // 对话历史轮数
+  settingNames?: string[]   // 使用的设定名称列表
+  
+  // === 文本拼接节点 ===
+  resolvedSources?: string[]  // 解析后的各个来源值
+  separator?: string          // 分隔符
+  
+  // === 文本提取节点 ===
+  inputText?: string        // 输入文本
+  extractMode?: string      // 提取模式
+  regexPattern?: string     // 正则表达式
+  startMarker?: string      // 起始标记
+  endMarker?: string        // 结束标记
+  jsonPath?: string         // JSON 路径
+  
+  // === 条件判断节点 ===
+  conditionInput?: string   // 条件判断的输入
+  conditionType?: string    // 条件类型
+  keywords?: string[]       // 关键词列表
+  keywordMode?: string      // 关键词模式
+  
+  // === 循环节点 ===
+  loopType?: string         // 循环类型
+  maxIterations?: number    // 最大迭代次数
+  currentIteration?: number // 当前迭代次数
+  
+  // === 变量节点 ===
+  variableName?: string     // 变量名
+  variableValue?: string    // 变量值
+  
+  // 通用扩展
+  [key: string]: unknown
+}
+
 // 节点执行结果
 export interface NodeResult {
   id: string
@@ -321,6 +360,7 @@ export interface NodeResult {
   iteration: number
   input?: string
   output?: string
+  resolved_config?: ResolvedNodeConfig  // 解析后的节点配置
   status: 'pending' | 'running' | 'completed' | 'failed'
   started_at: string
   finished_at?: string

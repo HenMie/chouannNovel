@@ -191,7 +191,6 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     } else if (blockType === 'condition') {
       // 创建条件分支开始、else 和结束节点
       await createNode('condition_if', `if 条件 ${nodes.length + 1}`, {
-        input_source: 'previous',
         condition_type: 'keyword',
         keywords: [],
         keyword_mode: 'any',
@@ -649,6 +648,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                   isStreaming={output.isStreaming}
                   canEdit={isPaused}
                   onEdit={modifyNodeOutput}
+                  resolvedConfig={output.resolvedConfig}
                 />
               ))}
               

@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { PromptEditor } from '@/components/ui/prompt-editor'
+import { VariableSelect } from '@/components/ui/variable-select'
 import {
   Select,
   SelectContent,
@@ -13,11 +14,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Card, CardContent } from '@/components/ui/card'
-import type { TextConcatConfig as TextConcatConfigType } from '@/types'
+import type { TextConcatConfig as TextConcatConfigType, WorkflowNode } from '@/types'
 
 interface TextConcatConfigProps {
   config: Partial<TextConcatConfigType>
   onChange: (config: Partial<TextConcatConfigType>) => void
+  nodes?: WorkflowNode[]
+  currentNodeId?: string
 }
 
 // 来源项类型
@@ -26,19 +29,12 @@ type SourceItem = TextConcatConfigType['sources'][number]
 // 默认配置
 const defaultConfig: TextConcatConfigType = {
   sources: [
-    { type: 'previous' }
+    { type: 'variable', variable: '' }
   ],
   separator: '\n',
 }
 
-// 来源类型标签
-const sourceTypeLabels: Record<SourceItem['type'], string> = {
-  previous: '上一节点输出',
-  variable: '引用变量',
-  custom: '自定义文本',
-}
-
-export function TextConcatConfigForm({ config, onChange }: TextConcatConfigProps) {
+export function TextConcatConfigForm({ config, onChange, nodes = [], currentNodeId }: TextConcatConfigProps) {
   // 合并默认配置
   const currentConfig: TextConcatConfigType = { 
     ...defaultConfig, 
@@ -97,7 +93,6 @@ export function TextConcatConfigForm({ config, onChange }: TextConcatConfigProps
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="previous">上一节点输出</SelectItem>
                   <SelectItem value="variable">引用变量</SelectItem>
                   <SelectItem value="custom">自定义文本</SelectItem>
                 </SelectContent>
@@ -105,20 +100,23 @@ export function TextConcatConfigForm({ config, onChange }: TextConcatConfigProps
             </div>
 
             {source.type === 'variable' && (
-              <Input
-                placeholder="变量名（如：用户问题）"
-                className="h-8"
+              <VariableSelect
+                placeholder="选择引用变量"
                 value={source.variable || ''}
-                onChange={(e) => updateSource(index, { variable: e.target.value })}
+                onChange={(value) => updateSource(index, { type: 'variable', variable: value })}
+                nodes={nodes}
+                currentNodeId={currentNodeId}
               />
             )}
 
             {source.type === 'custom' && (
               <PromptEditor
-                placeholder="输入自定义文本，支持 {{变量名}} 插值..."
+                placeholder="输入自定义文本，输入 / 选择变量..."
                 minHeight="60px"
                 value={source.custom || ''}
                 onChange={(value) => updateSource(index, { custom: value })}
+                nodes={nodes}
+                currentNodeId={currentNodeId}
               />
             )}
           </div>

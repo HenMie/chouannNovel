@@ -13,3 +13,6 @@ export type {
   ExecutorOptions,
 } from './executor'
 
+// 从 types 中重新导出 ResolvedNodeConfig
+export type { ResolvedNodeConfig } from '@/types'
+

@@ -24,11 +24,11 @@ export class ExecutionContext {
   // 对话历史（每个节点的对话历史）
   private conversationHistory: Map<string, Message[]> = new Map()
   
-  // 上一个节点的输出（向后兼容）
-  private previousOutput: string = ''
-  
   // 节点输出存储（按节点名称索引）
   private nodeOutputs: Map<string, string> = new Map()
+  
+  // 最后一个节点的输出（用于工作流最终结果）
+  private lastOutput: string = ''
   
   // 初始输入
   private initialInput: string = ''
@@ -55,7 +55,8 @@ export class ExecutionContext {
   }) {
     if (options?.initialInput) {
       this.initialInput = options.initialInput
-      this.previousOutput = options.initialInput
+      // 将初始输入也保存为变量 "用户问题"
+      this.variables.set('用户问题', options.initialInput)
     }
     if (options?.maxLoopCount) {
       this.maxLoopCount = options.maxLoopCount
@@ -94,11 +95,9 @@ export class ExecutionContext {
 
   /**
    * 变量插值 - 替换 {{变量名}} 格式
-   * 支持以下变量类型：
-   * 1. {{用户问题}} / {{input}} / {{输入}} - 初始输入
-   * 2. {{上一节点}} / {{previous}} / {{上一个输出}} - 上一节点输出（向后兼容）
-   * 3. {{节点名称}} 或 {{节点名称 > 输出描述}} - 引用指定节点的输出
-   * 4. {{变量名}} - 通过 var_set 设置的变量
+   * 支持以下变量类型（按优先级）：
+   * 1. {{节点名称}} 或 {{节点名称 > 输出描述}} - 引用指定节点的输出（最高优先级）
+   * 2. {{变量名}} - 通过 var_set 设置的变量，或系统变量如 {{用户问题}}
    */
   interpolate(template: string): string {
     return template.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
@@ -109,29 +108,21 @@ export class ExecutionContext {
         trimmedName = trimmedName.split('>')[0].trim()
       }
       
-      // 1. 初始输入变量
-      if (trimmedName === 'input' || trimmedName === '输入' || trimmedName === '用户问题') {
-        return this.initialInput
-      }
-      
-      // 特殊处理：开始流程 > 用户输入
-      if (trimmedName === '开始流程') {
-        return this.initialInput
-      }
-      
-      // 2. 上一节点输出（向后兼容）
-      if (trimmedName === 'previous' || trimmedName === '上一个输出' || trimmedName === '上一节点') {
-        return this.previousOutput
-      }
-      
-      // 3. 尝试从节点输出中查找（按节点名称）
+      // 1. 优先从节点输出中查找（按节点名称）
+      // 这确保引用节点时获取的是执行后的实际输出（包括默认值处理等）
       const nodeOutput = this.nodeOutputs.get(trimmedName)
       if (nodeOutput !== undefined) {
         return nodeOutput
       }
       
-      // 4. 普通变量（通过 var_set 设置的）
-      return this.variables.get(trimmedName) ?? match
+      // 2. 尝试从变量中查找（包括系统变量和用户设置的变量）
+      const variable = this.variables.get(trimmedName)
+      if (variable !== undefined) {
+        return variable
+      }
+      
+      // 未找到匹配，返回原始占位符
+      return match
     })
   }
 
@@ -169,30 +160,11 @@ export class ExecutionContext {
   /**
    * 设置节点输出
    * @param output 输出内容
-   * @param nodeName 节点名称（可选，用于通过 {{节点名称}} 引用）
+   * @param nodeName 节点名称（用于通过 {{节点名称}} 引用）
    */
-  setNodeOutput(output: string, nodeName?: string): void {
-    this.previousOutput = output
-    
-    // 如果提供了节点名称，保存到节点输出映射中
-    if (nodeName) {
-      this.nodeOutputs.set(nodeName, output)
-    }
-  }
-
-  /**
-   * 设置上一个节点的输出（向后兼容）
-   * @deprecated 请使用 setNodeOutput
-   */
-  setPreviousOutput(output: string): void {
-    this.previousOutput = output
-  }
-
-  /**
-   * 获取上一个节点的输出
-   */
-  getPreviousOutput(): string {
-    return this.previousOutput
+  setNodeOutput(output: string, nodeName: string): void {
+    this.lastOutput = output
+    this.nodeOutputs.set(nodeName, output)
   }
 
   /**
@@ -200,6 +172,20 @@ export class ExecutionContext {
    */
   getNodeOutput(nodeName: string): string | undefined {
     return this.nodeOutputs.get(nodeName)
+  }
+
+  /**
+   * 获取最后一个节点的输出（用于工作流最终结果）
+   */
+  getLastOutput(): string {
+    return this.lastOutput
+  }
+
+  /**
+   * 设置最后一个节点的输出
+   */
+  setLastOutput(output: string): void {
+    this.lastOutput = output
   }
 
   /**
@@ -312,32 +298,34 @@ export class ExecutionContext {
 
   /**
    * 根据节点配置获取输入
-   * 支持具有 input_source 属性的节点配置类型
+   * 使用精确变量引用方式
    */
   getNodeInput(node: WorkflowNode): string {
     // 通用的输入配置接口
     interface NodeInputConfig {
-      input_source?: 'previous' | 'variable' | 'custom'
       input_variable?: string
       custom_input?: string
     }
     
     const config = node.config as NodeInputConfig
 
-    switch (config.input_source) {
-      case 'previous':
-        return this.previousOutput
-      case 'variable':
-        return config.input_variable 
-          ? (this.getVariable(config.input_variable) ?? '') 
-          : ''
-      case 'custom':
-        return config.custom_input 
-          ? this.interpolate(config.custom_input) 
-          : ''
-      default:
-        return this.previousOutput
+    // 优先使用指定的变量
+    if (config.input_variable) {
+      // 先尝试从节点输出中获取
+      const nodeOutput = this.nodeOutputs.get(config.input_variable)
+      if (nodeOutput !== undefined) {
+        return nodeOutput
+      }
+      // 再尝试从变量中获取
+      return this.getVariable(config.input_variable) ?? ''
     }
+    
+    // 如果有自定义输入，进行插值
+    if (config.custom_input) {
+      return this.interpolate(config.custom_input)
+    }
+    
+    return ''
   }
 
   // ========== 快照 ==========
@@ -348,8 +336,8 @@ export class ExecutionContext {
   createSnapshot(): Record<string, unknown> {
     return {
       variables: this.getAllVariables(),
-      previousOutput: this.previousOutput,
       nodeOutputs: this.getAllNodeOutputs(),
+      lastOutput: this.lastOutput,
       initialInput: this.initialInput,
       nodeStates: this.getAllNodeStates(),
       loopCounters: Object.fromEntries(this.loopCounters),
@@ -373,17 +361,17 @@ export class ExecutionContext {
       })
     }
 
-    // 恢复上一个输出
-    if (snapshot.previousOutput) {
-      ctx.setPreviousOutput(snapshot.previousOutput as string)
-    }
-
     // 恢复节点输出
     const nodeOutputs = snapshot.nodeOutputs as Record<string, string>
     if (nodeOutputs) {
       Object.entries(nodeOutputs).forEach(([key, value]) => {
         ctx.nodeOutputs.set(key, value)
       })
+    }
+
+    // 恢复最后输出
+    if (snapshot.lastOutput) {
+      ctx.setLastOutput(snapshot.lastOutput as string)
     }
 
     // 恢复循环计数

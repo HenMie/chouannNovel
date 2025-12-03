@@ -98,8 +98,6 @@ const CATEGORIES: Array<{
 export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: SettingsLibraryPageProps) {
   const { currentProject, setCurrentProject, projects, loadProjects } = useProjectStore()
   const {
-    settings,
-    settingPrompts,
     loading,
     loadSettings,
     addSetting,
@@ -460,15 +458,15 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
             <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-2">
               <p className="font-medium">快速插入变量：</p>
               <div className="flex flex-wrap gap-2">
-                 <Button variant="secondary" size="xs" className="h-6 text-xs" onClick={() => insertVariable('{{#each items}}...{{/each}}')}>
-                    遍历循环
-                 </Button>
-                 <Button variant="secondary" size="xs" className="h-6 text-xs" onClick={() => insertVariable('{{name}}')}>
-                    名称
-                 </Button>
-                 <Button variant="secondary" size="xs" className="h-6 text-xs" onClick={() => insertVariable('{{content}}')}>
-                    内容
-                 </Button>
+                <Button variant="secondary" size="xs" onClick={() => insertVariable('{{#each items}}...{{/each}}')}>
+                   遍历循环
+                </Button>
+                <Button variant="secondary" size="xs" onClick={() => insertVariable('{{name}}')}>
+                   名称
+                </Button>
+                <Button variant="secondary" size="xs" onClick={() => insertVariable('{{content}}')}>
+                   内容
+                </Button>
               </div>
             </div>
             <div className="space-y-2 flex-1 flex flex-col">

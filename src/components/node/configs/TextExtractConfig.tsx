@@ -1,8 +1,8 @@
 // 文本提取节点配置表单
 
 import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { VariableSelect } from '@/components/ui/variable-select'
 import {
   Select,
   SelectContent,
@@ -10,16 +10,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { TextExtractConfig as TextExtractConfigType } from '@/types'
+import type { TextExtractConfig as TextExtractConfigType, WorkflowNode } from '@/types'
 
 interface TextExtractConfigProps {
   config: Partial<TextExtractConfigType>
   onChange: (config: Partial<TextExtractConfigType>) => void
+  nodes?: WorkflowNode[]
+  currentNodeId?: string
 }
 
 // 默认配置
 const defaultConfig: TextExtractConfigType = {
-  input_source: 'previous',
   extract_mode: 'regex',
   regex_pattern: '',
   start_marker: '',
@@ -27,7 +28,7 @@ const defaultConfig: TextExtractConfigType = {
   json_path: '',
 }
 
-export function TextExtractConfigForm({ config, onChange }: TextExtractConfigProps) {
+export function TextExtractConfigForm({ config, onChange, nodes = [], currentNodeId }: TextExtractConfigProps) {
   // 合并默认配置
   const currentConfig: TextExtractConfigType = { ...defaultConfig, ...config }
 
@@ -41,28 +42,16 @@ export function TextExtractConfigForm({ config, onChange }: TextExtractConfigPro
       {/* 数据源设置 */}
       <div className="space-y-4">
         <Label>输入数据源</Label>
-        <Select
-          value={currentConfig.input_source}
-          onValueChange={(value: 'previous' | 'variable') =>
-            updateConfig({ input_source: value })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="previous">上一节点输出</SelectItem>
-            <SelectItem value="variable">引用变量</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {currentConfig.input_source === 'variable' && (
-          <Input
-            placeholder="变量名（如：用户问题）"
-            value={currentConfig.input_variable || ''}
-            onChange={(e) => updateConfig({ input_variable: e.target.value })}
-          />
-        )}
+        <VariableSelect
+          placeholder="选择引用变量"
+          value={currentConfig.input_variable || ''}
+          onChange={(value) => updateConfig({ input_variable: value })}
+          nodes={nodes}
+          currentNodeId={currentNodeId}
+        />
+        <p className="text-xs text-muted-foreground">
+          选择要提取内容的变量
+        </p>
       </div>
 
       {/* 提取模式 */}

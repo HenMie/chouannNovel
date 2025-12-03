@@ -14,9 +14,8 @@ const VARIABLE_PATTERN = /\{\{([^}]+)\}\}/g
 
 // 系统内置变量列表（显示为蓝色标签）
 // - 用户问题/input/输入: 初始用户输入
-// - previous/上一节点/上一个输出: 上一节点输出（向后兼容，建议使用精确的节点名称引用）
 // - loop_index: 当前循环索引
-const SYSTEM_VARIABLES = ['用户问题', 'input', '输入', 'previous', '上一节点', '上一个输出', 'loop_index']
+const SYSTEM_VARIABLES = ['用户问题', 'input', '输入', 'loop_index']
 
 interface PromptEditorProps {
   value: string

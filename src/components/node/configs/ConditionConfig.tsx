@@ -4,6 +4,7 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { PromptEditor } from '@/components/ui/prompt-editor'
+import { VariableSelect } from '@/components/ui/variable-select'
 import {
   Select,
   SelectContent,
@@ -31,7 +32,6 @@ interface ConditionConfigProps {
 
 // 默认配置
 const defaultConfig: ConditionConfigType = {
-  input_source: 'previous',
   condition_type: 'keyword',
   keywords: [],
   keyword_mode: 'any',
@@ -189,28 +189,16 @@ export function ConditionConfigForm({
       {/* 数据源设置 */}
       <div className="space-y-4">
         <Label>输入数据源</Label>
-        <Select
-          value={currentConfig.input_source}
-          onValueChange={(value: 'previous' | 'variable') =>
-            updateConfig({ input_source: value })
-          }
-        >
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="previous">上一节点输出</SelectItem>
-            <SelectItem value="variable">引用变量</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {currentConfig.input_source === 'variable' && (
-          <Input
-            placeholder="变量名（如：用户问题）"
-            value={currentConfig.input_variable || ''}
-            onChange={(e) => updateConfig({ input_variable: e.target.value })}
-          />
-        )}
+        <VariableSelect
+          placeholder="选择引用变量"
+          value={currentConfig.input_variable || ''}
+          onChange={(value) => updateConfig({ input_variable: value })}
+          nodes={nodes}
+          currentNodeId={currentNodeId}
+        />
+        <p className="text-xs text-muted-foreground">
+          选择要进行条件判断的变量
+        </p>
       </div>
 
       {/* 条件类型 */}

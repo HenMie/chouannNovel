@@ -17,6 +17,7 @@ import {
   Maximize2,
   Copy,
   Check,
+  Settings2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -38,7 +39,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Header } from '@/components/layout/Header'
-import { StreamingOutput } from '@/components/execution/StreamingOutput'
+import { StreamingOutput, hasResolvedConfig, ResolvedConfigDisplay } from '@/components/execution/StreamingOutput'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import * as db from '@/lib/db'
@@ -158,6 +159,73 @@ function ExecutionListItem({
   )
 }
 
+// 节点结果项组件（支持配置详情折叠）
+function NodeResultItem({
+  result,
+  nodeName,
+}: {
+  result: NodeResult
+  nodeName: string
+}) {
+  const [showConfig, setShowConfig] = useState(false)
+  const hasConfig = result.resolved_config && hasResolvedConfig(result.resolved_config)
+
+  return (
+    <div className="relative">
+      <div className={cn(
+        "absolute -left-[29px] top-0 h-4 w-4 rounded-full border-2 border-background ring-1 ring-muted",
+        result.status === 'completed' ? "bg-green-500" : 
+        result.status === 'failed' ? "bg-red-500" : "bg-muted"
+      )} />
+      <div className="flex items-center justify-between mb-2">
+        <span className="font-medium text-sm">{nodeName}</span>
+        <span className="text-xs text-muted-foreground">
+          {formatDuration(result.started_at, result.finished_at)}
+        </span>
+      </div>
+      
+      <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+        {/* 配置详情折叠区域 */}
+        {hasConfig && (
+          <div className="border-b">
+            <button
+              type="button"
+              onClick={() => setShowConfig(!showConfig)}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/50 transition-colors"
+            >
+              {showConfig ? (
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+              )}
+              <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">执行配置详情</span>
+            </button>
+            <AnimatePresence initial={false}>
+              {showConfig && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <ResolvedConfigDisplay config={result.resolved_config!} nodeType="" />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+        
+        {/* 输出内容 */}
+        {result.output && (
+          <StreamingOutput content={result.output} className="max-h-[300px] text-sm" />
+        )}
+      </div>
+    </div>
+  )
+}
+
 // 详情对话框
 function ExecutionDetailDialog({
   execution,
@@ -257,24 +325,11 @@ function ExecutionDetailDialog({
               ) : (
                  <div className="relative border-l-2 border-muted ml-3 space-y-6 pl-6 py-2">
                     {nodeResults.map((result, index) => (
-                       <div key={result.id} className="relative">
-                          <div className={cn(
-                             "absolute -left-[29px] top-0 h-4 w-4 rounded-full border-2 border-background ring-1 ring-muted",
-                             result.status === 'completed' ? "bg-green-500" : 
-                             result.status === 'failed' ? "bg-red-500" : "bg-muted"
-                          )} />
-                          <div className="flex items-center justify-between mb-2">
-                             <span className="font-medium text-sm">{getNodeName(result.node_id)}</span>
-                             <span className="text-xs text-muted-foreground">
-                                {formatDuration(result.started_at, result.finished_at)}
-                             </span>
-                          </div>
-                          {result.output && (
-                             <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
-                                <StreamingOutput content={result.output} className="max-h-[300px] text-sm" />
-                             </div>
-                          )}
-                       </div>
+                       <NodeResultItem 
+                         key={result.id}
+                         result={result}
+                         nodeName={getNodeName(result.node_id)}
+                       />
                     ))}
                  </div>
               )}

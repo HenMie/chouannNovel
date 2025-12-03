@@ -173,11 +173,11 @@ function Tag({ children, color = 'blue' }: { children: React.ReactNode; color?: 
 }
 
 // 输入来源描述
-function getInputSourceDesc(source?: string, variable?: string): React.ReactNode {
-  if (source === 'variable' && variable) {
+function getInputSourceDesc(_source?: string, variable?: string): React.ReactNode {
+  if (variable) {
     return <Tag color="green">{variable}</Tag>
   }
-  return <Tag color="gray">上一节点输出</Tag>
+  return <Tag color="gray">未设置变量</Tag>
 }
 
 // 生成节点描述
@@ -200,16 +200,16 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
     case 'output':
       return (
         <span className="text-muted-foreground">
-          输出 {getInputSourceDesc('previous')} 的结果
+          输出工作流最终执行结果
         </span>
       )
     
     case 'ai_chat': {
       const aiConfig = config as AIChatConfig
-      const userPrompt = (aiConfig?.user_prompt || '{{上一节点}}').trim()
-      let inputDesc: React.ReactNode = <Tag color="gray">上一节点输出</Tag>
+      const userPrompt = (aiConfig?.user_prompt || '').trim()
+      let inputDesc: React.ReactNode = <Tag color="gray">未设置提示词</Tag>
       
-      if (userPrompt && userPrompt !== '{{上一节点}}') {
+      if (userPrompt) {
         const preview = userPrompt.length > 20 ? `${userPrompt.slice(0, 20)}...` : userPrompt
         inputDesc = <Tag color="blue">{preview}</Tag>
       }
@@ -227,9 +227,7 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
     
     case 'var_set': {
       const varConfig = config as VarSetConfig
-      const valueDesc = varConfig?.value_source === 'previous' 
-        ? <Tag color="gray">上一节点输出</Tag>
-        : varConfig?.custom_value 
+      const valueDesc = varConfig?.custom_value 
         ? <Tag color="blue">{varConfig.custom_value.slice(0, 30)}{varConfig.custom_value.length > 30 ? '...' : ''}</Tag>
         : <Tag color="gray">空值</Tag>
       
@@ -278,7 +276,7 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
         
         return (
           <span className="text-muted-foreground">
-            当 {getInputSourceDesc(loopConfig?.condition_source, loopConfig?.condition_variable)} {condDesc} 时继续循环，最多 <Tag color="pink">{loopConfig?.max_iterations || 5}</Tag> 次
+            当 {getInputSourceDesc(undefined, loopConfig?.condition_variable)} {condDesc} 时继续循环，最多 <Tag color="pink">{loopConfig?.max_iterations || 5}</Tag> 次
           </span>
         )
       }
@@ -310,7 +308,7 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
     
     case 'condition_if': {
       const condConfig = config as ConditionIfConfig
-      const inputDesc = getInputSourceDesc(condConfig?.input_source, condConfig?.input_variable)
+      const inputDesc = getInputSourceDesc(undefined, condConfig?.input_variable)
       
       let conditionDesc: React.ReactNode
       
@@ -380,7 +378,7 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
     
     case 'text_extract': {
       const extractConfig = config as TextExtractConfig
-      const inputDesc = getInputSourceDesc(extractConfig?.input_source, extractConfig?.input_variable)
+      const inputDesc = getInputSourceDesc(undefined, extractConfig?.input_variable)
       
       let modeDesc: React.ReactNode
       switch (extractConfig?.extract_mode) {
@@ -408,7 +406,6 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
       const concatConfig = config as TextConcatConfig
       const sources = concatConfig?.sources || []
       const sourceDescs = sources.map((s, i) => {
-        if (s.type === 'previous') return <Tag key={i} color="gray">上一输出</Tag>
         if (s.type === 'variable') return <Tag key={i} color="green">{s.variable || '变量'}</Tag>
         if (s.type === 'custom') return <Tag key={i} color="blue">{(s.custom || '').slice(0, 10)}{(s.custom || '').length > 10 ? '...' : ''}</Tag>
         return <Tag key={i} color="gray">未知</Tag>
