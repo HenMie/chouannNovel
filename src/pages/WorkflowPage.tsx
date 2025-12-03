@@ -104,6 +104,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     pasteNodes,
     hasCopiedNode,
     getCopiedCount,
+    restoreNodes,
   } = useProjectStore()
 
   // 执行状态
@@ -383,9 +384,11 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     }
     const beforeNodes = [...nodes]
     const copiedCount = getCopiedCount()
+    const { copiedNodes } = useProjectStore.getState()
+    const isBatchCopy = copiedNodes !== null && copiedNodes.nodes.length > 0
     
-    if (copiedCount > 1) {
-      // 批量粘贴
+    if (isBatchCopy) {
+      // 批量粘贴（即便只有 1 个节点，也使用批量逻辑，保持数据来源一致）
       const newNodes = await pasteNodes()
       if (newNodes.length > 0) {
         const afterNodes = useProjectStore.getState().nodes
@@ -410,9 +413,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     const previousNodes = history.undo()
     if (previousNodes && currentWorkflow) {
       // 恢复节点状态到数据库
-      // 这里需要重新同步节点列表
-      // 简化处理：重新加载工作流
-      await loadNodes(currentWorkflow.id)
+      await restoreNodes(previousNodes)
       toast.info('已撤销')
     }
   }
@@ -423,7 +424,8 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     
     const nextNodes = history.redo()
     if (nextNodes && currentWorkflow) {
-      await loadNodes(currentWorkflow.id)
+      // 恢复节点状态到数据库
+      await restoreNodes(nextNodes)
       toast.info('已重做')
     }
   }
@@ -577,14 +579,12 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     {
       key: 'a',
       ctrl: true,
-      handler: (e) => {
-        if (!isExecuting && !isConfigOpen && !showInputDialog) {
-          e.preventDefault()
-          const selectableNodes = nodes.filter(n => n.type !== 'start')
-          setSelectedNodeIds(new Set(selectableNodes.map(n => n.id)))
-        }
+      handler: () => {
+        const selectableNodes = nodes.filter(n => n.type !== 'start')
+        setSelectedNodeIds(new Set(selectableNodes.map(n => n.id)))
       },
       enabled: !isExecuting && !isConfigOpen && !showInputDialog,
+      preventDefault: true,
     },
 
     // Delete / Backspace: 删除选中的节点

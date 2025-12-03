@@ -350,6 +350,61 @@ export async function reorderNodes(
   }
 }
 
+/**
+ * 批量恢复节点状态（用于撤销/重做）
+ * 删除当前所有节点，然后重新创建
+ */
+export async function restoreNodes(
+  workflowId: string,
+  nodes: Array<Omit<WorkflowNode, 'id' | 'workflow_id' | 'created_at' | 'updated_at'>>
+): Promise<WorkflowNode[]> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+
+  // 删除当前工作流的所有节点
+  await db.execute('DELETE FROM nodes WHERE workflow_id = ?', [workflowId])
+
+  // 创建 block_id 映射（保持原有的 block_id，不重新生成）
+  const restoredNodes: WorkflowNode[] = []
+
+  // 重新创建节点
+  for (const node of nodes) {
+    const nodeId = generateId()
+
+    await db.execute(
+      `INSERT INTO nodes (id, workflow_id, type, name, config, order_index, block_id, parent_block_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        nodeId,
+        workflowId,
+        node.type,
+        node.name,
+        JSON.stringify(node.config),
+        node.order_index,
+        node.block_id || null,
+        node.parent_block_id || null,
+        now,
+        now,
+      ]
+    )
+
+    restoredNodes.push({
+      id: nodeId,
+      workflow_id: workflowId,
+      type: node.type,
+      name: node.name,
+      config: node.config,
+      order_index: node.order_index,
+      block_id: node.block_id,
+      parent_block_id: node.parent_block_id,
+      created_at: now,
+      updated_at: now,
+    })
+  }
+
+  return restoredNodes
+}
+
 // ========== 设定库操作 ==========
 
 export async function getSettings(

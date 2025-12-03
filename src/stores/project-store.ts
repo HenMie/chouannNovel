@@ -83,6 +83,9 @@ interface ProjectState {
   
   // 批量节点操作
   deleteNodes: (nodeIds: string[]) => Promise<void>
+  
+  // 恢复节点状态（用于撤销/重做）
+  restoreNodes: (nodes: WorkflowNode[]) => Promise<void>
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -481,6 +484,28 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     set((state) => ({
       nodes: state.nodes.filter(n => !allNodeIdsToDelete.has(n.id))
     }))
+  },
+
+  // 恢复节点状态（用于撤销/重做）
+  restoreNodes: async (nodesToRestore) => {
+    const { currentWorkflow } = get()
+    if (!currentWorkflow) return
+    
+    // 转换为数据库需要的格式
+    const nodesForDb = nodesToRestore.map(n => ({
+      type: n.type,
+      name: n.name,
+      config: n.config,
+      order_index: n.order_index,
+      block_id: n.block_id,
+      parent_block_id: n.parent_block_id,
+    }))
+    
+    // 调用数据库恢复方法
+    const restoredNodes = await db.restoreNodes(currentWorkflow.id, nodesForDb)
+    
+    // 更新 store 状态
+    set({ nodes: restoredNodes })
   },
 }))
 

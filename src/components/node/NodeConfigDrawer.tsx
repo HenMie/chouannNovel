@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { EmptyState } from '@/components/ui/empty-state'
 import {
   Select,
@@ -411,6 +411,9 @@ export function NodeConfigDrawer({
           <SheetTitle className="text-lg font-semibold">
             {node ? nodeTypeLabels[node.type] : '节点配置'}
           </SheetTitle>
+          <SheetDescription className="sr-only">
+            配置节点参数
+          </SheetDescription>
         </SheetHeader>
 
         <ScrollArea className="flex-1 px-6 py-6">
