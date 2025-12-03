@@ -111,6 +111,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       elapsedSeconds: 0,
     })
 
+    // 清空节点结果 ID 映射
+    nodeResultIds.clear()
+
     // 创建执行器
     const executor = new WorkflowExecutor({
       workflow,
@@ -119,7 +122,10 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       initialInput,
       settings,
       settingPrompts,
-      onEvent: (event) => handleExecutionEvent(event, get, set),
+      onEvent: (event) => {
+        // 异步处理事件，不阻塞执行器
+        handleExecutionEvent(event, get, set).catch(console.error)
+      },
     })
 
     set({ executor })
@@ -236,16 +242,19 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
   },
 }))
 
+// 节点结果 ID 映射（用于追踪数据库记录）
+const nodeResultIds: Map<string, string> = new Map()
+
 // 处理执行事件
-function handleExecutionEvent(
+async function handleExecutionEvent(
   event: ExecutionEvent,
   get: () => ExecutionState,
   set: (state: Partial<ExecutionState>) => void
 ) {
-  const { nodeOutputs } = get()
+  const { nodeOutputs, executionId } = get()
 
   switch (event.type) {
-    case 'node_started':
+    case 'node_started': {
       // 节点开始执行
       set({
         currentNodeIndex: nodeOutputs.length,
@@ -263,7 +272,18 @@ function handleExecutionEvent(
           },
         ],
       })
+      
+      // 保存节点结果到数据库
+      if (executionId && event.nodeId) {
+        try {
+          const nodeResult = await db.createNodeResult(executionId, event.nodeId)
+          nodeResultIds.set(event.nodeId, nodeResult.id)
+        } catch (error) {
+          console.error('保存节点结果失败:', error)
+        }
+      }
       break
+    }
 
     case 'node_streaming':
       // 流式输出更新
@@ -277,7 +297,7 @@ function handleExecutionEvent(
       })
       break
 
-    case 'node_completed':
+    case 'node_completed': {
       // 节点执行完成
       set({
         streamingContent: '',
@@ -288,9 +308,26 @@ function handleExecutionEvent(
             : o
         ),
       })
+      
+      // 更新数据库中的节点结果
+      if (event.nodeId) {
+        const resultId = nodeResultIds.get(event.nodeId)
+        if (resultId) {
+          try {
+            await db.updateNodeResult(resultId, {
+              output: event.content || '',
+              status: 'completed',
+              finished_at: new Date().toISOString(),
+            })
+          } catch (error) {
+            console.error('更新节点结果失败:', error)
+          }
+        }
+      }
       break
+    }
 
-    case 'node_failed':
+    case 'node_failed': {
       // 节点执行失败
       set({
         streamingContent: '',
@@ -302,9 +339,26 @@ function handleExecutionEvent(
             : o
         ),
       })
+      
+      // 更新数据库中的节点结果
+      if (event.nodeId) {
+        const resultId = nodeResultIds.get(event.nodeId)
+        if (resultId) {
+          try {
+            await db.updateNodeResult(resultId, {
+              output: `错误: ${event.error}`,
+              status: 'failed',
+              finished_at: new Date().toISOString(),
+            })
+          } catch (error) {
+            console.error('更新节点结果失败:', error)
+          }
+        }
+      }
       break
+    }
 
-    case 'node_skipped':
+    case 'node_skipped': {
       // 节点被跳过
       set({
         nodeOutputs: nodeOutputs.map(o =>
@@ -314,6 +368,7 @@ function handleExecutionEvent(
         ),
       })
       break
+    }
 
     case 'execution_paused':
       set({ status: 'paused' })
@@ -324,6 +379,8 @@ function handleExecutionEvent(
       break
 
     case 'execution_completed':
+      // 清空节点结果 ID 映射
+      nodeResultIds.clear()
       set({
         status: 'completed',
         currentNodeIndex: null,
@@ -333,6 +390,7 @@ function handleExecutionEvent(
       break
 
     case 'execution_failed':
+      nodeResultIds.clear()
       set({
         status: 'failed',
         error: event.error || '执行失败',
@@ -343,6 +401,7 @@ function handleExecutionEvent(
       break
 
     case 'execution_cancelled':
+      nodeResultIds.clear()
       set({
         status: 'cancelled',
         currentNodeIndex: null,
@@ -352,6 +411,7 @@ function handleExecutionEvent(
       break
 
     case 'execution_timeout':
+      nodeResultIds.clear()
       set({
         status: 'timeout',
         error: '执行超时',

@@ -5,4 +5,5 @@ export { SettingsPage } from './SettingsPage'
 export { SettingsLibraryPage } from './SettingsLibraryPage'
 export { NewProjectPage } from './NewProjectPage'
 export { NewWorkflowPage } from './NewWorkflowPage'
+export { ExecutionHistoryPage } from './ExecutionHistoryPage'
 

@@ -224,7 +224,7 @@ CREATE TABLE node_results (
 ### Phase 5: 流程控制节点 (P1) ✅
 - [x] 条件判断节点
 - [x] 循环节点
-- [ ] 批量并发执行节点
+- [x] 批量并发执行节点
 
 ### Phase 6: 文本处理节点 (P1) ✅
 - [x] 内容提取节点
@@ -241,20 +241,32 @@ CREATE TABLE node_results (
 - [x] 注入提示词配置
 - [x] AI 节点引用设定
 
-### Phase 9: 历史与导出 (P2)
-- [ ] 执行历史记录
-- [ ] 历史回溯查看
-- [ ] 导出 TXT/Markdown
+### Phase 9: 历史与导出 (P2) ✅
+- [x] 执行历史记录
+- [x] 历史回溯查看
+- [x] 导出 TXT/Markdown
 
-### Phase 10: 人工干预 (P2)
+### Phase 10: 人工干预 (P2) ✅
 - [x] 暂停时编辑节点输出（executor.modifyNodeOutput 已实现）
-- [ ] UI 层人工干预编辑器组件
+- [x] UI 层人工干预编辑器组件
 
 ### Phase 11: 优化 (P3)
-- [ ] 提示词编辑器（变量高亮）
-- [ ] 快捷键支持
-- [ ] 节点复制/粘贴
-- [ ] 性能优化
+- [ ] 提示词编辑器（变量高亮，`{{变量名}}`）
+- [ ] 快捷键支持（运行/暂停/保存等）
+- [ ] 节点复制/粘贴功能
+- [ ] 性能优化（虚拟滚动、分页加载）
+
+---
+
+## 开发进度总结
+
+| 阶段 | 状态 | 主要功能 |
+|------|------|----------|
+| Phase 1-4 | ✅ 完成 | 基础架构、项目管理、AI节点、执行引擎 |
+| Phase 5 | ✅ 完成 | 条件判断、循环、批量并发执行 |
+| Phase 6-8 | ✅ 完成 | 文本处理、变量系统、设定库 |
+| Phase 9-10 | ✅ 完成 | 执行历史、导出、人工干预编辑 |
+| Phase 11 | 🔲 待开发 | 提示词高亮、快捷键、节点复制 |
 
 ---
 
@@ -353,7 +365,7 @@ interface LoopConfig {
 }
 ```
 
-### 批量并发执行节点 (batch) - 待实现
+### 批量并发执行节点 (batch) ✅
 ```typescript
 interface BatchConfig {
   input_source: 'previous' | 'variable';
@@ -412,7 +424,8 @@ src/
 │   │       ├── TextExtractConfig.tsx # 文本提取节点配置
 │   │       ├── TextConcatConfig.tsx  # 文本拼接节点配置
 │   │       ├── ConditionConfig.tsx   # 条件判断节点配置
-│   │       └── LoopConfig.tsx        # 循环节点配置
+│   │       ├── LoopConfig.tsx        # 循环节点配置
+│   │       └── BatchConfig.tsx       # 批量执行节点配置
 │   ├── execution/                # 执行相关组件
 │   │   └── StreamingOutput.tsx   # 流式输出显示
 │   └── ui/                       # shadcn/ui 组件
@@ -438,6 +451,7 @@ src/
 │   ├── WorkflowPage.tsx          # 工作流编辑页
 │   ├── SettingsPage.tsx          # 全局设置页
 │   ├── SettingsLibraryPage.tsx   # 设定库页面
+│   ├── ExecutionHistoryPage.tsx  # 执行历史页面
 │   ├── NewProjectPage.tsx        # 新建项目页
 │   └── NewWorkflowPage.tsx       # 新建工作流页
 │
@@ -578,6 +592,7 @@ const {
 '/project/:id/settings'                -> SettingsLibraryPage  // 设定库
 '/project/:id/workflow/new'            -> NewWorkflowPage
 '/project/:id/workflow/:wid'           -> WorkflowPage
+'/project/:id/workflow/:wid/history'   -> ExecutionHistoryPage  // 执行历史
 
 // 导航: onNavigate('/project/xxx')
 ```
@@ -625,6 +640,7 @@ await startExecution(workflow, nodes, globalConfig, initialInput, settings, sett
 - `text_concat` - 文本拼接节点（多来源拼接，支持变量插值）
 - `condition` - 条件判断节点（关键词/长度/正则/AI判断，支持跳转/结束）
 - `loop` - 循环节点（固定次数/条件循环）
+- `batch` - 批量并发执行节点（分割输入，并发执行目标节点，汇总输出）
 
 **执行上下文功能**：
 - 变量存储：`ctx.setVariable(name, value)` / `ctx.getVariable(name)`
@@ -711,22 +727,65 @@ toast.error('操作失败')
 
 ---
 
-## 待开发功能清单
+## 待开发功能清单 (Phase 11)
 
-### 批量并发执行节点 (batch) - Phase 5 遗留
-- [ ] `src/components/node/configs/BatchConfig.tsx` - 批量执行节点配置表单
-- [ ] `src/lib/engine/executor.ts` 中添加 `batch` 节点执行逻辑
-- [ ] 实现并发控制和输出汇总
+### 1. 提示词编辑器（变量高亮）
 
-### 历史与导出 (Phase 9)
-- [ ] 执行历史记录保存到数据库（使用 `executions` 和 `node_results` 表）
-- [ ] 历史回溯查看页面
-- [ ] 导出 TXT/Markdown 功能
+**目标**：对 `{{变量名}}` 语法进行语法高亮显示
 
-### 人工干预编辑器 (Phase 10)
-- [ ] UI 层人工干预编辑器组件（暂停时可编辑节点输出，底层 `executor.modifyNodeOutput` 已实现）
+**实现方案**：
+- 方案 A：使用 `@uiw/react-codemirror` + 自定义语法高亮扩展
+- 方案 B：使用 `contenteditable` + 正则匹配 + span 包裹高亮
 
-### 优化 (Phase 11)
-- [ ] 提示词编辑器（变量高亮，如 `{{变量名}}`）
-- [ ] 快捷键支持
-- [ ] 节点复制/粘贴
+**涉及文件**：
+- `src/components/ui/prompt-editor.tsx` (新建)
+- `src/components/node/configs/AIChatConfig.tsx` (替换 Textarea)
+
+**高亮规则**：
+```typescript
+// 匹配 {{变量名}} 格式
+const variablePattern = /\{\{([^}]+)\}\}/g
+// 高亮样式：背景色 + 不同颜色区分内置变量
+// 内置变量：{{input}}, {{previous}}
+```
+
+### 2. 快捷键支持
+
+**目标**：提升操作效率
+
+**快捷键列表**：
+| 快捷键 | 作用 | 作用域 |
+|--------|------|--------|
+| `Ctrl+S` | 保存节点配置 | 节点配置抽屉 |
+| `Ctrl+Enter` | 运行工作流 | 工作流页面 |
+| `Space` | 暂停/继续执行 | 执行中 |
+| `Escape` | 关闭抽屉/对话框 | 全局 |
+| `Ctrl+N` | 新建节点 | 工作流页面 |
+
+**实现方案**：
+- 使用 `useEffect` + `keydown` 事件监听
+- 或使用 `react-hotkeys-hook` 库
+
+### 3. 节点复制/粘贴
+
+**目标**：快速复制节点配置
+
+**实现方案**：
+- 在 `project-store.ts` 添加 `copiedNode` 状态
+- 节点卡片添加复制/粘贴按钮
+- 复制时保存 `{ type, name, config }` (不含 ID)
+- 粘贴时调用 `createNode` 生成新节点
+
+**涉及文件**：
+- `src/stores/project-store.ts` (添加复制状态和方法)
+- `src/pages/WorkflowPage.tsx` (添加 UI 按钮)
+
+### 4. 性能优化
+
+**目标**：大数据量时保持流畅
+
+**优化点**：
+- 节点列表虚拟滚动（使用 `@tanstack/react-virtual`）
+- 执行历史分页加载（数据库 LIMIT/OFFSET）
+- AI 流式输出节流（`requestAnimationFrame` 或 `throttle`）
+- 节点输出缓存（避免重复渲染）

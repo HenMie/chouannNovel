@@ -20,6 +20,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Clock,
+  History,
 } from 'lucide-react'
 import {
   DndContext,
@@ -193,7 +194,7 @@ function SortableNodeCard({
   )
 }
 
-export function WorkflowPage({ projectId, workflowId, onNavigate: _onNavigate }: WorkflowPageProps) {
+export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPageProps) {
   const {
     currentWorkflow,
     nodes,
@@ -219,6 +220,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate: _onNavigate }:
     pauseExecution,
     resumeExecution,
     cancelExecution,
+    modifyNodeOutput,
     reset: resetExecution,
   } = useExecutionStore()
 
@@ -393,6 +395,16 @@ export function WorkflowPage({ projectId, workflowId, onNavigate: _onNavigate }:
       <Header title={currentWorkflow.name}>
         {/* 执行控制按钮 */}
         <div className="flex items-center gap-2">
+          {/* 执行历史按钮 */}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onNavigate(`/project/${projectId}/workflow/${workflowId}/history`)}
+          >
+            <History className="mr-2 h-4 w-4" />
+            执行历史
+          </Button>
+          
           {!isExecuting ? (
             <Button size="sm" onClick={handleRun} disabled={nodes.length === 0}>
               <Play className="mr-2 h-4 w-4" />
@@ -571,6 +583,8 @@ export function WorkflowPage({ projectId, workflowId, onNavigate: _onNavigate }:
                   output={output.output}
                   isRunning={output.isRunning}
                   isStreaming={output.isStreaming}
+                  canEdit={isPaused}
+                  onEdit={modifyNodeOutput}
                 />
               ))}
               

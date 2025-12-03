@@ -1026,4 +1026,3 @@ export function executorStatusToDbStatus(status: ExecutorStatus): ExecutionStatu
       return 'running'
   }
 }
-

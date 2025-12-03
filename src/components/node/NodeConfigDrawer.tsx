@@ -13,6 +13,7 @@ import { TextExtractConfigForm } from './configs/TextExtractConfig'
 import { TextConcatConfigForm } from './configs/TextConcatConfig'
 import { ConditionConfigForm } from './configs/ConditionConfig'
 import { LoopConfigForm } from './configs/LoopConfig'
+import { BatchConfigForm } from './configs/BatchConfig'
 import { toast } from 'sonner'
 import * as db from '@/lib/db'
 import type { 
@@ -24,6 +25,7 @@ import type {
   TextConcatConfig,
   ConditionConfig,
   LoopConfig,
+  BatchConfig,
 } from '@/types'
 
 interface NodeConfigDrawerProps {
@@ -268,6 +270,16 @@ export function NodeConfigDrawer({
             nodes={nodes}
             currentNodeId={node.id}
             onChange={setConfig}
+          />
+        )
+
+      case 'batch':
+        return (
+          <BatchConfigForm
+            config={config as Partial<BatchConfig>}
+            onChange={setConfig}
+            nodes={nodes}
+            currentNodeId={node.id}
           />
         )
 
