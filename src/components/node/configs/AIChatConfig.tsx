@@ -5,6 +5,7 @@ import { Users, Globe, Palette, FileText, Check } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { PromptEditor } from '@/components/ui/prompt-editor'
 import {
   Select,
   SelectContent,
@@ -156,15 +157,15 @@ export function AIChatConfigForm({ config, globalConfig, projectId, onChange }: 
       {/* 提示词 */}
       <div className="space-y-2">
         <Label htmlFor="prompt">提示词</Label>
-        <Textarea
+        <PromptEditor
           id="prompt"
           placeholder="输入提示词，支持 {{变量名}} 插值..."
-          className="min-h-[120px] font-mono text-sm"
           value={currentConfig.prompt}
-          onChange={(e) => updateConfig({ prompt: e.target.value })}
+          onChange={(value) => updateConfig({ prompt: value })}
         />
         <p className="text-xs text-muted-foreground">
-          使用 {`{{变量名}}`} 引用变量，{`{{上一节点}}`} 引用上一节点输出
+          使用 <span className="prompt-var prompt-var-custom">{'{{变量名}}'}</span> 引用变量，
+          <span className="prompt-var prompt-var-builtin">{'{{上一节点}}'}</span> 引用上一节点输出
         </p>
       </div>
 

@@ -3,6 +3,7 @@
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { PromptEditor } from '@/components/ui/prompt-editor'
 import {
   Select,
   SelectContent,
@@ -368,15 +369,15 @@ export function ConditionConfigForm({
           </div>
           <div className="space-y-2">
             <Label htmlFor="ai_prompt">判断提示词</Label>
-            <Textarea
+            <PromptEditor
               id="ai_prompt"
               placeholder="请判断以下内容是否满足条件...（AI 会根据此提示返回 true/false）"
-              className="min-h-[100px]"
+              minHeight="100px"
               value={currentConfig.ai_prompt || ''}
-              onChange={(e) => updateConfig({ ai_prompt: e.target.value })}
+              onChange={(value) => updateConfig({ ai_prompt: value })}
             />
             <p className="text-xs text-muted-foreground">
-              AI 将根据提示词判断输入内容，返回 true 或 false
+              支持 <span className="prompt-var prompt-var-custom">{'{{变量名}}'}</span> 插值，AI 将根据提示词判断输入内容，返回 true 或 false
             </p>
           </div>
         </div>

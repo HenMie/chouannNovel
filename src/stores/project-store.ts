@@ -2,6 +2,13 @@ import { create } from 'zustand'
 import type { Project, Workflow, WorkflowNode } from '@/types'
 import * as db from '@/lib/db'
 
+// 复制的节点数据（不含 ID）
+interface CopiedNode {
+  type: WorkflowNode['type']
+  name: string
+  config: WorkflowNode['config']
+}
+
 interface ProjectState {
   // 项目列表
   projects: Project[]
@@ -16,6 +23,9 @@ interface ProjectState {
   // 节点列表
   nodes: WorkflowNode[]
   isLoadingNodes: boolean
+
+  // 复制的节点
+  copiedNode: CopiedNode | null
 
   // 项目操作
   loadProjects: () => Promise<void>
@@ -37,6 +47,11 @@ interface ProjectState {
   updateNode: (id: string, data: Partial<Pick<WorkflowNode, 'name' | 'config'>>) => Promise<void>
   deleteNode: (id: string) => Promise<void>
   reorderNodes: (nodeIds: string[]) => Promise<void>
+
+  // 复制/粘贴操作
+  copyNode: (node: WorkflowNode) => void
+  pasteNode: () => Promise<WorkflowNode | null>
+  hasCopiedNode: () => boolean
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -51,6 +66,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   nodes: [],
   isLoadingNodes: false,
+
+  copiedNode: null,
 
   // 项目操作
   loadProjects: async () => {
@@ -197,6 +214,40 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     // 持久化
     await db.reorderNodes(currentWorkflow.id, nodeIds)
+  },
+
+  // 复制节点
+  copyNode: (node) => {
+    set({
+      copiedNode: {
+        type: node.type,
+        name: node.name,
+        config: JSON.parse(JSON.stringify(node.config)), // 深拷贝配置
+      },
+    })
+  },
+
+  // 粘贴节点
+  pasteNode: async () => {
+    const { currentWorkflow, copiedNode, nodes } = get()
+    if (!currentWorkflow || !copiedNode) return null
+
+    // 创建新节点，名称添加"副本"后缀
+    const newName = `${copiedNode.name} (副本)`
+    const node = await db.createNode(
+      currentWorkflow.id,
+      copiedNode.type,
+      newName,
+      copiedNode.config
+    )
+
+    set((state) => ({ nodes: [...state.nodes, node] }))
+    return node
+  },
+
+  // 是否有复制的节点
+  hasCopiedNode: () => {
+    return get().copiedNode !== null
   },
 }))
 

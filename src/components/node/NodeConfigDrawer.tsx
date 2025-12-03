@@ -1,6 +1,6 @@
 // 节点配置抽屉组件
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,6 +15,7 @@ import { ConditionConfigForm } from './configs/ConditionConfig'
 import { LoopConfigForm } from './configs/LoopConfig'
 import { BatchConfigForm } from './configs/BatchConfig'
 import { toast } from 'sonner'
+import { useHotkeys, HOTKEY_PRESETS } from '@/lib/hooks'
 import * as db from '@/lib/db'
 import type { 
   WorkflowNode, 
@@ -86,7 +87,7 @@ export function NodeConfigDrawer({
   }, [node])
 
   // 保存节点配置
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!node) return
 
     setIsSaving(true)
@@ -111,7 +112,21 @@ export function NodeConfigDrawer({
     } finally {
       setIsSaving(false)
     }
-  }
+  }, [node, name, config, onSave, onClose])
+
+  // 快捷键: Ctrl+S 保存, Escape 关闭
+  useHotkeys([
+    HOTKEY_PRESETS.save(() => {
+      if (open && !isSaving) {
+        handleSave()
+      }
+    }, open),
+    HOTKEY_PRESETS.escape(() => {
+      if (open) {
+        onClose()
+      }
+    }, open),
+  ])
 
   // 渲染节点配置表单
   const renderConfigForm = () => {

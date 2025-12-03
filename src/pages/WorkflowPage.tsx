@@ -21,6 +21,8 @@ import {
   CheckCircle2,
   Clock,
   History,
+  Copy,
+  Clipboard,
 } from 'lucide-react'
 import {
   DndContext,
@@ -59,6 +61,7 @@ import { useExecutionStore } from '@/stores/execution-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { getGlobalConfig } from '@/lib/db'
 import { cn } from '@/lib/utils'
+import { useHotkeys, HOTKEY_PRESETS } from '@/lib/hooks'
 import { toast } from 'sonner'
 import type { WorkflowNode, NodeType, GlobalConfig } from '@/types'
 
@@ -92,12 +95,14 @@ function SortableNodeCard({
   isRunning,
   onDelete,
   onEdit,
+  onCopy,
 }: {
   node: WorkflowNode
   isActive?: boolean
   isRunning?: boolean
   onDelete: () => void
   onEdit: () => void
+  onCopy: () => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: node.id })
@@ -169,6 +174,19 @@ function SortableNodeCard({
               variant="ghost"
               size="icon"
               className="h-8 w-8"
+              title="复制节点"
+              onClick={(e) => {
+                e.stopPropagation()
+                onCopy()
+              }}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title="编辑配置"
               onClick={(e) => {
                 e.stopPropagation()
                 onEdit()
@@ -180,6 +198,7 @@ function SortableNodeCard({
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-destructive hover:text-destructive"
+              title="删除节点"
               onClick={(e) => {
                 e.stopPropagation()
                 onDelete()
@@ -205,6 +224,9 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     deleteNode,
     reorderNodes,
     updateNode,
+    copyNode,
+    pasteNode,
+    hasCopiedNode,
   } = useProjectStore()
 
   // 执行状态
@@ -382,6 +404,68 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     setInitialInput('')
   }
 
+  // 复制节点
+  const handleCopyNode = (node: WorkflowNode) => {
+    copyNode(node)
+    toast.success('节点已复制')
+  }
+
+  // 粘贴节点
+  const handlePasteNode = async () => {
+    if (!hasCopiedNode()) {
+      toast.error('剪贴板为空')
+      return
+    }
+    const newNode = await pasteNode()
+    if (newNode) {
+      toast.success('节点已粘贴')
+    }
+  }
+
+  // 快捷键配置
+  // 注意：不使用 useMemo，因为 useHotkeys 内部使用 ref 存储最新配置
+  // 每次渲染都会更新 ref，确保 handler 总是指向最新的函数
+  useHotkeys([
+    // Ctrl+Enter: 运行工作流
+    HOTKEY_PRESETS.run(() => {
+      if (!isExecuting && nodes.length > 0) {
+        handleRun()
+      }
+    }, !isExecuting && nodes.length > 0),
+    
+    // Space: 暂停/继续执行
+    HOTKEY_PRESETS.togglePause(() => {
+      if (isRunning) {
+        pauseExecution()
+        toast.info('已暂停执行')
+      } else if (isPaused) {
+        resumeExecution()
+        toast.info('继续执行')
+      }
+    }, isExecuting && !showInputDialog),
+    
+    // Escape: 停止执行或关闭对话框
+    HOTKEY_PRESETS.escape(() => {
+      if (showInputDialog) {
+        setShowInputDialog(false)
+      } else if (isConfigOpen) {
+        setIsConfigOpen(false)
+        setSelectedNode(null)
+      } else if (isExecuting) {
+        cancelExecution()
+        setInitialInput('')
+        toast.info('已停止执行')
+      }
+    }),
+
+    // Ctrl+V: 粘贴节点
+    HOTKEY_PRESETS.paste(() => {
+      if (!isExecuting && hasCopiedNode()) {
+        handlePasteNode()
+      }
+    }, !isExecuting),
+  ])
+
   if (!currentWorkflow) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -437,13 +521,25 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
         <div className="flex flex-1 flex-col">
           <div className="flex items-center justify-between border-b px-4 py-2">
             <span className="text-sm font-medium">节点列表</span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline">
-                  <Plus className="mr-2 h-4 w-4" />
-                  添加节点
-                </Button>
-              </DropdownMenuTrigger>
+            <div className="flex items-center gap-2">
+              {/* 粘贴按钮 */}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handlePasteNode}
+                disabled={!hasCopiedNode()}
+                title="粘贴节点 (Ctrl+V)"
+              >
+                <Clipboard className="mr-2 h-4 w-4" />
+                粘贴
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline">
+                    <Plus className="mr-2 h-4 w-4" />
+                    添加节点
+                  </Button>
+                </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem onClick={() => handleAddNode('input')}>
                   <FileInput className="mr-2 h-4 w-4 text-green-500" />
@@ -491,6 +587,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </div>
           </div>
 
           <ScrollArea className="flex-1 p-4">
@@ -524,6 +621,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                           isRunning={nodeOutput?.isRunning || (isExecuting && currentNodeIndex === index)}
                           onDelete={() => handleDeleteNode(node.id)}
                           onEdit={() => handleEditNode(node)}
+                          onCopy={() => handleCopyNode(node)}
                         />
                       )
                     })}

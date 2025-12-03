@@ -250,10 +250,10 @@ CREATE TABLE node_results (
 - [x] 暂停时编辑节点输出（executor.modifyNodeOutput 已实现）
 - [x] UI 层人工干预编辑器组件
 
-### Phase 11: 优化 (P3)
-- [ ] 提示词编辑器（变量高亮，`{{变量名}}`）
-- [ ] 快捷键支持（运行/暂停/保存等）
-- [ ] 节点复制/粘贴功能
+### Phase 11: 优化 (P3) ✅
+- [x] 提示词编辑器（变量高亮，`{{变量名}}`）
+- [x] 快捷键支持（运行/暂停/保存等）
+- [x] 节点复制/粘贴功能
 - [ ] 性能优化（虚拟滚动、分页加载）
 
 ---
@@ -266,7 +266,7 @@ CREATE TABLE node_results (
 | Phase 5 | ✅ 完成 | 条件判断、循环、批量并发执行 |
 | Phase 6-8 | ✅ 完成 | 文本处理、变量系统、设定库 |
 | Phase 9-10 | ✅ 完成 | 执行历史、导出、人工干预编辑 |
-| Phase 11 | 🔲 待开发 | 提示词高亮、快捷键、节点复制 |
+| Phase 11 | ✅ 完成 | 提示词高亮、快捷键、节点复制 |
 
 ---
 
@@ -430,7 +430,8 @@ src/
 │   │   └── StreamingOutput.tsx   # 流式输出显示
 │   └── ui/                       # shadcn/ui 组件
 │       ├── button.tsx, card.tsx, dialog.tsx, ...
-│       ├── slider.tsx, switch.tsx  # 新增
+│       ├── slider.tsx, switch.tsx
+│       ├── prompt-editor.tsx     # 提示词编辑器（变量高亮）
 │       └── ...
 │
 ├── lib/
@@ -441,6 +442,9 @@ src/
 │   │   ├── index.ts              # 模块入口
 │   │   ├── context.ts            # 执行上下文
 │   │   └── executor.ts           # 执行引擎核心
+│   ├── hooks/                    # 自定义 Hooks
+│   │   ├── index.ts              # 模块入口
+│   │   └── use-hotkeys.ts        # 快捷键 Hook
 │   ├── db/index.ts               # 数据库操作模块
 │   └── utils.ts                  # 工具函数 (cn)
 │
@@ -789,3 +793,81 @@ const variablePattern = /\{\{([^}]+)\}\}/g
 - 执行历史分页加载（数据库 LIMIT/OFFSET）
 - AI 流式输出节流（`requestAnimationFrame` 或 `throttle`）
 - 节点输出缓存（避免重复渲染）
+
+---
+
+## Phase 11 已实现功能
+
+### 1. 提示词编辑器 ✅
+
+**位置**：`src/components/ui/prompt-editor.tsx`
+
+**功能**：
+- 使用 `contenteditable` 实现富文本编辑
+- 自动识别并高亮 `{{变量名}}` 语法
+- 内置变量（input, previous, 上一节点）显示蓝色
+- 自定义变量显示紫色
+- 支持中文输入法
+- 支持复制粘贴（自动转为纯文本）
+
+**使用示例**：
+```tsx
+import { PromptEditor } from '@/components/ui/prompt-editor'
+
+<PromptEditor
+  value={prompt}
+  onChange={setPrompt}
+  placeholder="输入提示词，支持 {{变量名}} 插值..."
+/>
+```
+
+**已集成到**：
+- AI 对话节点配置（AIChatConfig.tsx）
+- 文本拼接节点配置（TextConcatConfig.tsx）
+- 条件判断节点配置（ConditionConfig.tsx）
+
+### 2. 快捷键支持 ✅
+
+**位置**：`src/lib/hooks/use-hotkeys.ts`
+
+**支持的快捷键**：
+| 快捷键 | 作用 | 作用域 |
+|--------|------|--------|
+| `Ctrl+S` | 保存节点配置 | 节点配置抽屉 |
+| `Ctrl+Enter` | 运行工作流 | 工作流页面 |
+| `Space` | 暂停/继续执行 | 执行中 |
+| `Escape` | 关闭抽屉/对话框/停止执行 | 全局 |
+| `Ctrl+V` | 粘贴节点 | 工作流页面 |
+
+**使用示例**：
+```tsx
+import { useHotkeys, HOTKEY_PRESETS } from '@/lib/hooks'
+
+useHotkeys([
+  HOTKEY_PRESETS.save(() => handleSave(), open),
+  HOTKEY_PRESETS.escape(() => onClose(), open),
+])
+```
+
+### 3. 节点复制/粘贴 ✅
+
+**位置**：`src/stores/project-store.ts`
+
+**API**：
+```typescript
+const { copyNode, pasteNode, hasCopiedNode } = useProjectStore()
+
+// 复制节点
+copyNode(node)
+
+// 粘贴节点（返回新节点）
+const newNode = await pasteNode()
+
+// 检查是否有复制的节点
+if (hasCopiedNode()) { ... }
+```
+
+**UI 位置**：
+- 节点卡片操作按钮（复制图标）
+- 节点列表工具栏（粘贴按钮）
+- 快捷键 Ctrl+V

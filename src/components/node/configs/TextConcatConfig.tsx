@@ -1,11 +1,10 @@
 // 文本拼接节点配置表单
 
-import { useState } from 'react'
 import { Plus, Trash2, GripVertical } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
+import { PromptEditor } from '@/components/ui/prompt-editor'
 import {
   Select,
   SelectContent,
@@ -116,11 +115,11 @@ export function TextConcatConfigForm({ config, onChange }: TextConcatConfigProps
             )}
 
             {source.type === 'custom' && (
-              <Textarea
+              <PromptEditor
                 placeholder="输入自定义文本，支持 {{变量名}} 插值..."
-                className="min-h-[60px] text-sm"
+                minHeight="60px"
                 value={source.custom || ''}
-                onChange={(e) => updateSource(index, { custom: e.target.value })}
+                onChange={(value) => updateSource(index, { custom: value })}
               />
             )}
           </div>
