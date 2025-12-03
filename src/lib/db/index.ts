@@ -8,6 +8,8 @@ import type {
   GlobalConfig,
   Execution,
   NodeResult,
+  ProjectStats,
+  GlobalStats,
 } from '@/types'
 
 // 数据库单例
@@ -288,11 +290,24 @@ export async function reorderNodes(
 
 // ========== 设定库操作 ==========
 
-export async function getSettings(projectId: string): Promise<Setting[]> {
+export async function getSettings(
+  projectId: string,
+  query?: string
+): Promise<Setting[]> {
   const db = await getDatabase()
+  let sql = 'SELECT * FROM settings WHERE project_id = ?'
+  const params: any[] = [projectId]
+
+  if (query) {
+    sql += ' AND (name LIKE ? OR content LIKE ?)'
+    params.push(`%${query}%`, `%${query}%`)
+  }
+
+  sql += ' ORDER BY category, name'
+
   const settings = await db.select<Array<Omit<Setting, 'enabled'> & { enabled: number }>>(
-    'SELECT * FROM settings WHERE project_id = ? ORDER BY category, name',
-    [projectId]
+    sql,
+    params
   )
   return settings.map((s) => ({ ...s, enabled: Boolean(s.enabled) }))
 }
@@ -655,5 +670,70 @@ export async function updateNodeResult(
     `UPDATE node_results SET ${updates.join(', ')} WHERE id = ?`,
     values
   )
+}
+
+// ========== 统计操作 ==========
+
+export async function getGlobalStats(): Promise<GlobalStats> {
+  const db = await getDatabase()
+  
+  // 获取活跃项目数（有工作流的项目）
+  const projectsResult = await db.select<[{ count: number }]>(
+    'SELECT COUNT(DISTINCT id) as count FROM projects'
+  )
+  
+  // 今日字数暂时返回 0（后续可以统计今日执行的输出字数）
+  // 可以通过统计今天执行的 node_results 中的 output 字数来实现
+  const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD
+  const wordCountResult = await db.select<[{ count: number }]>(
+    `SELECT COALESCE(SUM(LENGTH(output)), 0) as count 
+     FROM node_results 
+     WHERE date(started_at) = date(?)`,
+    [today]
+  )
+  
+  return {
+    active_projects: projectsResult[0]?.count || 0,
+    today_word_count: wordCountResult[0]?.count || 0,
+  }
+}
+
+export async function getProjectStats(projectId: string): Promise<ProjectStats> {
+  const db = await getDatabase()
+  
+  // 统计角色数量
+  const characterResult = await db.select<[{ count: number }]>(
+    'SELECT COUNT(*) as count FROM settings WHERE project_id = ? AND category = ?',
+    [projectId, 'character']
+  )
+  
+  // 统计世界观数量
+  const worldviewResult = await db.select<[{ count: number }]>(
+    'SELECT COUNT(*) as count FROM settings WHERE project_id = ? AND category = ?',
+    [projectId, 'worldview']
+  )
+  
+  // 统计工作流数量
+  const workflowResult = await db.select<[{ count: number }]>(
+    'SELECT COUNT(*) as count FROM workflows WHERE project_id = ?',
+    [projectId]
+  )
+  
+  // 统计总字数（从该项目所有工作流的执行结果中）
+  const wordCountResult = await db.select<[{ count: number }]>(
+    `SELECT COALESCE(SUM(LENGTH(nr.output)), 0) as count
+     FROM node_results nr
+     INNER JOIN executions e ON nr.execution_id = e.id
+     INNER JOIN workflows w ON e.workflow_id = w.id
+     WHERE w.project_id = ?`,
+    [projectId]
+  )
+  
+  return {
+    character_count: characterResult[0]?.count || 0,
+    worldview_count: worldviewResult[0]?.count || 0,
+    workflow_count: workflowResult[0]?.count || 0,
+    total_word_count: wordCountResult[0]?.count || 0,
+  }
 }
 

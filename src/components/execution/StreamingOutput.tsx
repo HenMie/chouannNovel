@@ -1,13 +1,16 @@
 // 流式输出显示组件
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, lazy, Suspense } from 'react'
 import { motion } from 'framer-motion'
 import { Copy, Check, Edit2, Save, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
+import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+
+const MarkdownRenderer = lazy(() => import('@/components/ui/markdown-renderer'))
 
 interface StreamingOutputProps {
   content: string
@@ -56,23 +59,21 @@ export function StreamingOutput({
   }
 
   return (
-    <div className={cn('relative h-full', className)} ref={scrollRef}>
+    <div className={cn('relative h-full group', className)} ref={scrollRef}>
       <ScrollArea className="h-full">
         <div className="p-4">
           {/* 输出内容 */}
-          <div className="prose prose-sm dark:prose-invert max-w-none">
-            <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted p-4 font-mono text-sm">
-              {content}
-              {/* 流式输出时显示光标 */}
-              {isStreaming && (
-                <motion.span
-                  className="inline-block h-4 w-2 bg-primary"
-                  animate={{ opacity: [1, 0] }}
-                  transition={{ duration: 0.5, repeat: Infinity }}
-                />
-              )}
-            </pre>
-          </div>
+          <Suspense fallback={
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-4/6" />
+            </div>
+          }>
+            <MarkdownRenderer 
+              content={content + (isStreaming ? ' ▍' : '')} 
+            />
+          </Suspense>
         </div>
       </ScrollArea>
 
@@ -81,7 +82,7 @@ export function StreamingOutput({
         <Button
           variant="outline"
           size="icon"
-          className="absolute right-4 top-4 h-8 w-8"
+          className="absolute right-4 top-4 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
           onClick={handleCopy}
         >
           {copied ? (

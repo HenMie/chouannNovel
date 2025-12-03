@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Play,
   Pause,
@@ -43,6 +43,8 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/ui/empty-state'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,6 +66,29 @@ import { cn } from '@/lib/utils'
 import { useHotkeys, HOTKEY_PRESETS } from '@/lib/hooks'
 import { toast } from 'sonner'
 import type { WorkflowNode, NodeType, GlobalConfig } from '@/types'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 interface WorkflowPageProps {
   projectId: string
@@ -74,18 +99,18 @@ interface WorkflowPageProps {
 // 节点类型配置
 const nodeTypeConfig: Record<
   NodeType,
-  { label: string; icon: React.ComponentType<{ className?: string }>; color: string }
+  { label: string; icon: React.ComponentType<{ className?: string }>; color: string; bgColor: string }
 > = {
-  input: { label: '输入', icon: FileInput, color: 'text-green-500' },
-  output: { label: '输出', icon: FileOutput, color: 'text-red-500' },
-  ai_chat: { label: 'AI 对话', icon: MessageSquare, color: 'text-violet-500' },
-  text_extract: { label: '内容提取', icon: Scissors, color: 'text-orange-500' },
-  text_concat: { label: '文本拼接', icon: Type, color: 'text-cyan-500' },
-  condition: { label: '条件判断', icon: GitBranch, color: 'text-yellow-500' },
-  loop: { label: '循环', icon: Repeat, color: 'text-pink-500' },
-  batch: { label: '批量执行', icon: Layers, color: 'text-indigo-500' },
-  var_set: { label: '设置变量', icon: Variable, color: 'text-emerald-500' },
-  var_get: { label: '读取变量', icon: Variable, color: 'text-teal-500' },
+  input: { label: '输入', icon: FileInput, color: 'text-green-600 dark:text-green-400', bgColor: 'bg-green-100 dark:bg-green-900/20' },
+  output: { label: '输出', icon: FileOutput, color: 'text-red-600 dark:text-red-400', bgColor: 'bg-red-100 dark:bg-red-900/20' },
+  ai_chat: { label: 'AI 对话', icon: MessageSquare, color: 'text-violet-600 dark:text-violet-400', bgColor: 'bg-violet-100 dark:bg-violet-900/20' },
+  text_extract: { label: '内容提取', icon: Scissors, color: 'text-orange-600 dark:text-orange-400', bgColor: 'bg-orange-100 dark:bg-orange-900/20' },
+  text_concat: { label: '文本拼接', icon: Type, color: 'text-cyan-600 dark:text-cyan-400', bgColor: 'bg-cyan-100 dark:bg-cyan-900/20' },
+  condition: { label: '条件判断', icon: GitBranch, color: 'text-yellow-600 dark:text-yellow-400', bgColor: 'bg-yellow-100 dark:bg-yellow-900/20' },
+  loop: { label: '循环', icon: Repeat, color: 'text-pink-600 dark:text-pink-400', bgColor: 'bg-pink-100 dark:bg-pink-900/20' },
+  batch: { label: '批量执行', icon: Layers, color: 'text-indigo-600 dark:text-indigo-400', bgColor: 'bg-indigo-100 dark:bg-indigo-900/20' },
+  var_set: { label: '设置变量', icon: Variable, color: 'text-emerald-600 dark:text-emerald-400', bgColor: 'bg-emerald-100 dark:bg-emerald-900/20' },
+  var_get: { label: '读取变量', icon: Variable, color: 'text-teal-600 dark:text-teal-400', bgColor: 'bg-teal-100 dark:bg-teal-900/20' },
 }
 
 // 可排序的节点卡片
@@ -126,36 +151,37 @@ function SortableNodeCard({
     >
       <Card
         className={cn(
-          'cursor-pointer transition-all hover:shadow-md',
-          isDragging && 'shadow-lg ring-2 ring-primary',
-          isActive && 'ring-2 ring-primary',
-          isRunning && 'ring-2 ring-yellow-500'
+          'cursor-pointer transition-all duration-200',
+          isDragging ? 'shadow-xl ring-2 ring-primary scale-105' : 'hover:shadow-md hover:border-primary/50',
+          isActive && 'ring-2 ring-primary border-primary',
+          isRunning && 'ring-2 ring-yellow-500 border-yellow-500 shadow-yellow-200 dark:shadow-yellow-900/20'
         )}
         onClick={onEdit}
       >
-        <CardHeader className="flex flex-row items-center gap-3 space-y-0 p-4">
+        <CardHeader className="flex flex-row items-center gap-3 space-y-0 p-3">
           {/* 拖拽手柄 */}
           <button
             {...attributes}
             {...listeners}
-            className="cursor-grab touch-none opacity-50 hover:opacity-100"
+            className="cursor-grab touch-none rounded p-1 text-muted-foreground/50 opacity-0 transition-all hover:bg-muted hover:text-foreground group-hover:opacity-100"
             onClick={(e) => e.stopPropagation()}
           >
-            <GripVertical className="h-5 w-5" />
+            <GripVertical className="h-4 w-4" />
           </button>
 
           {/* 状态指示器 */}
           {isRunning && (
             <div className="absolute -left-1 top-1/2 h-3 w-3 -translate-y-1/2">
               <div className="absolute h-full w-full animate-ping rounded-full bg-yellow-500 opacity-75" />
-              <div className="relative h-full w-full rounded-full bg-yellow-500" />
+              <div className="relative h-full w-full rounded-full bg-yellow-500 shadow-sm" />
             </div>
           )}
 
           {/* 节点图标 */}
           <div
             className={cn(
-              'flex h-10 w-10 items-center justify-center rounded-lg bg-muted',
+              'flex h-9 w-9 items-center justify-center rounded-lg ring-1 ring-inset ring-black/5',
+              config.bgColor,
               config.color
             )}
           >
@@ -163,49 +189,63 @@ function SortableNodeCard({
           </div>
 
           {/* 节点信息 */}
-          <div className="flex-1">
-            <CardTitle className="text-sm font-medium">{node.name}</CardTitle>
-            <p className="text-xs text-muted-foreground">{config.label}</p>
+          <div className="flex-1 min-w-0">
+            <CardTitle className="truncate text-sm font-medium leading-none mb-1">{node.name}</CardTitle>
+            <p className="truncate text-xs text-muted-foreground">{config.label}</p>
           </div>
 
           {/* 操作按钮 */}
-          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              title="复制节点"
-              onClick={(e) => {
-                e.stopPropagation()
-                onCopy()
-              }}
-            >
-              <Copy className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              title="编辑配置"
-              onClick={(e) => {
-                e.stopPropagation()
-                onEdit()
-              }}
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-destructive hover:text-destructive"
-              title="删除节点"
-              onClick={(e) => {
-                e.stopPropagation()
-                onDelete()
-              }}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+          <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCopy()
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>复制节点</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEdit()
+                  }}
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>配置节点</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDelete()
+                  }}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>删除节点</TooltipContent>
+            </Tooltip>
           </div>
         </CardHeader>
       </Card>
@@ -235,8 +275,6 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     currentNodeIndex,
     nodeOutputs,
     finalOutput,
-    streamingContent,
-    streamingNodeId,
     error: executionError,
     startExecution,
     pauseExecution,
@@ -255,6 +293,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig | null>(null)
   const [initialInput, setInitialInput] = useState('')
   const [showInputDialog, setShowInputDialog] = useState(false)
+  const [nodeToDelete, setNodeToDelete] = useState<string | null>(null)
   
   // 派生状态
   const isRunning = executionStatus === 'running'
@@ -320,9 +359,14 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     await createNode(type, `${config.label} ${nodes.length + 1}`)
   }
 
-  const handleDeleteNode = async (nodeId: string) => {
-    if (confirm('确定要删除这个节点吗？')) {
-      await deleteNode(nodeId)
+  const handleDeleteClick = (nodeId: string) => {
+    setNodeToDelete(nodeId)
+  }
+
+  const confirmDeleteNode = async () => {
+    if (nodeToDelete) {
+      await deleteNode(nodeToDelete)
+      setNodeToDelete(null)
     }
   }
 
@@ -423,8 +467,6 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
   }
 
   // 快捷键配置
-  // 注意：不使用 useMemo，因为 useHotkeys 内部使用 ref 存储最新配置
-  // 每次渲染都会更新 ref，确保 handler 总是指向最新的函数
   useHotkeys([
     // Ctrl+Enter: 运行工作流
     HOTKEY_PRESETS.run(() => {
@@ -468,15 +510,68 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
 
   if (!currentWorkflow) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      <div className="flex h-full flex-col bg-background">
+        <div className="flex h-14 items-center border-b px-4 gap-4">
+          <Skeleton className="h-4 w-4 rounded-full" />
+          <div className="flex flex-1 items-center gap-2">
+            <Skeleton className="h-5 w-32" />
+          </div>
+          <div className="flex items-center gap-2">
+             <Skeleton className="h-9 w-24" />
+             <Skeleton className="h-9 w-20" />
+          </div>
+        </div>
+        <div className="flex flex-1 overflow-hidden">
+          <div className="flex flex-1 flex-col min-w-0">
+             <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2 h-[53px]">
+               <Skeleton className="h-5 w-20" />
+               <div className="flex gap-2">
+                  <Skeleton className="h-8 w-20" />
+                  <Skeleton className="h-8 w-24" />
+               </div>
+             </div>
+             <div className="flex-1 bg-muted/10 p-4">
+                <div className="space-y-3 max-w-3xl mx-auto">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Card key={i} className="h-[72px] flex items-center p-3">
+                      <div className="flex items-center gap-3 w-full">
+                        <Skeleton className="h-9 w-9 rounded-lg" />
+                        <div className="flex-1 space-y-2">
+                           <Skeleton className="h-4 w-1/3" />
+                           <Skeleton className="h-3 w-16" />
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+             </div>
+          </div>
+          <div className="w-[1px] bg-border" />
+          <div className="flex w-96 flex-col border-l bg-background">
+             <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2 h-[53px]">
+               <Skeleton className="h-5 w-20" />
+             </div>
+             <div className="flex-1 p-4 space-y-4">
+                <Skeleton className="h-32 w-full rounded-lg" />
+                <Skeleton className="h-32 w-full rounded-lg" />
+             </div>
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <Header title={currentWorkflow.name}>
+    <div className="flex h-full flex-col bg-background">
+      <Header
+        title={currentWorkflow.name}
+        breadcrumbs={[
+          { label: '首页', href: '/' },
+          { label: '项目', href: `/project/${projectId}` },
+          { label: currentWorkflow.name },
+        ]}
+        onNavigate={onNavigate}
+      >
         {/* 执行控制按钮 */}
         <div className="flex items-center gap-2">
           {/* 执行历史按钮 */}
@@ -518,21 +613,26 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
 
       <div className="flex flex-1 overflow-hidden">
         {/* 节点列表区域 */}
-        <div className="flex flex-1 flex-col">
-          <div className="flex items-center justify-between border-b px-4 py-2">
+        <div className="flex flex-1 flex-col min-w-0">
+          <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2">
             <span className="text-sm font-medium">节点列表</span>
             <div className="flex items-center gap-2">
               {/* 粘贴按钮 */}
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={handlePasteNode}
-                disabled={!hasCopiedNode()}
-                title="粘贴节点 (Ctrl+V)"
-              >
-                <Clipboard className="mr-2 h-4 w-4" />
-                粘贴
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handlePasteNode}
+                    disabled={!hasCopiedNode()}
+                  >
+                    <Clipboard className="mr-2 h-4 w-4" />
+                    粘贴
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>粘贴节点 (Ctrl+V)</TooltipContent>
+              </Tooltip>
+
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button size="sm" variant="outline">
@@ -540,130 +640,145 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                     添加节点
                   </Button>
                 </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem onClick={() => handleAddNode('input')}>
-                  <FileInput className="mr-2 h-4 w-4 text-green-500" />
-                  输入节点
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleAddNode('output')}>
-                  <FileOutput className="mr-2 h-4 w-4 text-red-500" />
-                  输出节点
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => handleAddNode('ai_chat')}>
-                  <MessageSquare className="mr-2 h-4 w-4 text-violet-500" />
-                  AI 对话
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => handleAddNode('text_extract')}>
-                  <Scissors className="mr-2 h-4 w-4 text-orange-500" />
-                  内容提取
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleAddNode('text_concat')}>
-                  <Type className="mr-2 h-4 w-4 text-cyan-500" />
-                  文本拼接
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => handleAddNode('condition')}>
-                  <GitBranch className="mr-2 h-4 w-4 text-yellow-500" />
-                  条件判断
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleAddNode('loop')}>
-                  <Repeat className="mr-2 h-4 w-4 text-pink-500" />
-                  循环
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleAddNode('batch')}>
-                  <Layers className="mr-2 h-4 w-4 text-indigo-500" />
-                  批量执行
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => handleAddNode('var_set')}>
-                  <Variable className="mr-2 h-4 w-4 text-emerald-500" />
-                  设置变量
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleAddNode('var_get')}>
-                  <Variable className="mr-2 h-4 w-4 text-teal-500" />
-                  读取变量
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={() => handleAddNode('input')}>
+                    <FileInput className="mr-2 h-4 w-4 text-green-500" />
+                    <span>输入节点</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleAddNode('output')}>
+                    <FileOutput className="mr-2 h-4 w-4 text-red-500" />
+                    <span>输出节点</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleAddNode('ai_chat')}>
+                    <MessageSquare className="mr-2 h-4 w-4 text-violet-500" />
+                    <span>AI 对话</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleAddNode('text_extract')}>
+                    <Scissors className="mr-2 h-4 w-4 text-orange-500" />
+                    <span>内容提取</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleAddNode('text_concat')}>
+                    <Type className="mr-2 h-4 w-4 text-cyan-500" />
+                    <span>文本拼接</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleAddNode('condition')}>
+                    <GitBranch className="mr-2 h-4 w-4 text-yellow-500" />
+                    <span>条件判断</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleAddNode('loop')}>
+                    <Repeat className="mr-2 h-4 w-4 text-pink-500" />
+                    <span>循环</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleAddNode('batch')}>
+                    <Layers className="mr-2 h-4 w-4 text-indigo-500" />
+                    <span>批量执行</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleAddNode('var_set')}>
+                    <Variable className="mr-2 h-4 w-4 text-emerald-500" />
+                    <span>设置变量</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleAddNode('var_get')}>
+                    <Variable className="mr-2 h-4 w-4 text-teal-500" />
+                    <span>读取变量</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
-          <ScrollArea className="flex-1 p-4">
-            {isLoadingNodes ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              </div>
-            ) : nodes.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Plus className="mb-4 h-12 w-12 text-muted-foreground/50" />
-                <p className="mb-2 text-muted-foreground">暂无节点</p>
-                <p className="text-sm text-muted-foreground/70">
-                  点击上方按钮添加节点开始创作
-                </p>
-              </div>
-            ) : (
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext items={nodes} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-3">
-                    {nodes.map((node, index) => {
-                      const nodeOutput = nodeOutputs.find(o => o.nodeId === node.id)
-                      return (
-                        <SortableNodeCard
-                          key={node.id}
-                          node={node}
-                          isActive={selectedNode?.id === node.id}
-                          isRunning={nodeOutput?.isRunning || (isExecuting && currentNodeIndex === index)}
-                          onDelete={() => handleDeleteNode(node.id)}
-                          onEdit={() => handleEditNode(node)}
-                          onCopy={() => handleCopyNode(node)}
-                        />
-                      )
-                    })}
-                  </div>
-                </SortableContext>
-              </DndContext>
-            )}
+          <ScrollArea className="flex-1 bg-muted/10">
+            <div className="p-4">
+              {isLoadingNodes ? (
+                <div className="space-y-3 max-w-3xl mx-auto">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Card key={i} className="h-[72px] flex items-center p-3">
+                      <div className="flex items-center gap-3 w-full">
+                        <Skeleton className="h-9 w-9 rounded-lg" />
+                        <div className="flex-1 space-y-2">
+                           <Skeleton className="h-4 w-1/3" />
+                           <Skeleton className="h-3 w-16" />
+                        </div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              ) : nodes.length === 0 ? (
+                <EmptyState
+                  icon={Plus}
+                  title="暂无节点"
+                  description="点击右上角'添加节点'按钮开始构建您的工作流"
+                />
+              ) : (
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext items={nodes} strategy={verticalListSortingStrategy}>
+                    <div className="space-y-3 max-w-3xl mx-auto">
+                      <AnimatePresence mode="popLayout">
+                        {nodes.map((node, index) => {
+                          const nodeOutput = nodeOutputs.find(o => o.nodeId === node.id)
+                          return (
+                            <SortableNodeCard
+                              key={node.id}
+                              node={node}
+                              isActive={selectedNode?.id === node.id}
+                              isRunning={nodeOutput?.isRunning || (isExecuting && currentNodeIndex === index)}
+                              onDelete={() => handleDeleteClick(node.id)}
+                              onEdit={() => handleEditNode(node)}
+                              onCopy={() => handleCopyNode(node)}
+                            />
+                          )
+                        })}
+                      </AnimatePresence>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              )}
+            </div>
           </ScrollArea>
         </div>
 
         {/* 输出面板 */}
         <Separator orientation="vertical" />
-        <div className="flex w-96 flex-col border-l">
-          <div className="flex items-center justify-between border-b px-4 py-2">
+        <div className="flex w-96 flex-col border-l bg-background">
+          <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2">
             <span className="text-sm font-medium">执行输出</span>
             {/* 执行状态指示器 */}
             {executionStatus === 'running' && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <div className="h-2 w-2 animate-pulse rounded-full bg-green-500" />
+              <span className="flex items-center gap-1.5 text-xs font-medium text-primary">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                </span>
                 执行中...
               </span>
             )}
             {executionStatus === 'paused' && (
-              <span className="flex items-center gap-1 text-xs text-yellow-500">
+              <span className="flex items-center gap-1 text-xs font-medium text-yellow-500">
                 <Pause className="h-3 w-3" />
                 已暂停
               </span>
             )}
             {executionStatus === 'completed' && (
-              <span className="flex items-center gap-1 text-xs text-green-500">
+              <span className="flex items-center gap-1 text-xs font-medium text-green-500">
                 <CheckCircle2 className="h-3 w-3" />
                 完成
               </span>
             )}
             {executionStatus === 'failed' && (
-              <span className="flex items-center gap-1 text-xs text-red-500">
+              <span className="flex items-center gap-1 text-xs font-medium text-red-500">
                 <AlertCircle className="h-3 w-3" />
                 失败
               </span>
             )}
             {executionStatus === 'timeout' && (
-              <span className="flex items-center gap-1 text-xs text-orange-500">
+              <span className="flex items-center gap-1 text-xs font-medium text-orange-500">
                 <Clock className="h-3 w-3" />
                 超时
               </span>
@@ -691,13 +806,13 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="rounded-lg border-2 border-primary bg-card"
+                  className="rounded-lg border-2 border-primary bg-card overflow-hidden shadow-sm"
                 >
-                  <div className="flex items-center gap-2 border-b px-4 py-2">
+                  <div className="flex items-center gap-2 border-b bg-primary/5 px-4 py-2">
                     <div className="h-2 w-2 rounded-full bg-primary" />
                     <span className="text-sm font-medium">最终输出</span>
                   </div>
-                  <StreamingOutput content={finalOutput} className="max-h-[400px]" />
+                  <StreamingOutput content={finalOutput} className="max-h-[400px] p-4" />
                 </motion.div>
               )}
 
@@ -706,13 +821,13 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="rounded-lg border border-red-500 bg-red-50 p-4 dark:bg-red-950/20"
+                  className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/20"
                 >
-                  <div className="flex items-center gap-2 text-red-500">
+                  <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
                     <AlertCircle className="h-4 w-4" />
-                    <span className="font-medium">执行错误</span>
+                    <span className="font-medium text-sm">执行错误</span>
                   </div>
-                  <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+                  <p className="mt-2 text-sm text-red-600/90 dark:text-red-400/90 break-words">
                     {executionError}
                   </p>
                 </motion.div>
@@ -720,12 +835,11 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
 
               {/* 空状态 */}
               {nodeOutputs.length === 0 && !executionError && (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Play className="mb-4 h-12 w-12 text-muted-foreground/50" />
-                  <p className="text-sm text-muted-foreground">
-                    运行工作流后，输出将显示在这里
-                  </p>
-                </div>
+                <EmptyState
+                  icon={Play}
+                  title="暂无输出"
+                  description="运行工作流后，输出将显示在这里"
+                />
               )}
             </div>
           </ScrollArea>
@@ -733,36 +847,52 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
       </div>
 
       {/* 输入对话框 */}
-      {showInputDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="w-full max-w-lg rounded-lg bg-background p-6 shadow-lg"
-          >
-            <h3 className="mb-4 text-lg font-semibold">输入内容</h3>
+      <Dialog open={showInputDialog} onOpenChange={setShowInputDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>输入内容</DialogTitle>
+            <DialogDescription>
+              请输入工作流的初始输入内容
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
             <Textarea
               value={initialInput}
               onChange={(e) => setInitialInput(e.target.value)}
               placeholder="请输入要处理的内容..."
               rows={6}
-              className="mb-4"
+              className="resize-none"
             />
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowInputDialog(false)}
-              >
-                取消
-              </Button>
-              <Button onClick={handleStartWithInput}>
-                <Play className="mr-2 h-4 w-4" />
-                开始执行
-              </Button>
-            </div>
-          </motion.div>
-        </div>
-      )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowInputDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleStartWithInput}>
+              <Play className="mr-2 h-4 w-4" />
+              开始执行
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 删除确认对话框 */}
+      <AlertDialog open={!!nodeToDelete} onOpenChange={(open) => !open && setNodeToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确定要删除这个节点吗？</AlertDialogTitle>
+            <AlertDialogDescription>
+              此操作无法撤销，该节点及其配置将被永久删除。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteNode} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* 节点配置抽屉 */}
       <NodeConfigDrawer

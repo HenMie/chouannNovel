@@ -1,13 +1,26 @@
 // 节点配置抽屉组件
 
 import { useEffect, useState, useCallback } from 'react'
-import { Save } from 'lucide-react'
+import { Save, HelpCircle, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { EmptyState } from '@/components/ui/empty-state'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { AIChatConfigForm } from './configs/AIChatConfig'
 import { TextExtractConfigForm } from './configs/TextExtractConfig'
 import { TextConcatConfigForm } from './configs/TextConcatConfig'
@@ -147,7 +160,17 @@ export function NodeConfigDrawer({
         return (
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="placeholder">占位提示文本</Label>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="placeholder">占位提示文本</Label>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    当需要用户输入时显示的提示文字
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               <Input
                 id="placeholder"
                 placeholder="请输入..."
@@ -158,7 +181,17 @@ export function NodeConfigDrawer({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="default_value">默认值</Label>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="default_value">默认值</Label>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    用于测试或默认情况下的输入内容
+                  </TooltipContent>
+                </Tooltip>
+              </div>
               <Input
                 id="default_value"
                 placeholder="默认输入内容"
@@ -176,16 +209,20 @@ export function NodeConfigDrawer({
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>输出格式</Label>
-              <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2"
+              <Select
                 value={(config as any).format || 'text'}
-                onChange={(e) =>
-                  setConfig({ ...config, format: e.target.value })
+                onValueChange={(value) =>
+                  setConfig({ ...config, format: value })
                 }
               >
-                <option value="text">纯文本</option>
-                <option value="markdown">Markdown</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue placeholder="选择输出格式" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="text">纯文本</SelectItem>
+                  <SelectItem value="markdown">Markdown</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         )
@@ -197,26 +234,35 @@ export function NodeConfigDrawer({
               <Label htmlFor="variable_name">变量名</Label>
               <Input
                 id="variable_name"
-                placeholder="输入变量名"
+                placeholder="输入变量名（例如：user_name）"
                 value={(config as any).variable_name || ''}
                 onChange={(e) =>
                   setConfig({ ...config, variable_name: e.target.value })
                 }
               />
+              <p className="text-xs text-muted-foreground">
+                后续节点可通过此名称访问该变量
+              </p>
             </div>
+            
             <div className="space-y-2">
               <Label>值来源</Label>
-              <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2"
+              <Select
                 value={(config as any).value_source || 'previous'}
-                onChange={(e) =>
-                  setConfig({ ...config, value_source: e.target.value })
+                onValueChange={(value) =>
+                  setConfig({ ...config, value_source: value })
                 }
               >
-                <option value="previous">上一节点输出</option>
-                <option value="custom">自定义值</option>
-              </select>
+                <SelectTrigger>
+                  <SelectValue placeholder="选择值来源" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="previous">上一节点输出</SelectItem>
+                  <SelectItem value="custom">自定义值</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+
             {(config as any).value_source === 'custom' && (
               <div className="space-y-2">
                 <Label htmlFor="custom_value">自定义值</Label>
@@ -246,6 +292,9 @@ export function NodeConfigDrawer({
                   setConfig({ ...config, variable_name: e.target.value })
                 }
               />
+              <p className="text-xs text-muted-foreground">
+                读取此前已设置的变量值作为当前节点的输出
+              </p>
             </div>
           </div>
         )
@@ -301,24 +350,27 @@ export function NodeConfigDrawer({
       // 其他节点类型的配置表单将在后续阶段实现
       default:
         return (
-          <div className="rounded-lg border border-dashed p-6 text-center">
-            <p className="text-sm text-muted-foreground">
-              该节点类型的配置表单将在后续版本中实现
-            </p>
-          </div>
+          <EmptyState
+            icon={AlertCircle}
+            title="配置表单开发中"
+            description="该节点类型的配置表单正在开发中，敬请期待后续更新"
+            className="border border-dashed rounded-lg py-8"
+          />
         )
     }
   }
 
   return (
     <Sheet open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <SheetContent className="w-[480px] sm:max-w-[480px]">
-        <SheetHeader className="pb-4">
-          <SheetTitle>{node ? nodeTypeLabels[node.type] : '节点配置'}</SheetTitle>
+      <SheetContent className="w-[480px] sm:max-w-[480px] flex flex-col p-0 gap-0">
+        <SheetHeader className="px-6 py-4 border-b bg-muted/10">
+          <SheetTitle className="text-lg font-semibold">
+            {node ? nodeTypeLabels[node.type] : '节点配置'}
+          </SheetTitle>
         </SheetHeader>
 
-        <ScrollArea className="h-[calc(100vh-180px)] pr-4">
-          <div className="space-y-6">
+        <ScrollArea className="flex-1 px-6 py-6">
+          <div className="space-y-6 pb-20">
             {/* 节点名称 */}
             <div className="space-y-2">
               <Label htmlFor="node-name">节点名称</Label>
@@ -326,7 +378,8 @@ export function NodeConfigDrawer({
                 id="node-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="输入节点名称"
+                placeholder="给节点起一个容易识别的名字"
+                className="font-medium"
               />
             </div>
 
@@ -338,7 +391,7 @@ export function NodeConfigDrawer({
         </ScrollArea>
 
         {/* 底部操作栏 */}
-        <div className="absolute bottom-0 left-0 right-0 border-t bg-background p-4">
+        <div className="border-t bg-background p-4 px-6">
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onClose}>
               取消
@@ -362,4 +415,3 @@ export function NodeConfigDrawer({
     </Sheet>
   )
 }
-

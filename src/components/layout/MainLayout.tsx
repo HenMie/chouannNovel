@@ -104,7 +104,7 @@ export function MainLayout() {
       </main>
 
       {/* Toast 通知 */}
-      <Toaster position="top-right" />
+      <Toaster position="top-right" richColors closeButton />
     </div>
   )
 }

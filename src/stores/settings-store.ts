@@ -19,7 +19,7 @@ interface SettingsState {
   loading: boolean
   
   // 操作
-  loadSettings: (projectId: string) => Promise<void>
+  loadSettings: (projectId: string, query?: string) => Promise<void>
   addSetting: (category: SettingCategory, name: string, content: string) => Promise<Setting | null>
   editSetting: (id: string, data: Partial<Pick<Setting, 'name' | 'content' | 'enabled'>>) => Promise<void>
   removeSetting: (id: string) => Promise<void>
@@ -40,11 +40,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   currentProjectId: null,
   loading: false,
 
-  loadSettings: async (projectId: string) => {
+  loadSettings: async (projectId: string, query?: string) => {
     set({ loading: true, currentProjectId: projectId })
     try {
       const [settings, prompts] = await Promise.all([
-        getSettings(projectId),
+        getSettings(projectId, query),
         getSettingPrompts(projectId),
       ])
       set({ settings, settingPrompts: prompts })

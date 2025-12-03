@@ -237,3 +237,16 @@ export interface NodeResult {
 // 主题类型
 export type Theme = 'light' | 'dark' | 'system'
 
+// 项目统计
+export interface ProjectStats {
+  character_count: number
+  worldview_count: number
+  workflow_count: number
+  total_word_count: number
+}
+
+// 全局统计
+export interface GlobalStats {
+  active_projects: number
+  today_word_count: number
+}

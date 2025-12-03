@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronDown,
@@ -11,15 +11,31 @@ import {
   Pencil,
   Trash2,
   Settings,
+  Search,
+  ChevronsDown,
+  ChevronsUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/ui/empty-state'
 import { useProjectStore } from '@/stores/project-store'
 import { cn } from '@/lib/utils'
 import type { Project, Workflow } from '@/types'
@@ -27,6 +43,12 @@ import type { Project, Workflow } from '@/types'
 interface SidebarProps {
   onNavigate: (path: string) => void
   currentPath: string
+}
+
+interface DeleteDialogState {
+  open: boolean
+  type: 'project' | 'workflow'
+  data: Project | Workflow | null
 }
 
 export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps) {
@@ -45,6 +67,12 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
   } = useProjectStore()
 
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
+  const [searchQuery, setSearchQuery] = useState('')
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>({
+    open: false,
+    type: 'project',
+    data: null,
+  })
 
   useEffect(() => {
     loadProjects()
@@ -70,6 +98,21 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
     })
   }
 
+  const expandAll = () => {
+    setExpandedProjects(new Set(projects.map((p) => p.id)))
+  }
+
+  const collapseAll = () => {
+    setExpandedProjects(new Set())
+  }
+
+  const filteredProjects = useMemo(() => {
+    if (!searchQuery.trim()) return projects
+    return projects.filter((project) =>
+      project.name.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+  }, [projects, searchQuery])
+
   const handleProjectClick = (project: Project) => {
     setCurrentProject(project)
     onNavigate(`/project/${project.id}`)
@@ -80,24 +123,33 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
     onNavigate(`/project/${workflow.project_id}/workflow/${workflow.id}`)
   }
 
-  const handleDeleteProject = async (e: React.MouseEvent, project: Project) => {
+  const handleDeleteClick = (
+    e: React.MouseEvent,
+    type: 'project' | 'workflow',
+    data: Project | Workflow
+  ) => {
     e.stopPropagation()
-    if (confirm(`确定要删除项目 "${project.name}" 吗？这将删除所有相关的工作流和数据。`)) {
-      await deleteProject(project.id)
-      if (currentProject?.id === project.id) {
-        onNavigate('/')
-      }
-    }
+    setDeleteDialog({ open: true, type, data })
   }
 
-  const handleDeleteWorkflow = async (e: React.MouseEvent, workflow: Workflow) => {
-    e.stopPropagation()
-    if (confirm(`确定要删除工作流 "${workflow.name}" 吗？`)) {
-      await deleteWorkflow(workflow.id)
-      if (currentWorkflow?.id === workflow.id) {
-        onNavigate(`/project/${workflow.project_id}`)
+  const handleConfirmDelete = async () => {
+    const { type, data } = deleteDialog
+    if (!data) return
+
+    if (type === 'project') {
+      await deleteProject(data.id)
+      if (currentProject?.id === data.id) {
+        onNavigate('/')
+      }
+    } else {
+      await deleteWorkflow(data.id)
+      // @ts-ignore
+      if (currentWorkflow?.id === data.id) {
+        // @ts-ignore
+        onNavigate(`/project/${data.project_id}`)
       }
     }
+    setDeleteDialog({ open: false, type: 'project', data: null })
   }
 
   return (
@@ -115,6 +167,39 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
         </Button>
       </div>
 
+      {/* 搜索和操作栏 */}
+      <div className="flex flex-col gap-2 p-2 border-b">
+        <div className="relative">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="搜索项目..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-9 pl-8"
+          />
+        </div>
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 flex-1 px-2 text-xs"
+            onClick={expandAll}
+          >
+            <ChevronsDown className="mr-1 h-3 w-3" />
+            全部展开
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 flex-1 px-2 text-xs"
+            onClick={collapseAll}
+          >
+            <ChevronsUp className="mr-1 h-3 w-3" />
+            全部折叠
+          </Button>
+        </div>
+      </div>
+
       {/* 项目列表 */}
       <ScrollArea className="flex-1">
         <div className="p-2">
@@ -129,22 +214,27 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
           </Button>
 
           {isLoadingProjects ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                 <div key={i} className="flex items-center gap-2 px-2 py-1.5">
+                    <Skeleton className="h-5 w-5 rounded-md" />
+                    <Skeleton className="h-4 flex-1" />
+                 </div>
+              ))}
             </div>
-          ) : projects.length === 0 ? (
+          ) : filteredProjects.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
-              暂无项目
+              {searchQuery ? '无匹配项目' : '暂无项目'}
             </div>
           ) : (
             <div className="space-y-1">
-              {projects.map((project) => (
+              {filteredProjects.map((project) => (
                 <div key={project.id}>
                   {/* 项目项 */}
                   <div
                     className={cn(
-                      'group flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 hover:bg-accent',
-                      currentProject?.id === project.id && 'bg-accent'
+                      'group flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 hover:bg-accent transition-colors',
+                      currentProject?.id === project.id && 'bg-accent border-l-2 border-primary pl-1.5'
                     )}
                     onClick={() => handleProjectClick(project)}
                   >
@@ -192,7 +282,7 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive"
-                          onClick={(e) => handleDeleteProject(e, project)}
+                          onClick={(e) => handleDeleteClick(e, 'project', project)}
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
                           删除
@@ -209,13 +299,13 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
                         transition={{ duration: 0.2 }}
-                        className="ml-4 overflow-hidden"
+                        className="ml-4 overflow-hidden border-l border-border pl-2 my-1"
                       >
                         {/* 新建工作流按钮 */}
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="my-1 w-full justify-start gap-2 text-muted-foreground"
+                          className="mb-1 w-full justify-start gap-2 text-muted-foreground h-7 text-xs"
                           onClick={() => onNavigate(`/project/${project.id}/workflow/new`)}
                         >
                           <Plus className="h-3 w-3" />
@@ -226,8 +316,8 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
                           <div
                             key={workflow.id}
                             className={cn(
-                              'group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent',
-                              currentWorkflow?.id === workflow.id && 'bg-accent'
+                              'group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent transition-colors',
+                              currentWorkflow?.id === workflow.id && 'bg-accent text-accent-foreground'
                             )}
                             onClick={() => handleWorkflowClick(workflow)}
                           >
@@ -260,7 +350,7 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-destructive"
-                                  onClick={(e) => handleDeleteWorkflow(e, workflow)}
+                                  onClick={(e) => handleDeleteClick(e, 'workflow', workflow)}
                                 >
                                   <Trash2 className="mr-2 h-4 w-4" />
                                   删除
@@ -278,6 +368,35 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
           )}
         </div>
       </ScrollArea>
+
+      <AlertDialog
+        open={deleteDialog.open}
+        onOpenChange={(open) =>
+          setDeleteDialog((prev) => ({ ...prev, open }))
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              确认删除{deleteDialog.type === 'project' ? '项目' : '工作流'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteDialog.type === 'project'
+                ? `您确定要删除项目 "${deleteDialog.data?.name}" 吗？这将永久删除该项目及其所有相关的工作流和数据，无法撤销。`
+                : `您确定要删除工作流 "${deleteDialog.data?.name}" 吗？此操作无法撤销。`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleConfirmDelete}
+            >
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

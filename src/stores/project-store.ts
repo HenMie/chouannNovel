@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Project, Workflow, WorkflowNode } from '@/types'
+import type { Project, Workflow, WorkflowNode, GlobalStats, ProjectStats } from '@/types'
 import * as db from '@/lib/db'
 
 // 复制的节点数据（不含 ID）
@@ -15,10 +15,16 @@ interface ProjectState {
   currentProject: Project | null
   isLoadingProjects: boolean
 
+  // 全局统计
+  globalStats: GlobalStats | null
+
   // 工作流列表
   workflows: Workflow[]
   currentWorkflow: Workflow | null
   isLoadingWorkflows: boolean
+
+  // 项目统计
+  projectStats: ProjectStats | null
 
   // 节点列表
   nodes: WorkflowNode[]
@@ -29,6 +35,7 @@ interface ProjectState {
 
   // 项目操作
   loadProjects: () => Promise<void>
+  loadGlobalStats: () => Promise<void>
   createProject: (name: string, description?: string) => Promise<Project>
   updateProject: (id: string, data: Partial<Pick<Project, 'name' | 'description'>>) => Promise<void>
   deleteProject: (id: string) => Promise<void>
@@ -36,6 +43,7 @@ interface ProjectState {
 
   // 工作流操作
   loadWorkflows: (projectId: string) => Promise<void>
+  loadProjectStats: (projectId: string) => Promise<void>
   createWorkflow: (name: string, description?: string) => Promise<Workflow | null>
   updateWorkflow: (id: string, data: Partial<Pick<Workflow, 'name' | 'description' | 'loop_max_count' | 'timeout_seconds'>>) => Promise<void>
   deleteWorkflow: (id: string) => Promise<void>
@@ -59,10 +67,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   currentProject: null,
   isLoadingProjects: false,
+  globalStats: null,
 
   workflows: [],
   currentWorkflow: null,
   isLoadingWorkflows: false,
+  projectStats: null,
 
   nodes: [],
   isLoadingNodes: false,
@@ -78,6 +88,15 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } catch (error) {
       console.error('加载项目失败:', error)
       set({ isLoadingProjects: false })
+    }
+  },
+
+  loadGlobalStats: async () => {
+    try {
+      const globalStats = await db.getGlobalStats()
+      set({ globalStats })
+    } catch (error) {
+      console.error('加载全局统计失败:', error)
     }
   },
 
@@ -116,7 +135,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       workflows: [],
       currentWorkflow: null,
       nodes: [],
+      projectStats: null,
     })
+  },
+
+  loadProjectStats: async (projectId) => {
+    try {
+      const projectStats = await db.getProjectStats(projectId)
+      set({ projectStats })
+    } catch (error) {
+      console.error('加载项目统计失败:', error)
+    }
   },
 
   // 工作流操作

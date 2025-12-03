@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  ArrowLeft, 
-  Plus, 
-  Users, 
-  Globe, 
-  Palette, 
+import {
+  ArrowLeft,
+  Plus,
+  Users,
+  Globe,
+  Palette,
   FileText,
   Trash2,
   Edit2,
@@ -13,6 +13,12 @@ import {
   ChevronRight,
   Save,
   Settings2,
+  Search,
+  Bold,
+  Italic,
+  List,
+  Code,
+  Quote,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,14 +27,14 @@ import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogDescription, 
-  DialogFooter, 
-  DialogHeader, 
-  DialogTitle 
-} from '@/components/ui/dialog'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -105,15 +111,18 @@ export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPa
   } = useSettingsStore()
 
   const [activeTab, setActiveTab] = useState<SettingCategory>('character')
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isSheetOpen, setIsSheetOpen] = useState(false)
   const [editingSetting, setEditingSetting] = useState<Setting | null>(null)
   const [deletingSetting, setDeletingSetting] = useState<Setting | null>(null)
-  const [isPromptEditorOpen, setIsPromptEditorOpen] = useState(false)
+  const [isPromptSheetOpen, setIsPromptSheetOpen] = useState(false)
   const [promptTemplate, setPromptTemplate] = useState('')
-  
+  const [searchQuery, setSearchQuery] = useState('')
+
   // 表单状态
   const [formName, setFormName] = useState('')
   const [formContent, setFormContent] = useState('')
+  const contentInputRef = useRef<HTMLTextAreaElement>(null)
+  const promptInputRef = useRef<HTMLTextAreaElement>(null)
 
   // 加载项目和设定
   useEffect(() => {
@@ -124,30 +133,37 @@ export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPa
       const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
       if (project) {
         setCurrentProject(project)
-        await loadSettings(projectId)
       }
     }
     loadData()
-  }, [projectId, projects.length, loadProjects, setCurrentProject, loadSettings])
+  }, [projectId, projects.length, loadProjects, setCurrentProject])
+
+  // 搜索和加载设定
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadSettings(projectId, searchQuery)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [projectId, searchQuery, loadSettings])
 
   // 获取当前分类的设定
   const currentCategorySettings = getSettingsByCategory(activeTab)
   const currentCategory = CATEGORIES.find((c) => c.key === activeTab)
 
-  // 打开新增对话框
+  // 打开新增抽屉
   const handleAdd = () => {
     setFormName('')
     setFormContent('')
     setEditingSetting(null)
-    setIsAddDialogOpen(true)
+    setIsSheetOpen(true)
   }
 
-  // 打开编辑对话框
+  // 打开编辑抽屉
   const handleEdit = (setting: Setting) => {
     setFormName(setting.name)
     setFormContent(setting.content)
     setEditingSetting(setting)
-    setIsAddDialogOpen(true)
+    setIsSheetOpen(true)
   }
 
   // 保存设定
@@ -172,7 +188,7 @@ export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPa
       toast.success('设定已创建')
     }
 
-    setIsAddDialogOpen(false)
+    setIsSheetOpen(false)
     setEditingSetting(null)
   }
 
@@ -188,14 +204,46 @@ export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPa
   const handleOpenPromptEditor = () => {
     const prompt = getSettingPromptByCategory(activeTab)
     setPromptTemplate(prompt?.prompt_template || currentCategory?.defaultPrompt || '')
-    setIsPromptEditorOpen(true)
+    setIsPromptSheetOpen(true)
   }
 
   // 保存提示词模板
   const handleSavePrompt = async () => {
     await saveSettingPrompt(activeTab, promptTemplate)
     toast.success('注入提示词已保存')
-    setIsPromptEditorOpen(false)
+    setIsPromptSheetOpen(false)
+  }
+
+  // 插入 Markdown 格式
+  const insertFormat = (start: string, end: string = '') => {
+    if (!contentInputRef.current) return
+    const input = contentInputRef.current
+    const startPos = input.selectionStart
+    const endPos = input.selectionEnd
+    const text = formContent
+    const selectedText = text.substring(startPos, endPos)
+    const replacement = `${start}${selectedText}${end}`
+    const newText = text.substring(0, startPos) + replacement + text.substring(endPos)
+    setFormContent(newText)
+    setTimeout(() => {
+      input.focus()
+      input.setSelectionRange(startPos + start.length, endPos + start.length)
+    }, 0)
+  }
+
+  // 插入变量到提示词
+  const insertVariable = (variable: string) => {
+    if (!promptInputRef.current) return
+    const input = promptInputRef.current
+    const startPos = input.selectionStart
+    const endPos = input.selectionEnd
+    const text = promptTemplate
+    const newText = text.substring(0, startPos) + variable + text.substring(endPos)
+    setPromptTemplate(newText)
+    setTimeout(() => {
+      input.focus()
+      input.setSelectionRange(startPos + variable.length, startPos + variable.length)
+    }, 0)
   }
 
   if (!currentProject) {
@@ -207,8 +255,16 @@ export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPa
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <Header title="设定库">
+    <div className="flex h-full flex-col bg-background">
+      <Header
+        title="设定库"
+        breadcrumbs={[
+          { label: '首页', href: '/' },
+          { label: currentProject.name, href: `/project/${projectId}` },
+          { label: '设定库' },
+        ]}
+        onNavigate={onNavigate}
+      >
         <Button
           variant="ghost"
           size="sm"
@@ -220,23 +276,36 @@ export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPa
       </Header>
 
       <div className="flex-1 overflow-auto">
-        <div className="mx-auto max-w-5xl px-6 py-8">
+        <div className="mx-auto max-w-6xl px-6 py-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <div className="mb-6">
-              <h1 className="text-2xl font-bold">{currentProject.name} - 设定库</h1>
-              <p className="mt-1 text-muted-foreground">
-                管理角色、世界观、笔触风格和大纲等创作设定
-              </p>
+            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h1 className="text-2xl font-bold">设定库管理</h1>
+                <p className="mt-1 text-muted-foreground">
+                  管理角色、世界观、笔触风格和大纲等创作设定
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                 <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="搜索设定..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-8"
+                    />
+                 </div>
+              </div>
             </div>
 
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SettingCategory)}>
               <TabsList className="mb-6 grid w-full grid-cols-4">
                 {CATEGORIES.map((category) => (
-                  <TabsTrigger 
-                    key={category.key} 
+                  <TabsTrigger
+                    key={category.key}
                     value={category.key}
                     className="flex items-center gap-2"
                   >
@@ -276,10 +345,14 @@ export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPa
                     <Card className="border-dashed">
                       <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                         <category.icon className="mb-4 h-12 w-12 text-muted-foreground/50" />
-                        <p className="mb-2 text-muted-foreground">暂无{category.label}设定</p>
-                        <p className="text-sm text-muted-foreground/70">
-                          点击上方按钮添加{category.label}设定
+                        <p className="mb-2 text-muted-foreground">
+                          {searchQuery ? '未找到匹配的设定' : `暂无${category.label}设定`}
                         </p>
+                        {!searchQuery && (
+                           <p className="text-sm text-muted-foreground/70">
+                              点击上方按钮添加{category.label}设定
+                           </p>
+                        )}
                       </CardContent>
                     </Card>
                   ) : (
@@ -305,19 +378,19 @@ export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPa
         </div>
       </div>
 
-      {/* 添加/编辑对话框 */}
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
+      {/* 编辑设定抽屉 (Sheet) */}
+      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+        <SheetContent className="w-[400px] sm:w-[600px] flex flex-col">
+          <SheetHeader>
+            <SheetTitle>
               {editingSetting ? '编辑设定' : `添加${currentCategory?.label}`}
-            </DialogTitle>
-            <DialogDescription>
+            </SheetTitle>
+            <SheetDescription>
               {currentCategory?.description}
-            </DialogDescription>
-          </DialogHeader>
+            </SheetDescription>
+          </SheetHeader>
 
-          <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto py-4 space-y-4">
             <div className="space-y-2">
               <Label htmlFor="setting-name">名称</Label>
               <Input
@@ -328,28 +401,108 @@ export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPa
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="setting-content">内容</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="setting-content">内容</Label>
+                {/* Markdown Toolbar */}
+                <div className="flex items-center gap-1">
+                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => insertFormat('**', '**')} title="粗体">
+                      <Bold className="h-3 w-3" />
+                   </Button>
+                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => insertFormat('*', '*')} title="斜体">
+                      <Italic className="h-3 w-3" />
+                   </Button>
+                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => insertFormat('- ')} title="列表">
+                      <List className="h-3 w-3" />
+                   </Button>
+                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => insertFormat('`', '`')} title="代码">
+                      <Code className="h-3 w-3" />
+                   </Button>
+                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => insertFormat('> ')} title="引用">
+                      <Quote className="h-3 w-3" />
+                   </Button>
+                </div>
+              </div>
               <Textarea
+                ref={contentInputRef}
                 id="setting-content"
-                placeholder="输入详细内容..."
-                className="min-h-[200px] resize-none"
+                placeholder="输入详细内容... (支持 Markdown)"
+                className="min-h-[400px] resize-none font-mono text-sm"
                 value={formContent}
                 onChange={(e) => setFormContent(e.target.value)}
               />
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
+          <SheetFooter>
+            <Button variant="outline" onClick={() => setIsSheetOpen(false)}>
               取消
             </Button>
             <Button onClick={handleSave}>
               <Save className="mr-2 h-4 w-4" />
               保存
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+
+      {/* 注入提示词编辑器 (Sheet) */}
+      <Sheet open={isPromptSheetOpen} onOpenChange={setIsPromptSheetOpen}>
+        <SheetContent className="w-[400px] sm:w-[600px] flex flex-col">
+          <SheetHeader>
+            <SheetTitle>编辑注入提示词模板</SheetTitle>
+            <SheetDescription>
+              配置 AI 节点中引用此分类设定时的提示词格式。
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto py-4 space-y-4">
+            <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-2">
+              <p className="font-medium">快速插入变量：</p>
+              <div className="flex flex-wrap gap-2">
+                 <Button variant="secondary" size="xs" className="h-6 text-xs" onClick={() => insertVariable('{{#each items}}...{{/each}}')}>
+                    遍历循环
+                 </Button>
+                 <Button variant="secondary" size="xs" className="h-6 text-xs" onClick={() => insertVariable('{{name}}')}>
+                    名称
+                 </Button>
+                 <Button variant="secondary" size="xs" className="h-6 text-xs" onClick={() => insertVariable('{{content}}')}>
+                    内容
+                 </Button>
+              </div>
+            </div>
+            <div className="space-y-2 flex-1 flex flex-col">
+              <Label htmlFor="prompt-template">提示词模板</Label>
+              <Textarea
+                ref={promptInputRef}
+                id="prompt-template"
+                placeholder="输入提示词模板..."
+                className="flex-1 min-h-[300px] font-mono text-sm resize-none"
+                value={promptTemplate}
+                onChange={(e) => setPromptTemplate(e.target.value)}
+              />
+            </div>
+            <div className="rounded-lg border p-3 bg-muted/10">
+               <Label className="mb-2 block text-xs text-muted-foreground">预览效果 (示例)</Label>
+               <div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono max-h-[100px] overflow-y-auto">
+                  {promptTemplate
+                    .replace(/{{#each items}}([\s\S]*?){{\/each}}/g, '$1\n$1')
+                    .replace(/{{name}}/g, '示例设定名')
+                    .replace(/{{content}}/g, '示例设定内容...')}
+               </div>
+            </div>
+          </div>
+
+          <SheetFooter>
+            <Button variant="outline" onClick={() => setIsPromptSheetOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSavePrompt}>
+              <Save className="mr-2 h-4 w-4" />
+              保存
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       {/* 删除确认对话框 */}
       <AlertDialog open={!!deletingSetting} onOpenChange={() => setDeletingSetting(null)}>
@@ -368,50 +521,6 @@ export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPa
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* 注入提示词编辑器 */}
-      <Dialog open={isPromptEditorOpen} onOpenChange={setIsPromptEditorOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>编辑注入提示词模板</DialogTitle>
-            <DialogDescription>
-              配置 AI 节点中引用此分类设定时的提示词格式。支持 Handlebars 语法。
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="rounded-lg bg-muted/50 p-3 text-sm">
-              <p className="font-medium mb-2">可用变量：</p>
-              <ul className="space-y-1 text-muted-foreground">
-                <li><code className="bg-muted px-1 rounded">{'{{#each items}}'}</code> - 遍历所有已启用的设定</li>
-                <li><code className="bg-muted px-1 rounded">{'{{name}}'}</code> - 设定名称</li>
-                <li><code className="bg-muted px-1 rounded">{'{{content}}'}</code> - 设定内容</li>
-                <li><code className="bg-muted px-1 rounded">{'{{/each}}'}</code> - 结束遍历</li>
-              </ul>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="prompt-template">提示词模板</Label>
-              <Textarea
-                id="prompt-template"
-                placeholder="输入提示词模板..."
-                className="min-h-[200px] font-mono text-sm resize-none"
-                value={promptTemplate}
-                onChange={(e) => setPromptTemplate(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsPromptEditorOpen(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSavePrompt}>
-              <Save className="mr-2 h-4 w-4" />
-              保存
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
@@ -436,8 +545,8 @@ function SettingCard({ setting, index, onEdit, onDelete, onToggle }: SettingCard
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ delay: index * 0.05 }}
     >
-      <Card className={`transition-colors ${!setting.enabled ? 'opacity-60' : ''}`}>
-        <CardHeader className="pb-2">
+      <Card className={`transition-colors hover:border-primary/50 ${!setting.enabled ? 'opacity-60' : ''}`}>
+        <CardHeader className="pb-2 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Button
@@ -452,29 +561,30 @@ function SettingCard({ setting, index, onEdit, onDelete, onToggle }: SettingCard
                   <ChevronRight className="h-4 w-4" />
                 )}
               </Button>
-              <CardTitle className="text-base">{setting.name}</CardTitle>
-            </div>
-            <div className="flex items-center gap-2">
               <div className="flex items-center gap-2">
-                <Label htmlFor={`switch-${setting.id}`} className="text-xs text-muted-foreground">
-                  启用
-                </Label>
-                <Switch
-                  id={`switch-${setting.id}`}
-                  checked={setting.enabled}
-                  onCheckedChange={onToggle}
-                />
+                 <CardTitle className="text-sm font-semibold">{setting.name}</CardTitle>
+                 {!setting.enabled && (
+                    <span className="text-[10px] bg-muted px-1.5 rounded text-muted-foreground">已禁用</span>
+                 )}
               </div>
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onEdit}>
-                <Edit2 className="h-4 w-4" />
+            </div>
+            <div className="flex items-center gap-1">
+              <Switch
+                id={`switch-${setting.id}`}
+                checked={setting.enabled}
+                onCheckedChange={onToggle}
+                className="scale-75 mr-2"
+              />
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit}>
+                <Edit2 className="h-3.5 w-3.5" />
               </Button>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8 text-destructive hover:text-destructive"
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-destructive hover:text-destructive"
                 onClick={onDelete}
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
           </div>
@@ -487,17 +597,17 @@ function SettingCard({ setting, index, onEdit, onDelete, onToggle }: SettingCard
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
             >
-              <CardContent className="pt-0">
-                <div className="rounded-lg bg-muted/50 p-3">
-                  <p className="whitespace-pre-wrap text-sm">{setting.content}</p>
+              <CardContent className="pt-0 pb-3 px-3 ml-9">
+                <div className="rounded bg-muted/30 p-3 text-sm font-mono whitespace-pre-wrap">
+                  {setting.content}
                 </div>
               </CardContent>
             </motion.div>
           )}
         </AnimatePresence>
         {!isExpanded && (
-          <CardContent className="pt-0">
-            <p className="line-clamp-1 text-sm text-muted-foreground">
+          <CardContent className="pt-0 pb-3 px-3 ml-9">
+            <p className="line-clamp-1 text-xs text-muted-foreground">
               {setting.content}
             </p>
           </CardContent>

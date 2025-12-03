@@ -14,11 +14,23 @@ import {
   ChevronDown,
   ChevronRight,
   ArrowLeft,
+  Maximize2,
+  Copy,
+  Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/ui/empty-state'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -74,174 +86,218 @@ function formatDuration(startedAt: string, finishedAt?: string): string {
   return `${Math.floor(diff / 3600000)}时${Math.floor((diff % 3600000) / 60000)}分`
 }
 
-// 单条执行记录组件
-function ExecutionItem({
+// 单条执行记录组件 (列表项)
+function ExecutionListItem({
   execution,
   nodes,
-  isExpanded,
-  onToggle,
+  onClick,
   onExport,
 }: {
   execution: Execution
   nodes: WorkflowNode[]
-  isExpanded: boolean
-  onToggle: () => void
+  onClick: () => void
   onExport: (format: 'txt' | 'md') => void
+}) {
+  const status = statusConfig[execution.status]
+  const StatusIcon = status.icon
+  const summary = execution.final_output 
+    ? execution.final_output.slice(0, 60) + (execution.final_output.length > 60 ? '...' : '')
+    : execution.status === 'running' ? '正在生成...' : '无输出'
+
+  return (
+    <div 
+      className="group grid grid-cols-12 gap-4 p-4 items-center hover:bg-accent/50 rounded-lg border transition-all cursor-pointer bg-card"
+      onClick={onClick}
+    >
+      <div className="col-span-3 sm:col-span-2 flex items-center gap-2">
+        <div className={cn("p-2 rounded-full", status.color)}>
+           <StatusIcon className="h-4 w-4" />
+        </div>
+        <span className={cn("text-sm font-medium hidden sm:inline-block", status.color.split(' ')[0])}>
+           {status.label}
+        </span>
+      </div>
+      
+      <div className="col-span-4 sm:col-span-3 flex flex-col justify-center">
+         <span className="text-sm font-medium">{formatTime(execution.started_at)}</span>
+         <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {formatDuration(execution.started_at, execution.finished_at)}
+         </span>
+      </div>
+
+      <div className="col-span-3 sm:col-span-5">
+         <p className="text-sm text-muted-foreground truncate" title={execution.final_output || ''}>
+           {summary}
+         </p>
+      </div>
+
+      <div className="col-span-2 flex justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClick}>
+            <Maximize2 className="h-4 w-4" />
+         </Button>
+         <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
+                <FileDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onExport('txt'); }}>
+                <FileText className="mr-2 h-4 w-4" />
+                导出为 TXT
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onExport('md'); }}>
+                <FileText className="mr-2 h-4 w-4" />
+                导出为 Markdown
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+         </DropdownMenu>
+      </div>
+    </div>
+  )
+}
+
+// 详情对话框
+function ExecutionDetailDialog({
+  execution,
+  nodes,
+  open,
+  onOpenChange,
+}: {
+  execution: Execution | null
+  nodes: WorkflowNode[]
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }) {
   const [nodeResults, setNodeResults] = useState<NodeResult[]>([])
   const [isLoading, setIsLoading] = useState(false)
-  
-  const status = statusConfig[execution.status]
-  const StatusIcon = status.icon
+  const [copied, setCopied] = useState(false)
 
-  // 展开时加载节点结果
   useEffect(() => {
-    if (isExpanded && nodeResults.length === 0) {
+    if (open && execution) {
       setIsLoading(true)
       db.getNodeResults(execution.id)
         .then(setNodeResults)
         .catch(console.error)
         .finally(() => setIsLoading(false))
     }
-  }, [isExpanded, execution.id, nodeResults.length])
+  }, [open, execution])
 
-  // 获取节点名称
+  if (!execution) return null
+
+  const status = statusConfig[execution.status]
+  
   const getNodeName = (nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId)
     return node?.name || '未知节点'
   }
 
+  const handleCopyFinal = () => {
+    if (execution.final_output) {
+       navigator.clipboard.writeText(execution.final_output)
+       setCopied(true)
+       toast.success('已复制最终输出')
+       setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
   return (
-    <Card className={cn('transition-all', isExpanded && 'ring-2 ring-primary')}>
-      <CardHeader 
-        className="flex flex-row items-center gap-4 space-y-0 p-4 cursor-pointer"
-        onClick={onToggle}
-      >
-        {/* 展开/折叠图标 */}
-        <button className="text-muted-foreground hover:text-foreground">
-          {isExpanded ? (
-            <ChevronDown className="h-5 w-5" />
-          ) : (
-            <ChevronRight className="h-5 w-5" />
-          )}
-        </button>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-6 py-4 border-b bg-muted/30 flex-shrink-0">
+          <div className="flex items-center justify-between mr-8">
+             <div className="flex items-center gap-3">
+                <DialogTitle>执行详情</DialogTitle>
+                <Badge variant="outline" className={cn(status.color, "border-0")}>
+                   {status.label}
+                </Badge>
+                <span className="text-sm text-muted-foreground">
+                   {formatTime(execution.started_at)}
+                </span>
+             </div>
+             <div className="text-sm text-muted-foreground">
+                耗时: {formatDuration(execution.started_at, execution.finished_at)}
+             </div>
+          </div>
+          <DialogDescription className="hidden">
+             查看工作流执行的详细记录
+          </DialogDescription>
+        </DialogHeader>
 
-        {/* 状态徽章 */}
-        <Badge variant="secondary" className={cn('gap-1', status.color)}>
-          <StatusIcon className="h-3 w-3" />
-          {status.label}
-        </Badge>
-
-        {/* 时间信息 */}
-        <div className="flex flex-1 items-center gap-4 text-sm text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Clock className="h-3.5 w-3.5" />
-            {formatTime(execution.started_at)}
-          </span>
-          <span>耗时: {formatDuration(execution.started_at, execution.finished_at)}</span>
-        </div>
-
-        {/* 操作按钮 */}
-        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline">
-                <FileDown className="mr-2 h-4 w-4" />
-                导出
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onExport('txt')}>
-                <FileText className="mr-2 h-4 w-4" />
-                导出为 TXT
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onExport('md')}>
-                <FileText className="mr-2 h-4 w-4" />
-                导出为 Markdown
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </CardHeader>
-
-      {/* 展开内容 */}
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <CardContent className="border-t pt-4">
-              {/* 输入内容 */}
-              {execution.input && (
-                <div className="mb-4">
-                  <h4 className="mb-2 text-sm font-medium text-muted-foreground">初始输入</h4>
-                  <div className="rounded-lg bg-muted p-3 text-sm">
-                    <pre className="whitespace-pre-wrap">{execution.input}</pre>
-                  </div>
-                </div>
-              )}
-
-              {/* 节点执行结果 */}
-              <div className="mb-4">
-                <h4 className="mb-2 text-sm font-medium text-muted-foreground">节点执行记录</h4>
-                {isLoading ? (
-                  <div className="flex items-center justify-center py-4">
-                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                  </div>
-                ) : nodeResults.length > 0 ? (
-                  <div className="space-y-2">
-                    {nodeResults.map((result, index) => (
-                      <div key={result.id} className="rounded-lg border p-3">
-                        <div className="mb-2 flex items-center justify-between">
-                          <span className="font-medium">
-                            {index + 1}. {getNodeName(result.node_id)}
-                          </span>
-                          <Badge 
-                            variant="secondary" 
-                            className={cn(
-                              result.status === 'completed' && 'text-green-500 bg-green-500/10',
-                              result.status === 'failed' && 'text-red-500 bg-red-500/10',
-                              result.status === 'running' && 'text-blue-500 bg-blue-500/10',
-                            )}
-                          >
-                            {result.status === 'completed' ? '成功' : 
-                             result.status === 'failed' ? '失败' : 
-                             result.status === 'running' ? '执行中' : '待执行'}
-                          </Badge>
-                        </div>
-                        {result.output && (
-                          <StreamingOutput 
-                            content={result.output} 
-                            className="max-h-[200px] border-0 bg-muted/50" 
-                          />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="py-4 text-center text-sm text-muted-foreground">
-                    暂无节点执行记录
-                  </p>
-                )}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-background">
+           {/* 输入 */}
+           {execution.input && (
+              <div className="space-y-2">
+                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">初始输入</h3>
+                 <div className="rounded-md bg-muted p-4 text-sm whitespace-pre-wrap font-mono border">
+                    {execution.input}
+                 </div>
               </div>
+           )}
 
-              {/* 最终输出 */}
-              {execution.final_output && (
-                <div>
-                  <h4 className="mb-2 text-sm font-medium text-muted-foreground">最终输出</h4>
-                  <div className="rounded-lg border-2 border-primary bg-primary/5">
-                    <StreamingOutput content={execution.final_output} className="max-h-[300px] border-0" />
-                  </div>
-                </div>
+           {/* 节点结果 */}
+           <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">执行流程</h3>
+              {isLoading ? (
+                 <div className="relative border-l-2 border-muted ml-3 space-y-6 pl-6 py-2">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                       <div key={i} className="relative">
+                          <div className="absolute -left-[29px] top-0 h-4 w-4 rounded-full border-2 border-background ring-1 ring-muted bg-muted" />
+                          <div className="flex items-center justify-between mb-2">
+                             <Skeleton className="h-4 w-24" />
+                             <Skeleton className="h-3 w-16" />
+                          </div>
+                          <Skeleton className="h-20 w-full rounded-lg" />
+                       </div>
+                    ))}
+                 </div>
+              ) : nodeResults.length === 0 ? (
+                 <div className="text-center py-8 text-muted-foreground">无节点记录</div>
+              ) : (
+                 <div className="relative border-l-2 border-muted ml-3 space-y-6 pl-6 py-2">
+                    {nodeResults.map((result, index) => (
+                       <div key={result.id} className="relative">
+                          <div className={cn(
+                             "absolute -left-[29px] top-0 h-4 w-4 rounded-full border-2 border-background ring-1 ring-muted",
+                             result.status === 'completed' ? "bg-green-500" : 
+                             result.status === 'failed' ? "bg-red-500" : "bg-muted"
+                          )} />
+                          <div className="flex items-center justify-between mb-2">
+                             <span className="font-medium text-sm">{getNodeName(result.node_id)}</span>
+                             <span className="text-xs text-muted-foreground">
+                                {formatDuration(result.started_at, result.finished_at)}
+                             </span>
+                          </div>
+                          {result.output && (
+                             <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+                                <StreamingOutput content={result.output} className="max-h-[300px] text-sm" />
+                             </div>
+                          )}
+                       </div>
+                    ))}
+                 </div>
               )}
-            </CardContent>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </Card>
+           </div>
+
+           {/* 最终输出 */}
+           {execution.final_output && (
+              <div className="space-y-2 pt-4 border-t">
+                 <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-primary uppercase tracking-wider">最终输出</h3>
+                    <Button variant="ghost" size="sm" onClick={handleCopyFinal}>
+                       {copied ? <Check className="h-3.5 w-3.5 mr-1" /> : <Copy className="h-3.5 w-3.5 mr-1" />}
+                       {copied ? '已复制' : '复制'}
+                    </Button>
+                 </div>
+                 <div className="rounded-lg border-2 border-primary/20 bg-card shadow-sm overflow-hidden">
+                    <StreamingOutput content={execution.final_output} className="min-h-[100px]" />
+                 </div>
+              </div>
+           )}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -254,7 +310,7 @@ export function ExecutionHistoryPage({
   const [executions, setExecutions] = useState<Execution[]>([])
   const [nodes, setNodes] = useState<WorkflowNode[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [selectedExecution, setSelectedExecution] = useState<Execution | null>(null)
 
   // 加载数据
   useEffect(() => {
@@ -267,11 +323,6 @@ export function ExecutionHistoryPage({
         ])
         setExecutions(executionList)
         setNodes(nodeList)
-        
-        // 默认展开最新的一条
-        if (executionList.length > 0) {
-          setExpandedId(executionList[0].id)
-        }
       } catch (error) {
         console.error('加载执行历史失败:', error)
         toast.error('加载执行历史失败')
@@ -286,62 +337,39 @@ export function ExecutionHistoryPage({
   // 导出功能
   const handleExport = async (execution: Execution, format: 'txt' | 'md') => {
     try {
-      // 获取节点结果
       const nodeResults = await db.getNodeResults(execution.id)
-      
       let content = ''
       const timestamp = formatTime(execution.started_at)
       
       if (format === 'md') {
-        // Markdown 格式
         content = `# ${workflowName} - 执行记录\n\n`
         content += `**执行时间**: ${timestamp}\n\n`
         content += `**执行状态**: ${statusConfig[execution.status].label}\n\n`
         content += `**执行时长**: ${formatDuration(execution.started_at, execution.finished_at)}\n\n`
-        
-        if (execution.input) {
-          content += `## 初始输入\n\n\`\`\`\n${execution.input}\n\`\`\`\n\n`
-        }
-        
+        if (execution.input) content += `## 初始输入\n\n\`\`\`\n${execution.input}\n\`\`\`\n\n`
         content += `## 节点执行记录\n\n`
         nodeResults.forEach((result, index) => {
           const nodeName = nodes.find(n => n.id === result.node_id)?.name || '未知节点'
           content += `### ${index + 1}. ${nodeName}\n\n`
-          if (result.output) {
-            content += `\`\`\`\n${result.output}\n\`\`\`\n\n`
-          }
+          if (result.output) content += `\`\`\`\n${result.output}\n\`\`\`\n\n`
         })
-        
-        if (execution.final_output) {
-          content += `## 最终输出\n\n\`\`\`\n${execution.final_output}\n\`\`\`\n`
-        }
+        if (execution.final_output) content += `## 最终输出\n\n\`\`\`\n${execution.final_output}\n\`\`\`\n`
       } else {
-        // TXT 格式
         content = `${workflowName} - 执行记录\n`
         content += `${'='.repeat(50)}\n\n`
         content += `执行时间: ${timestamp}\n`
         content += `执行状态: ${statusConfig[execution.status].label}\n`
         content += `执行时长: ${formatDuration(execution.started_at, execution.finished_at)}\n\n`
-        
-        if (execution.input) {
-          content += `【初始输入】\n${execution.input}\n\n`
-        }
-        
+        if (execution.input) content += `【初始输入】\n${execution.input}\n\n`
         content += `【节点执行记录】\n${'-'.repeat(40)}\n\n`
         nodeResults.forEach((result, index) => {
           const nodeName = nodes.find(n => n.id === result.node_id)?.name || '未知节点'
           content += `${index + 1}. ${nodeName}\n`
-          if (result.output) {
-            content += `${result.output}\n\n`
-          }
+          if (result.output) content += `${result.output}\n\n`
         })
-        
-        if (execution.final_output) {
-          content += `${'-'.repeat(40)}\n【最终输出】\n${execution.final_output}\n`
-        }
+        if (execution.final_output) content += `${'-'.repeat(40)}\n【最终输出】\n${execution.final_output}\n`
       }
 
-      // 创建并下载文件
       const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -351,7 +379,6 @@ export function ExecutionHistoryPage({
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
-      
       toast.success(`已导出为 ${format.toUpperCase()} 文件`)
     } catch (error) {
       console.error('导出失败:', error)
@@ -360,8 +387,17 @@ export function ExecutionHistoryPage({
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <Header title={`${workflowName} - 执行历史`}>
+    <div className="flex h-full flex-col bg-background">
+      <Header
+         title={`${workflowName} - 执行历史`}
+         breadcrumbs={[
+            { label: '首页', href: '/' },
+            { label: '项目', href: `/project/${projectId}` },
+            { label: workflowName, href: `/project/${projectId}/workflow/${workflowId}` },
+            { label: '执行历史' },
+         ]}
+         onNavigate={onNavigate}
+      >
         <Button
           variant="ghost"
           size="sm"
@@ -372,34 +408,68 @@ export function ExecutionHistoryPage({
         </Button>
       </Header>
 
-      <ScrollArea className="flex-1 p-4">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          </div>
-        ) : executions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <History className="mb-4 h-12 w-12 text-muted-foreground/50" />
-            <p className="mb-2 text-muted-foreground">暂无执行历史</p>
-            <p className="text-sm text-muted-foreground/70">
-              运行工作流后，执行记录将显示在这里
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {executions.map((execution) => (
-              <ExecutionItem
-                key={execution.id}
-                execution={execution}
-                nodes={nodes}
-                isExpanded={expandedId === execution.id}
-                onToggle={() => setExpandedId(expandedId === execution.id ? null : execution.id)}
-                onExport={(format) => handleExport(execution, format)}
+      <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="p-4 border-b bg-muted/10">
+           <div className="flex items-center justify-between max-w-5xl mx-auto w-full">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                 <History className="h-5 w-5" />
+                 历史记录
+              </h2>
+              <Badge variant="outline">{executions.length} 条记录</Badge>
+           </div>
+        </div>
+        <ScrollArea className="flex-1">
+          <div className="max-w-5xl mx-auto w-full p-4">
+            {isLoading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="grid grid-cols-12 gap-4 p-4 items-center rounded-lg border bg-card">
+                     <div className="col-span-3 sm:col-span-2 flex items-center gap-2">
+                        <Skeleton className="h-8 w-8 rounded-full" />
+                        <Skeleton className="h-5 w-16 hidden sm:inline-block" />
+                     </div>
+                     <div className="col-span-4 sm:col-span-3 flex flex-col justify-center gap-1">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-3 w-24" />
+                     </div>
+                     <div className="col-span-3 sm:col-span-5">
+                        <Skeleton className="h-4 w-full" />
+                     </div>
+                     <div className="col-span-2 flex justify-end gap-1">
+                        <Skeleton className="h-8 w-8" />
+                     </div>
+                  </div>
+                ))}
+              </div>
+            ) : executions.length === 0 ? (
+              <EmptyState
+                icon={History}
+                title="暂无执行历史"
+                description="运行工作流后，执行记录将显示在这里"
               />
-            ))}
+            ) : (
+              <div className="space-y-2">
+                {executions.map((execution) => (
+                  <ExecutionListItem
+                    key={execution.id}
+                    execution={execution}
+                    nodes={nodes}
+                    onClick={() => setSelectedExecution(execution)}
+                    onExport={(format) => handleExport(execution, format)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </ScrollArea>
+        </ScrollArea>
+      </div>
+
+      <ExecutionDetailDialog
+        execution={selectedExecution}
+        nodes={nodes}
+        open={!!selectedExecution}
+        onOpenChange={(open) => !open && setSelectedExecution(null)}
+      />
     </div>
   )
 }
