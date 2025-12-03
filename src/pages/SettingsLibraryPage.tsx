@@ -54,6 +54,7 @@ import type { SettingCategory, Setting } from '@/types'
 interface SettingsLibraryPageProps {
   projectId: string
   onNavigate: (path: string) => void
+  initialTab?: SettingCategory
 }
 
 // 分类配置
@@ -94,7 +95,7 @@ const CATEGORIES: Array<{
   },
 ]
 
-export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPageProps) {
+export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: SettingsLibraryPageProps) {
   const { currentProject, setCurrentProject, projects, loadProjects } = useProjectStore()
   const {
     settings,
@@ -110,7 +111,7 @@ export function SettingsLibraryPage({ projectId, onNavigate }: SettingsLibraryPa
     getSettingPromptByCategory,
   } = useSettingsStore()
 
-  const [activeTab, setActiveTab] = useState<SettingCategory>('character')
+  const [activeTab, setActiveTab] = useState<SettingCategory>(initialTab || 'character')
   const [isSheetOpen, setIsSheetOpen] = useState(false)
   const [editingSetting, setEditingSetting] = useState<Setting | null>(null)
   const [deletingSetting, setDeletingSetting] = useState<Setting | null>(null)

@@ -11,6 +11,7 @@ import { SettingsLibraryPage } from '@/pages/SettingsLibraryPage'
 import { NewProjectPage } from '@/pages/NewProjectPage'
 import { NewWorkflowPage } from '@/pages/NewWorkflowPage'
 import { ExecutionHistoryPage } from '@/pages/ExecutionHistoryPage'
+import { EditWorkflowPage } from '@/pages/EditWorkflowPage'
 import { getWorkflow } from '@/lib/db'
 
 export function MainLayout() {
@@ -33,34 +34,56 @@ export function MainLayout() {
     }
   }, [currentPath, workflowNames])
 
+  // 解析路径和查询参数
+  const parsePathAndQuery = (path: string) => {
+    const [pathname, queryString] = path.split('?')
+    const params = new URLSearchParams(queryString || '')
+    return { pathname, params }
+  }
+
   // 简单的路由匹配
   const renderPage = () => {
-    if (currentPath === '/') {
+    const { pathname, params } = parsePathAndQuery(currentPath)
+
+    if (pathname === '/') {
       return <HomePage onNavigate={navigate} />
     }
 
-    if (currentPath === '/settings') {
+    if (pathname === '/settings') {
       return <SettingsPage onNavigate={navigate} />
     }
 
-    if (currentPath === '/project/new') {
+    if (pathname === '/project/new') {
       return <NewProjectPage onNavigate={navigate} />
     }
 
     // 匹配 /project/:id/workflow/new
-    const newWorkflowMatch = currentPath.match(/^\/project\/([^/]+)\/workflow\/new$/)
+    const newWorkflowMatch = pathname.match(/^\/project\/([^/]+)\/workflow\/new$/)
     if (newWorkflowMatch) {
       return <NewWorkflowPage projectId={newWorkflowMatch[1]} onNavigate={navigate} />
     }
 
+    // 匹配 /project/:id/workflow/:wid/edit
+    const editWorkflowMatch = pathname.match(/^\/project\/([^/]+)\/workflow\/([^/]+)\/edit$/)
+    if (editWorkflowMatch) {
+      return (
+        <EditWorkflowPage
+          projectId={editWorkflowMatch[1]}
+          workflowId={editWorkflowMatch[2]}
+          onNavigate={navigate}
+        />
+      )
+    }
+
     // 匹配 /project/:id/settings (设定库)
-    const settingsLibraryMatch = currentPath.match(/^\/project\/([^/]+)\/settings$/)
+    const settingsLibraryMatch = pathname.match(/^\/project\/([^/]+)\/settings$/)
     if (settingsLibraryMatch) {
-      return <SettingsLibraryPage projectId={settingsLibraryMatch[1]} onNavigate={navigate} />
+      const initialTab = params.get('tab') as 'character' | 'worldview' | 'style' | 'outline' | undefined
+      return <SettingsLibraryPage projectId={settingsLibraryMatch[1]} onNavigate={navigate} initialTab={initialTab} />
     }
 
     // 匹配 /project/:id/workflow/:wid/history (执行历史)
-    const historyMatch = currentPath.match(/^\/project\/([^/]+)\/workflow\/([^/]+)\/history$/)
+    const historyMatch = pathname.match(/^\/project\/([^/]+)\/workflow\/([^/]+)\/history$/)
     if (historyMatch) {
       return (
         <ExecutionHistoryPage
@@ -73,7 +96,7 @@ export function MainLayout() {
     }
 
     // 匹配 /project/:id/workflow/:wid
-    const workflowMatch = currentPath.match(/^\/project\/([^/]+)\/workflow\/([^/]+)$/)
+    const workflowMatch = pathname.match(/^\/project\/([^/]+)\/workflow\/([^/]+)$/)
     if (workflowMatch) {
       return (
         <WorkflowPage
@@ -85,7 +108,7 @@ export function MainLayout() {
     }
 
     // 匹配 /project/:id
-    const projectMatch = currentPath.match(/^\/project\/([^/]+)$/)
+    const projectMatch = pathname.match(/^\/project\/([^/]+)$/)
     if (projectMatch) {
       return <ProjectPage projectId={projectMatch[1]} onNavigate={navigate} />
     }
