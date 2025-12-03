@@ -136,7 +136,7 @@ export function LoopStartConfigForm({
                 <Label htmlFor="condition_variable">变量名</Label>
                 <Input
                   id="condition_variable"
-                  placeholder="输入变量名"
+                  placeholder="输入变量名（如：用户问题）"
                   value={config.condition_variable || ''}
                   onChange={(e) =>
                     onChange({ ...config, condition_variable: e.target.value })

@@ -47,7 +47,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import type { WorkflowNode, NodeType, AIChatConfig, LoopStartConfig, ConditionIfConfig, VarSetConfig, VarGetConfig, TextExtractConfig, TextConcatConfig, ParallelStartConfig } from '@/types'
+import type { WorkflowNode, NodeType, AIChatConfig, LoopStartConfig, ConditionIfConfig, VarSetConfig, VarGetConfig, TextExtractConfig, TextConcatConfig, ParallelStartConfig, StartConfig } from '@/types'
 
 // 节点类型配置
 const nodeTypeConfig: Record<
@@ -63,7 +63,7 @@ const nodeTypeConfig: Record<
     blockType?: 'loop' | 'parallel' | 'condition'
   }
 > = {
-  input: { label: '输入', icon: FileInput, color: 'text-green-600', bgColor: 'bg-green-500', textColor: 'text-green-700' },
+  start: { label: '开始流程', icon: FileInput, color: 'text-green-600', bgColor: 'bg-green-500', textColor: 'text-green-700' },
   output: { label: '输出', icon: FileOutput, color: 'text-red-600', bgColor: 'bg-red-500', textColor: 'text-red-700' },
   ai_chat: { label: 'AI 对话', icon: MessageSquare, color: 'text-violet-600', bgColor: 'bg-violet-500', textColor: 'text-violet-700' },
   text_extract: { label: '内容提取', icon: Scissors, color: 'text-orange-600', bgColor: 'bg-orange-500', textColor: 'text-orange-700' },
@@ -185,15 +185,17 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
   const config = node.config as any
   
   switch (node.type) {
-    case 'input':
+    case 'start': {
+      const startConfig = config as StartConfig
       return (
         <span className="text-muted-foreground">
-          接收用户输入
-          {config?.default_value && (
-            <>，默认值为 <Tag color="blue">{config.default_value}</Tag></>
+          将用户输入保存到变量 <Tag color="green">用户问题</Tag>
+          {startConfig?.default_value && (
+            <>，默认值为 <Tag color="blue">{startConfig.default_value}</Tag></>
           )}
         </span>
       )
+    }
     
     case 'output':
       return (
@@ -539,6 +541,7 @@ function NodeCard({
   const config = nodeTypeConfig[node.type]
   const Icon = config.icon
   const isBlockStart = config.isBlockStart
+  const isStartNode = node.type === 'start'  // 开始流程节点不可移动、删除、复制
 
   // Overlay 状态下的特定样式
   const overlayStyle = isOverlay ? {
@@ -659,39 +662,44 @@ function NodeCard({
         'flex items-center gap-0.5 pr-2 transition-opacity',
         isOverlay ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
       )}>
-        {/* 拖拽手柄 */}
-        <button
-          {...dragHandleProps}
-          className={cn(
-            'cursor-grab touch-none rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-foreground',
-            disabled && 'cursor-not-allowed opacity-40',
-            isOverlay && 'cursor-grabbing'
-          )}
-          disabled={disabled}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <GripVertical className="h-3.5 w-3.5" />
-        </button>
+        {/* 拖拽手柄 - 开始流程节点不可拖拽 */}
+        {!isStartNode && (
+          <button
+            {...dragHandleProps}
+            className={cn(
+              'cursor-grab touch-none rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-foreground',
+              disabled && 'cursor-not-allowed opacity-40',
+              isOverlay && 'cursor-grabbing'
+            )}
+            disabled={disabled}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+        )}
 
         {!isOverlay && (
           <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                  disabled={disabled}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onCopy()
-                  }}
-                >
-                  <Copy className="h-3 w-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>复制</TooltipContent>
-            </Tooltip>
+            {/* 复制按钮 - 开始流程节点不可复制 */}
+            {!isStartNode && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                    disabled={disabled}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onCopy()
+                    }}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>复制</TooltipContent>
+              </Tooltip>
+            )}
 
             <Tooltip>
               <TooltipTrigger asChild>
@@ -711,23 +719,26 @@ function NodeCard({
               <TooltipContent>配置</TooltipContent>
             </Tooltip>
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                  disabled={disabled}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDelete()
-                  }}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>删除</TooltipContent>
-            </Tooltip>
+            {/* 删除按钮 - 开始流程节点不可删除 */}
+            {!isStartNode && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                    disabled={disabled}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDelete()
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>删除</TooltipContent>
+              </Tooltip>
+            )}
           </>
         )}
       </div>
@@ -749,8 +760,10 @@ function SortableNodeRow(props: {
   onToggleCollapse?: () => void
   disabled?: boolean
 }) {
+  // 开始流程节点禁止拖拽
+  const isStartNode = props.node.type === 'start'
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: props.node.id, disabled: props.disabled })
+    useSortable({ id: props.node.id, disabled: props.disabled || isStartNode })
 
   const style = {
     transform: CSS.Translate.toString(transform), // 使用 Translate 避免缩放问题
@@ -841,7 +854,14 @@ export function WorkflowNodeTree({
 
     if (over && active.id !== over.id) {
       const oldIndex = nodes.findIndex((n) => n.id === active.id)
-      const newIndex = nodes.findIndex((n) => n.id === over.id)
+      let newIndex = nodes.findIndex((n) => n.id === over.id)
+      
+      // 防止节点被拖拽到开始流程节点之前
+      // 如果第一个节点是开始流程节点，不允许拖拽到位置 0
+      if (nodes[0]?.type === 'start' && newIndex === 0) {
+        newIndex = 1
+      }
+      
       const newOrder = arrayMove(nodes, oldIndex, newIndex)
       onReorderNodes(newOrder.map((n) => n.id))
     }

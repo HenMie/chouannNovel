@@ -10,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { getAvailableModels, getModelConfig, type ModelConfig } from '@/lib/ai'
@@ -108,8 +107,6 @@ export function LoopConfigForm({
         </Select>
       </div>
 
-      <Separator />
-
       {/* 最大迭代次数 */}
       <div className="space-y-2">
         <Label htmlFor="max_iterations">最大迭代次数</Label>
@@ -131,8 +128,6 @@ export function LoopConfigForm({
       {/* 条件循环配置 */}
       {currentConfig.condition_type === 'condition' && (
         <>
-          <Separator />
-          
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-sm font-medium">
@@ -161,14 +156,12 @@ export function LoopConfigForm({
 
                 {currentConfig.condition?.input_source === 'variable' && (
                   <Input
-                    placeholder="变量名"
+                    placeholder="变量名（如：用户问题）"
                     value={currentConfig.condition?.input_variable || ''}
                     onChange={(e) => updateCondition({ input_variable: e.target.value })}
                   />
                 )}
               </div>
-
-              <Separator />
 
               {/* 条件类型 */}
               <div className="space-y-2">
@@ -289,8 +282,6 @@ export function LoopConfigForm({
           </Card>
         </>
       )}
-
-      <Separator />
 
       {/* 循环说明 */}
       <div className="rounded-lg border bg-muted/50 p-4 space-y-2">

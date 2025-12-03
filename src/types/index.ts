@@ -22,7 +22,7 @@ export interface Workflow {
 // 节点类型枚举
 export type NodeType =
   // 基础节点
-  | 'input'
+  | 'start'
   | 'output'
   | 'ai_chat'
   | 'text_extract'
@@ -209,10 +209,9 @@ export interface VarGetConfig {
   variable_name: string
 }
 
-// 输入节点配置
-export interface InputConfig {
-  placeholder?: string
-  default_value?: string
+// 开始流程节点配置
+export interface StartConfig {
+  default_value?: string  // 默认值（用于测试）
 }
 
 // 输出节点配置
@@ -230,7 +229,7 @@ export type NodeConfig =
   | TextConcatConfig
   | VarSetConfig
   | VarGetConfig
-  | InputConfig
+  | StartConfig
   | OutputConfig
   // 新的控制结构配置
   | LoopStartConfig

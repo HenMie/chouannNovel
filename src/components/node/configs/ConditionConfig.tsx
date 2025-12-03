@@ -11,7 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { getAvailableModels, getModelConfig, type ModelConfig } from '@/lib/ai'
@@ -207,14 +206,12 @@ export function ConditionConfigForm({
 
         {currentConfig.input_source === 'variable' && (
           <Input
-            placeholder="变量名"
+            placeholder="变量名（如：用户问题）"
             value={currentConfig.input_variable || ''}
             onChange={(e) => updateConfig({ input_variable: e.target.value })}
           />
         )}
       </div>
-
-      <Separator />
 
       {/* 条件类型 */}
       <div className="space-y-4">
@@ -237,8 +234,6 @@ export function ConditionConfigForm({
           </SelectContent>
         </Select>
       </div>
-
-      <Separator />
 
       {/* 关键词匹配配置 */}
       {currentConfig.condition_type === 'keyword' && (
@@ -382,8 +377,6 @@ export function ConditionConfigForm({
           </div>
         </div>
       )}
-
-      <Separator />
 
       {/* 条件为真时的动作 */}
       <Card className="border-green-200 dark:border-green-900">

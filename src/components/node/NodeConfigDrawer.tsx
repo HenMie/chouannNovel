@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { EmptyState } from '@/components/ui/empty-state'
 import {
@@ -59,7 +58,7 @@ interface NodeConfigDrawerProps {
 
 // 节点类型标签
 const nodeTypeLabels: Record<string, string> = {
-  input: '输入节点',
+  start: '开始流程',
   output: '输出节点',
   ai_chat: 'AI 对话节点',
   text_extract: '内容提取节点',
@@ -167,33 +166,16 @@ export function NodeConfigDrawer({
             globalConfig={globalConfig}
             projectId={projectId}
             nodes={nodes}
+            currentNodeId={node.id}
             onChange={setConfig}
           />
         )
 
-      case 'input':
+      case 'start':
         return (
           <div className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="placeholder">占位提示文本</Label>
-                <Tooltip>
-                  <TooltipTrigger>
-                    <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    当需要用户输入时显示的提示文字
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <Input
-                id="placeholder"
-                placeholder="请输入..."
-                value={(config as any).placeholder || ''}
-                onChange={(e) =>
-                  setConfig({ ...config, placeholder: e.target.value })
-                }
-              />
+            <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
+              <p>用户输入将自动保存到变量 <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs">用户问题</code> 中。</p>
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -301,7 +283,7 @@ export function NodeConfigDrawer({
               <Label htmlFor="variable_name">变量名</Label>
               <Input
                 id="variable_name"
-                placeholder="输入要读取的变量名"
+                placeholder="输入变量名（如：用户问题）"
                 value={(config as any).variable_name || ''}
                 onChange={(e) =>
                   setConfig({ ...config, variable_name: e.target.value })
@@ -456,8 +438,6 @@ export function NodeConfigDrawer({
                 className="font-medium"
               />
             </div>
-
-            <Separator />
 
             {/* 节点配置表单 */}
             {renderConfigForm()}

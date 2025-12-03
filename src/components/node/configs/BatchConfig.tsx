@@ -13,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import { X, Layers, AlertCircle } from 'lucide-react'
@@ -120,14 +119,12 @@ export function BatchConfigForm({ config, onChange, nodes, currentNodeId }: Batc
 
         {currentConfig.input_source === 'variable' && (
           <Input
-            placeholder="变量名"
+            placeholder="变量名（如：用户问题）"
             value={currentConfig.input_variable || ''}
             onChange={(e) => updateConfig({ input_variable: e.target.value })}
           />
         )}
       </div>
-
-      <Separator />
 
       {/* 分割模式 */}
       <div className="space-y-4">
@@ -170,8 +167,6 @@ export function BatchConfigForm({ config, onChange, nodes, currentNodeId }: Batc
         )}
       </div>
 
-      <Separator />
-
       {/* 并发控制 */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -191,8 +186,6 @@ export function BatchConfigForm({ config, onChange, nodes, currentNodeId }: Batc
           同时处理的最大项数，建议设置为 3-5 以避免 API 限流
         </p>
       </div>
-
-      <Separator />
 
       {/* 目标节点选择 */}
       <div className="space-y-4">
@@ -280,8 +273,6 @@ export function BatchConfigForm({ config, onChange, nodes, currentNodeId }: Batc
           </CardContent>
         </Card>
       </div>
-
-      <Separator />
 
       {/* 输出模式 */}
       <div className="space-y-4">

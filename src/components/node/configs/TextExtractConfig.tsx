@@ -10,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import type { TextExtractConfig as TextExtractConfigType } from '@/types'
 
 interface TextExtractConfigProps {
@@ -59,14 +58,12 @@ export function TextExtractConfigForm({ config, onChange }: TextExtractConfigPro
 
         {currentConfig.input_source === 'variable' && (
           <Input
-            placeholder="变量名"
+            placeholder="变量名（如：用户问题）"
             value={currentConfig.input_variable || ''}
             onChange={(e) => updateConfig({ input_variable: e.target.value })}
           />
         )}
       </div>
-
-      <Separator />
 
       {/* 提取模式 */}
       <div className="space-y-4">
@@ -87,8 +84,6 @@ export function TextExtractConfigForm({ config, onChange }: TextExtractConfigPro
           </SelectContent>
         </Select>
       </div>
-
-      <Separator />
 
       {/* 正则表达式配置 */}
       {currentConfig.extract_mode === 'regex' && (

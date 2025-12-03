@@ -146,7 +146,7 @@
   vertical-align: baseline;
 }
 
-/* 内置变量（input, previous, 上一节点）- 蓝色 */
+/* 内置变量（用户问题, previous, 上一节点）- 蓝色 */
 .prompt-var-builtin {
   background-color: oklch(0.6 0.18 250);
   color: white;
@@ -166,5 +166,26 @@
 .dark .prompt-var-custom {
   background-color: oklch(0.5 0.22 300);
   color: white;
+}
+
+/* 变量选择器样式 */
+.variable-picker {
+  animation: variable-picker-enter 0.15s ease-out;
+}
+
+@keyframes variable-picker-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* 键盘快捷键样式 */
+.variable-picker kbd {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
 }
 

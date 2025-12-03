@@ -5,7 +5,7 @@ import type {
   Workflow,
   GlobalConfig,
   AIChatConfig,
-  InputConfig,
+  StartConfig,
   VarSetConfig,
   VarGetConfig,
   TextExtractConfig,
@@ -293,8 +293,8 @@ export class WorkflowExecutor {
 
     // 根据节点类型执行
     switch (node.type) {
-      case 'input':
-        output = await this.executeInputNode(node)
+      case 'start':
+        output = await this.executeStartNode(node)
         break
       case 'output':
         output = await this.executeOutputNode(node)
@@ -364,8 +364,8 @@ export class WorkflowExecutor {
       finishedAt: new Date(),
     })
 
-    // 更新上一个输出
-    this.context.setPreviousOutput(output)
+    // 更新节点输出（同时保存节点名称用于 {{节点名称}} 引用）
+    this.context.setNodeOutput(output, node.name)
 
     this.emit({
       type: 'node_completed',
@@ -379,16 +379,21 @@ export class WorkflowExecutor {
   /**
    * 执行输入节点
    */
-  private async executeInputNode(node: WorkflowNode): Promise<string> {
-    const config = node.config as InputConfig
+  /**
+   * 执行开始流程节点
+   * 将用户输入保存到指定变量中
+   */
+  private async executeStartNode(node: WorkflowNode): Promise<string> {
+    const config = node.config as StartConfig
     const input = this.context.getInitialInput()
     
     // 如果没有输入，使用默认值
-    if (!input && config.default_value) {
-      return config.default_value
-    }
+    const value = (!input && config.default_value) ? config.default_value : input
     
-    return input
+    // 将用户输入保存到固定变量"用户问题"中
+    this.context.setVariable('用户问题', value)
+    
+    return value
   }
 
   /**

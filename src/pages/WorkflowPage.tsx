@@ -6,7 +6,6 @@ import {
   Square,
   Plus,
   MessageSquare,
-  FileInput,
   FileOutput,
   GitBranch,
   Repeat,
@@ -236,8 +235,8 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     setSelectedNode(updatedNode)
   }
 
-  // 检查是否有输入节点
-  const hasInputNode = nodes.some(n => n.type === 'input')
+  // 检查是否有开始流程节点
+  const hasStartNode = nodes.some(n => n.type === 'start')
 
   const handleRun = async () => {
     // 检查全局配置
@@ -259,8 +258,8 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
       }
     }
 
-    // 如果有输入节点且没有输入，显示输入对话框
-    if (hasInputNode && !initialInput) {
+    // 如果有开始流程节点且没有输入，显示输入对话框
+    if (hasStartNode && !initialInput) {
       setShowInputDialog(true)
       return
     }
@@ -494,10 +493,6 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
                   {/* 基础节点 */}
-                  <DropdownMenuItem onClick={() => handleAddNode('input')}>
-                    <FileInput className="mr-2 h-4 w-4 text-green-500" />
-                    <span>输入节点</span>
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => handleAddNode('output')}>
                     <FileOutput className="mr-2 h-4 w-4 text-red-500" />
                     <span>输出节点</span>

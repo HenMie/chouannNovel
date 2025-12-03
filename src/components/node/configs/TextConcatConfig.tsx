@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { Card, CardContent } from '@/components/ui/card'
 import type { TextConcatConfig as TextConcatConfigType } from '@/types'
 
@@ -107,7 +106,7 @@ export function TextConcatConfigForm({ config, onChange }: TextConcatConfigProps
 
             {source.type === 'variable' && (
               <Input
-                placeholder="变量名"
+                placeholder="变量名（如：用户问题）"
                 className="h-8"
                 value={source.variable || ''}
                 onChange={(e) => updateSource(index, { variable: e.target.value })}
@@ -159,8 +158,6 @@ export function TextConcatConfigForm({ config, onChange }: TextConcatConfigProps
           将按顺序拼接所有来源的文本
         </p>
       </div>
-
-      <Separator />
 
       {/* 分隔符设置 */}
       <div className="space-y-4">

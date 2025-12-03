@@ -1,15 +1,22 @@
 // 提示词编辑器组件
 // 支持 {{变量名}} 作为不可编辑的整体标签
+// 支持输入 / 触发变量选择器
 
 import * as React from 'react'
-import { useRef, useCallback, useEffect } from 'react'
+import { useRef, useCallback, useEffect, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { VariablePicker } from './variable-picker'
+import type { WorkflowNode } from '@/types'
 
 // 变量匹配正则表达式
 const VARIABLE_PATTERN = /\{\{([^}]+)\}\}/g
 
-// 内置变量列表
-const BUILTIN_VARIABLES = ['input', 'previous', '上一节点']
+// 系统内置变量列表（显示为蓝色标签）
+// - 用户问题/input/输入: 初始用户输入
+// - previous/上一节点/上一个输出: 上一节点输出（向后兼容，建议使用精确的节点名称引用）
+// - loop_index: 当前循环索引
+const SYSTEM_VARIABLES = ['用户问题', 'input', '输入', 'previous', '上一节点', '上一个输出', 'loop_index']
 
 interface PromptEditorProps {
   value: string
@@ -19,6 +26,9 @@ interface PromptEditorProps {
   minHeight?: string
   disabled?: boolean
   id?: string
+  // 新增：节点列表用于变量选择
+  nodes?: WorkflowNode[]
+  currentNodeId?: string
 }
 
 // 转义 HTML 特殊字符
@@ -49,7 +59,7 @@ function renderToHtml(text: string): string {
     // 添加不可编辑的变量标签
     const varName = match[1].trim()
     const fullVar = `{{${varName}}}`
-    const isBuiltin = BUILTIN_VARIABLES.includes(varName)
+    const isBuiltin = SYSTEM_VARIABLES.includes(varName)
     const colorClass = isBuiltin ? 'prompt-var-builtin' : 'prompt-var-custom'
     
     // contenteditable="false" 使标签不可编辑
@@ -108,6 +118,45 @@ function extractValue(element: HTMLElement): string {
   return result
 }
 
+// 获取光标位置
+function getCaretPosition(): { x: number; y: number } | null {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return null
+  
+  const range = selection.getRangeAt(0)
+  const rect = range.getBoundingClientRect()
+  
+  return {
+    x: rect.left,
+    y: rect.bottom + 4, // 在光标下方显示
+  }
+}
+
+// 删除 / 字符并保持光标位置
+function removeSlashBeforeCaret(): void {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return
+  
+  const range = selection.getRangeAt(0)
+  const container = range.startContainer
+  const offset = range.startOffset
+  
+  if (container.nodeType === Node.TEXT_NODE && offset > 0) {
+    const text = container.textContent || ''
+    if (text[offset - 1] === '/') {
+      // 删除 / 字符
+      container.textContent = text.slice(0, offset - 1) + text.slice(offset)
+      
+      // 恢复光标位置
+      const newRange = document.createRange()
+      newRange.setStart(container, offset - 1)
+      newRange.setEnd(container, offset - 1)
+      selection.removeAllRanges()
+      selection.addRange(newRange)
+    }
+  }
+}
+
 // 在光标位置插入变量
 function insertVariableAtCursor(editor: HTMLElement, variable: string): void {
   const selection = window.getSelection()
@@ -120,7 +169,7 @@ function insertVariableAtCursor(editor: HTMLElement, variable: string): void {
   
   // 创建变量标签
   const varName = variable.replace(/^\{\{|\}\}$/g, '')
-  const isBuiltin = BUILTIN_VARIABLES.includes(varName)
+  const isBuiltin = SYSTEM_VARIABLES.includes(varName)
   const colorClass = isBuiltin ? 'prompt-var-builtin' : 'prompt-var-custom'
   
   const span = document.createElement('span')
@@ -148,11 +197,17 @@ export function PromptEditor({
   minHeight = '120px',
   disabled = false,
   id,
+  nodes = [],
+  currentNodeId,
 }: PromptEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null)
   const isComposing = useRef(false)
   const lastValue = useRef(value)
   const isInternalUpdate = useRef(false)
+  
+  // 变量选择器状态
+  const [showPicker, setShowPicker] = useState(false)
+  const [pickerPosition, setPickerPosition] = useState({ x: 0, y: 0 })
 
   // 同步外部 value 到编辑器
   useEffect(() => {
@@ -208,6 +263,36 @@ export function PromptEditor({
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     const editor = editorRef.current
     if (!editor) return
+    
+    // 如果选择器打开，阻止 Tab 和 Enter 键
+    if (showPicker) {
+      if (e.key === 'Tab' || e.key === 'Enter' || e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault()
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setShowPicker(false)
+        return
+      }
+    }
+    
+    // 输入 / 时显示变量选择器（仅当有节点数据时）
+    if (e.key === '/' && !isComposing.current && nodes.length > 0) {
+      // 延迟一点，等待 / 字符被插入后获取位置
+      setTimeout(() => {
+        const pos = getCaretPosition()
+        if (pos) {
+          // 删除刚输入的 /
+          removeSlashBeforeCaret()
+          emitChange()
+          
+          setPickerPosition(pos)
+          setShowPicker(true)
+        }
+      }, 0)
+      return
+    }
     
     // Tab 键插入空格
     if (e.key === 'Tab') {
@@ -281,7 +366,7 @@ export function PromptEditor({
         }
       }
     }
-  }, [emitChange])
+  }, [emitChange, showPicker, nodes])
 
   // 处理中文输入法
   const handleCompositionStart = useCallback(() => {
@@ -300,7 +385,16 @@ export function PromptEditor({
 
   // 处理失焦
   const handleBlur = useCallback(() => {
-    // 可以在这里添加失焦时的逻辑
+    // 延迟关闭选择器，以便能够点击选择器中的选项
+    setTimeout(() => {
+      // 检查焦点是否在选择器内
+      const activeElement = document.activeElement
+      const picker = document.querySelector('.variable-picker')
+      if (picker && picker.contains(activeElement)) {
+        return
+      }
+      setShowPicker(false)
+    }, 150)
   }, [])
 
   // 暴露插入变量的方法
@@ -317,6 +411,16 @@ export function PromptEditor({
       (editorRef.current as any).insertVariable = insertVariable
     }
   }, [insertVariable])
+
+  // 处理变量选择
+  const handleSelectVariable = useCallback((variable: string) => {
+    setShowPicker(false)
+    if (editorRef.current) {
+      editorRef.current.focus()
+      insertVariableAtCursor(editorRef.current, variable)
+      emitChange()
+    }
+  }, [emitChange])
 
   return (
     <div className="relative">
@@ -346,8 +450,28 @@ export function PromptEditor({
         onBlur={handleBlur}
         data-placeholder={placeholder}
       />
+      
+      {/* 输入 / 提示 */}
+      {nodes.length > 0 && !showPicker && (
+        <div className="absolute right-2 bottom-2 text-xs text-muted-foreground/50 pointer-events-none select-none">
+          输入 <kbd className="px-1 py-0.5 rounded bg-muted/50 text-[10px] font-mono">/</kbd> 插入变量
+        </div>
+      )}
+      
+      {/* 变量选择器 */}
+      <AnimatePresence>
+        {showPicker && (
+          <VariablePicker
+            nodes={nodes}
+            currentNodeId={currentNodeId}
+            position={pickerPosition}
+            onSelect={handleSelectVariable}
+            onClose={() => setShowPicker(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
 
-export { renderToHtml as highlightVariables, BUILTIN_VARIABLES, VARIABLE_PATTERN }
+export { renderToHtml as highlightVariables, SYSTEM_VARIABLES, VARIABLE_PATTERN }

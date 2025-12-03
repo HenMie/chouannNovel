@@ -1,6 +1,6 @@
 // 执行上下文 - 管理执行过程中的变量、对话历史等
 
-import type { WorkflowNode, AIChatConfig } from '@/types'
+import type { WorkflowNode } from '@/types'
 import type { Message } from '@/lib/ai/types'
 
 // 节点执行状态
@@ -24,8 +24,11 @@ export class ExecutionContext {
   // 对话历史（每个节点的对话历史）
   private conversationHistory: Map<string, Message[]> = new Map()
   
-  // 上一个节点的输出
+  // 上一个节点的输出（向后兼容）
   private previousOutput: string = ''
+  
+  // 节点输出存储（按节点名称索引）
+  private nodeOutputs: Map<string, string> = new Map()
   
   // 初始输入
   private initialInput: string = ''
@@ -91,20 +94,43 @@ export class ExecutionContext {
 
   /**
    * 变量插值 - 替换 {{变量名}} 格式
+   * 支持以下变量类型：
+   * 1. {{用户问题}} / {{input}} / {{输入}} - 初始输入
+   * 2. {{上一节点}} / {{previous}} / {{上一个输出}} - 上一节点输出（向后兼容）
+   * 3. {{节点名称}} 或 {{节点名称 > 输出描述}} - 引用指定节点的输出
+   * 4. {{变量名}} - 通过 var_set 设置的变量
    */
   interpolate(template: string): string {
     return template.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
-      const trimmedName = varName.trim()
+      let trimmedName = varName.trim()
       
-      // 特殊变量
-      if (trimmedName === 'input' || trimmedName === '输入') {
+      // 解析 "节点名称 > 输出描述" 格式，提取节点名称
+      if (trimmedName.includes('>')) {
+        trimmedName = trimmedName.split('>')[0].trim()
+      }
+      
+      // 1. 初始输入变量
+      if (trimmedName === 'input' || trimmedName === '输入' || trimmedName === '用户问题') {
         return this.initialInput
       }
-      if (trimmedName === 'previous' || trimmedName === '上一个输出') {
+      
+      // 特殊处理：开始流程 > 用户输入
+      if (trimmedName === '开始流程') {
+        return this.initialInput
+      }
+      
+      // 2. 上一节点输出（向后兼容）
+      if (trimmedName === 'previous' || trimmedName === '上一个输出' || trimmedName === '上一节点') {
         return this.previousOutput
       }
       
-      // 普通变量
+      // 3. 尝试从节点输出中查找（按节点名称）
+      const nodeOutput = this.nodeOutputs.get(trimmedName)
+      if (nodeOutput !== undefined) {
+        return nodeOutput
+      }
+      
+      // 4. 普通变量（通过 var_set 设置的）
       return this.variables.get(trimmedName) ?? match
     })
   }
@@ -141,7 +167,22 @@ export class ExecutionContext {
   // ========== 输出操作 ==========
 
   /**
-   * 设置上一个节点的输出
+   * 设置节点输出
+   * @param output 输出内容
+   * @param nodeName 节点名称（可选，用于通过 {{节点名称}} 引用）
+   */
+  setNodeOutput(output: string, nodeName?: string): void {
+    this.previousOutput = output
+    
+    // 如果提供了节点名称，保存到节点输出映射中
+    if (nodeName) {
+      this.nodeOutputs.set(nodeName, output)
+    }
+  }
+
+  /**
+   * 设置上一个节点的输出（向后兼容）
+   * @deprecated 请使用 setNodeOutput
    */
   setPreviousOutput(output: string): void {
     this.previousOutput = output
@@ -152,6 +193,24 @@ export class ExecutionContext {
    */
   getPreviousOutput(): string {
     return this.previousOutput
+  }
+
+  /**
+   * 获取指定节点的输出
+   */
+  getNodeOutput(nodeName: string): string | undefined {
+    return this.nodeOutputs.get(nodeName)
+  }
+
+  /**
+   * 获取所有节点输出
+   */
+  getAllNodeOutputs(): Record<string, string> {
+    const result: Record<string, string> = {}
+    this.nodeOutputs.forEach((value, key) => {
+      result[key] = value
+    })
+    return result
   }
 
   /**
@@ -253,9 +312,17 @@ export class ExecutionContext {
 
   /**
    * 根据节点配置获取输入
+   * 支持具有 input_source 属性的节点配置类型
    */
   getNodeInput(node: WorkflowNode): string {
-    const config = node.config as AIChatConfig
+    // 通用的输入配置接口
+    interface NodeInputConfig {
+      input_source?: 'previous' | 'variable' | 'custom'
+      input_variable?: string
+      custom_input?: string
+    }
+    
+    const config = node.config as NodeInputConfig
 
     switch (config.input_source) {
       case 'previous':
@@ -282,6 +349,7 @@ export class ExecutionContext {
     return {
       variables: this.getAllVariables(),
       previousOutput: this.previousOutput,
+      nodeOutputs: this.getAllNodeOutputs(),
       initialInput: this.initialInput,
       nodeStates: this.getAllNodeStates(),
       loopCounters: Object.fromEntries(this.loopCounters),
@@ -308,6 +376,14 @@ export class ExecutionContext {
     // 恢复上一个输出
     if (snapshot.previousOutput) {
       ctx.setPreviousOutput(snapshot.previousOutput as string)
+    }
+
+    // 恢复节点输出
+    const nodeOutputs = snapshot.nodeOutputs as Record<string, string>
+    if (nodeOutputs) {
+      Object.entries(nodeOutputs).forEach(([key, value]) => {
+        ctx.nodeOutputs.set(key, value)
+      })
     }
 
     // 恢复循环计数

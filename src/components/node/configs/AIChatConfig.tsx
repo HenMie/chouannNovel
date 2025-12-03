@@ -1,10 +1,9 @@
 // AI 对话节点配置表单
 
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Users, Globe, Palette, FileText, Check, Settings2, ChevronDown, ChevronRight } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { PromptEditor } from '@/components/ui/prompt-editor'
 import {
   Select,
@@ -15,13 +14,12 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
-import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { getAvailableModels, getModelConfig, type ModelConfig } from '@/lib/ai'
 import { useSettingsStore } from '@/stores/settings-store'
-import type { AIChatConfig as AIChatConfigType, GlobalConfig, AIProvider, SettingCategory, WorkflowNode, VarSetConfig } from '@/types'
+import type { AIChatConfig as AIChatConfigType, GlobalConfig, AIProvider, SettingCategory, WorkflowNode } from '@/types'
 import { cn } from '@/lib/utils'
 
 interface AIChatConfigProps {
@@ -29,6 +27,7 @@ interface AIChatConfigProps {
   globalConfig: GlobalConfig | null
   projectId?: string
   nodes?: WorkflowNode[]  // 所有节点，用于检测变量
+  currentNodeId?: string  // 当前节点 ID，用于变量选择器过滤
   onChange: (config: Partial<AIChatConfigType>) => void
 }
 
@@ -57,7 +56,7 @@ const defaultConfig: AIChatConfigType = {
   setting_ids: [],
 }
 
-export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], onChange }: AIChatConfigProps) {
+export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], currentNodeId, onChange }: AIChatConfigProps) {
   // 合并默认配置，兼容旧版 prompt 字段
   const legacyConfig = config as any
   const migratedConfig: Partial<AIChatConfigType> = {
@@ -68,28 +67,6 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
   }
   const currentConfig: AIChatConfigType = { ...defaultConfig, ...migratedConfig }
   const [showAdvanced, setShowAdvanced] = useState(false)
-  
-  // 插入变量到编辑器
-  const insertVariable = (editorId: string, variable: string) => {
-    const editor = document.getElementById(editorId) as any
-    if (editor?.insertVariable) {
-      editor.insertVariable(variable)
-    }
-  }
-  
-  // 从节点中提取所有已定义的变量名
-  const definedVariables = useMemo(() => {
-    const variables: string[] = []
-    nodes.forEach(node => {
-      if (node.type === 'var_set') {
-        const varConfig = node.config as VarSetConfig
-        if (varConfig?.variable_name && !variables.includes(varConfig.variable_name)) {
-          variables.push(varConfig.variable_name)
-        }
-      }
-    })
-    return variables
-  }, [nodes])
 
   // 获取设定库
   const { settings, loadSettings, getSettingsByCategory } = useSettingsStore()
@@ -186,8 +163,6 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
         </Select>
       </div>
 
-      <Separator />
-
       {/* 系统提示词 */}
       <div className="space-y-3">
         <div className="space-y-1">
@@ -198,39 +173,13 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
         </div>
         <PromptEditor
           id="system_prompt"
-          placeholder="输入系统提示词，支持 {{变量名}} 插值..."
+          placeholder="输入系统提示词，输入 / 选择变量..."
           value={currentConfig.system_prompt}
           onChange={(value) => updateConfig({ system_prompt: value })}
+          nodes={nodes}
+          currentNodeId={currentNodeId}
         />
-        
-        {/* 快捷插入区 - 系统提示词 */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => insertVariable('system_prompt', '{{上一节点}}')}
-          >
-            <span className="prompt-var prompt-var-builtin">{'{{上一节点}}'}</span>
-          </Button>
-          
-          {definedVariables.map((varName) => (
-            <Button
-              key={varName}
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => insertVariable('system_prompt', `{{${varName}}}`)}
-            >
-              <span className="prompt-var prompt-var-custom">{`{{${varName}}}`}</span>
-            </Button>
-          ))}
-        </div>
       </div>
-
-      <Separator />
 
       {/* 用户问题 */}
       <div className="space-y-3">
@@ -242,40 +191,14 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
         </div>
         <PromptEditor
           id="user_prompt"
-          placeholder="输入用户问题，默认为上一节点输出..."
+          placeholder="输入用户问题，输入 / 选择变量..."
           value={currentConfig.user_prompt}
           onChange={(value) => updateConfig({ user_prompt: value })}
           minHeight="80px"
+          nodes={nodes}
+          currentNodeId={currentNodeId}
         />
-        
-        {/* 快捷插入区 - 用户问题 */}
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => insertVariable('user_prompt', '{{上一节点}}')}
-          >
-            <span className="prompt-var prompt-var-builtin">{'{{上一节点}}'}</span>
-          </Button>
-          
-          {definedVariables.map((varName) => (
-            <Button
-              key={varName}
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => insertVariable('user_prompt', `{{${varName}}}`)}
-            >
-              <span className="prompt-var prompt-var-custom">{`{{${varName}}}`}</span>
-            </Button>
-          ))}
-        </div>
       </div>
-
-      <Separator />
 
       {/* 设定引用 */}
       {projectId && settings.length > 0 && (
@@ -335,8 +258,6 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
               </p>
             )}
           </div>
-
-          <Separator />
         </>
       )}
 
@@ -356,8 +277,6 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
         
         {showAdvanced && (
           <CardContent className="p-4 pt-0 space-y-6 animate-in slide-in-from-top-2 duration-200">
-            <Separator />
-            
             {/* 上下文设置 */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -391,8 +310,6 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
                 </div>
               )}
             </div>
-
-            <Separator />
 
             {/* 模型参数 */}
             <div className="space-y-4">

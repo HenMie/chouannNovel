@@ -117,17 +117,25 @@ export async function createWorkflow(
   description?: string
 ): Promise<Workflow> {
   const db = await getDatabase()
-  const id = generateId()
+  const workflowId = generateId()
   const now = new Date().toISOString()
 
   await db.execute(
     `INSERT INTO workflows (id, project_id, name, description, loop_max_count, timeout_seconds, created_at, updated_at)
      VALUES (?, ?, ?, ?, 10, 300, ?, ?)`,
-    [id, projectId, name, description || null, now, now]
+    [workflowId, projectId, name, description || null, now, now]
+  )
+
+  // 自动创建开始流程节点（固定在第一行）
+  const startNodeId = generateId()
+  await db.execute(
+    `INSERT INTO nodes (id, workflow_id, type, name, config, order_index, created_at, updated_at)
+     VALUES (?, ?, 'start', '开始流程', ?, 0, ?, ?)`,
+    [startNodeId, workflowId, JSON.stringify({}), now, now]
   )
 
   return {
-    id,
+    id: workflowId,
     project_id: projectId,
     name,
     description,
@@ -311,10 +319,27 @@ export async function reorderNodes(
 ): Promise<void> {
   const db = await getDatabase()
 
-  for (let i = 0; i < nodeIds.length; i++) {
+  // 获取开始流程节点的 ID（确保它始终在第一位）
+  const startNodes = await db.select<[{ id: string }]>(
+    `SELECT id FROM nodes WHERE workflow_id = ? AND type = 'start'`,
+    [workflowId]
+  )
+  
+  let orderedNodeIds = [...nodeIds]
+  
+  // 如果有开始流程节点，确保它在第一位
+  if (startNodes.length > 0) {
+    const startNodeId = startNodes[0].id
+    // 移除开始流程节点（如果在列表中）
+    orderedNodeIds = orderedNodeIds.filter(id => id !== startNodeId)
+    // 将开始流程节点放到第一位
+    orderedNodeIds.unshift(startNodeId)
+  }
+
+  for (let i = 0; i < orderedNodeIds.length; i++) {
     await db.execute(
       'UPDATE nodes SET order_index = ?, updated_at = ? WHERE id = ? AND workflow_id = ?',
-      [i, new Date().toISOString(), nodeIds[i], workflowId]
+      [i, new Date().toISOString(), orderedNodeIds[i], workflowId]
     )
   }
 }

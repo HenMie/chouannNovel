@@ -68,7 +68,7 @@ export function ConditionIfConfigForm({
           <Label htmlFor="input_variable">变量名</Label>
           <Input
             id="input_variable"
-            placeholder="输入变量名"
+            placeholder="输入变量名（如：用户问题）"
             value={config.input_variable || ''}
             onChange={(e) =>
               onChange({ ...config, input_variable: e.target.value })
