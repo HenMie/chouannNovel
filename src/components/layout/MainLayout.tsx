@@ -12,6 +12,7 @@ import { NewProjectPage } from '@/pages/NewProjectPage'
 import { NewWorkflowPage } from '@/pages/NewWorkflowPage'
 import { ExecutionHistoryPage } from '@/pages/ExecutionHistoryPage'
 import { EditWorkflowPage } from '@/pages/EditWorkflowPage'
+import { EditProjectPage } from '@/pages/EditProjectPage'
 import { getWorkflow } from '@/lib/db'
 
 export function MainLayout() {
@@ -55,6 +56,12 @@ export function MainLayout() {
 
     if (pathname === '/project/new') {
       return <NewProjectPage onNavigate={navigate} />
+    }
+
+    // 匹配 /project/:id/edit
+    const editProjectMatch = pathname.match(/^\/project\/([^/]+)\/edit$/)
+    if (editProjectMatch) {
+      return <EditProjectPage projectId={editProjectMatch[1]} onNavigate={navigate} />
     }
 
     // 匹配 /project/:id/workflow/new

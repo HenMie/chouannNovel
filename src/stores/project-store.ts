@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import type { Project, Workflow, WorkflowNode, GlobalStats, ProjectStats } from '@/types'
 import * as db from '@/lib/db'
 
@@ -7,6 +8,14 @@ interface CopiedNode {
   type: WorkflowNode['type']
   name: string
   config: WorkflowNode['config']
+  block_id?: string          // 块 ID（用于块结构节点）
+  parent_block_id?: string   // 父块 ID
+}
+
+// 批量复制的节点数据
+interface CopiedNodes {
+  nodes: CopiedNode[]
+  sourceWorkflowId?: string  // 来源工作流 ID（用于跨工作流识别）
 }
 
 interface ProjectState {
@@ -30,8 +39,10 @@ interface ProjectState {
   nodes: WorkflowNode[]
   isLoadingNodes: boolean
 
-  // 复制的节点
+  // 复制的节点（单个）
   copiedNode: CopiedNode | null
+  // 批量复制的节点
+  copiedNodes: CopiedNodes | null
 
   // 项目操作
   loadProjects: () => Promise<void>
@@ -63,8 +74,15 @@ interface ProjectState {
 
   // 复制/粘贴操作
   copyNode: (node: WorkflowNode) => void
+  copyNodes: (nodes: WorkflowNode[]) => void
   pasteNode: () => Promise<WorkflowNode | null>
+  pasteNodes: () => Promise<WorkflowNode[]>
   hasCopiedNode: () => boolean
+  hasCopiedNodes: () => boolean
+  getCopiedCount: () => number
+  
+  // 批量节点操作
+  deleteNodes: (nodeIds: string[]) => Promise<void>
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -83,6 +101,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   isLoadingNodes: false,
 
   copiedNode: null,
+  copiedNodes: null,
 
   // 项目操作
   loadProjects: async () => {
@@ -296,20 +315,46 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     await db.reorderNodes(currentWorkflow.id, nodeIds)
   },
 
-  // 复制节点
+  // 复制单个节点
   copyNode: (node) => {
     set({
       copiedNode: {
         type: node.type,
         name: node.name,
         config: JSON.parse(JSON.stringify(node.config)), // 深拷贝配置
+        block_id: node.block_id,
+        parent_block_id: node.parent_block_id,
+      },
+      copiedNodes: null, // 清除批量复制
+    })
+  },
+
+  // 批量复制节点
+  copyNodes: (nodes) => {
+    const { currentWorkflow } = get()
+    // 排除开始流程节点
+    const nodesToCopy = nodes.filter(n => n.type !== 'start')
+    
+    if (nodesToCopy.length === 0) return
+    
+    set({
+      copiedNode: null, // 清除单个复制
+      copiedNodes: {
+        nodes: nodesToCopy.map(node => ({
+          type: node.type,
+          name: node.name,
+          config: JSON.parse(JSON.stringify(node.config)),
+          block_id: node.block_id,
+          parent_block_id: node.parent_block_id,
+        })),
+        sourceWorkflowId: currentWorkflow?.id,
       },
     })
   },
 
-  // 粘贴节点
+  // 粘贴单个节点
   pasteNode: async () => {
-    const { currentWorkflow, copiedNode, nodes } = get()
+    const { currentWorkflow, copiedNode } = get()
     if (!currentWorkflow || !copiedNode) return null
 
     // 创建新节点，名称添加"副本"后缀
@@ -325,9 +370,117 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     return node
   },
 
-  // 是否有复制的节点
+  // 批量粘贴节点
+  pasteNodes: async () => {
+    const { currentWorkflow, copiedNodes, copiedNode } = get()
+    if (!currentWorkflow) return []
+    
+    // 如果有批量复制的节点
+    if (copiedNodes && copiedNodes.nodes.length > 0) {
+      const createdNodes: WorkflowNode[] = []
+      const isCrossWorkflow = copiedNodes.sourceWorkflowId !== currentWorkflow.id
+      
+      // 为跨工作流粘贴生成新的 block_id 映射
+      const blockIdMap = new Map<string, string>()
+      
+      for (const nodeToCopy of copiedNodes.nodes) {
+        // 处理块 ID（跨工作流时需要生成新的）
+        let newBlockId = nodeToCopy.block_id
+        let newParentBlockId = nodeToCopy.parent_block_id
+        
+        if (isCrossWorkflow) {
+          if (nodeToCopy.block_id) {
+            if (!blockIdMap.has(nodeToCopy.block_id)) {
+              blockIdMap.set(nodeToCopy.block_id, db.generateId())
+            }
+            newBlockId = blockIdMap.get(nodeToCopy.block_id)
+          }
+          if (nodeToCopy.parent_block_id) {
+            if (!blockIdMap.has(nodeToCopy.parent_block_id)) {
+              blockIdMap.set(nodeToCopy.parent_block_id, db.generateId())
+            }
+            newParentBlockId = blockIdMap.get(nodeToCopy.parent_block_id)
+          }
+        }
+        
+        const newName = `${nodeToCopy.name} (副本)`
+        const node = await db.createNode(
+          currentWorkflow.id,
+          nodeToCopy.type,
+          newName,
+          nodeToCopy.config,
+          { block_id: newBlockId, parent_block_id: newParentBlockId }
+        )
+        createdNodes.push(node)
+      }
+      
+      set((state) => ({ nodes: [...state.nodes, ...createdNodes] }))
+      return createdNodes
+    }
+    
+    // 如果只有单个复制的节点
+    if (copiedNode) {
+      const node = await get().pasteNode()
+      return node ? [node] : []
+    }
+    
+    return []
+  },
+
+  // 是否有复制的单个节点
   hasCopiedNode: () => {
-    return get().copiedNode !== null
+    const { copiedNode, copiedNodes } = get()
+    return copiedNode !== null || (copiedNodes !== null && copiedNodes.nodes.length > 0)
+  },
+
+  // 是否有批量复制的节点
+  hasCopiedNodes: () => {
+    return get().copiedNodes !== null && get().copiedNodes!.nodes.length > 0
+  },
+
+  // 获取复制的节点数量
+  getCopiedCount: () => {
+    const { copiedNode, copiedNodes } = get()
+    if (copiedNodes && copiedNodes.nodes.length > 0) {
+      return copiedNodes.nodes.length
+    }
+    return copiedNode ? 1 : 0
+  },
+
+  // 批量删除节点
+  deleteNodes: async (nodeIds) => {
+    const { nodes } = get()
+    
+    // 收集所有需要删除的节点（包括块结构的关联节点）
+    const allNodeIdsToDelete = new Set<string>()
+    const blockIdsToDelete = new Set<string>()
+    
+    for (const nodeId of nodeIds) {
+      const node = nodes.find(n => n.id === nodeId)
+      if (!node) continue
+      
+      // 如果是块结构节点，标记整个块
+      if (node.block_id) {
+        blockIdsToDelete.add(node.block_id)
+      } else {
+        allNodeIdsToDelete.add(nodeId)
+      }
+    }
+    
+    // 添加所有块中的节点
+    for (const blockId of blockIdsToDelete) {
+      const blockNodes = nodes.filter(n => n.block_id === blockId)
+      blockNodes.forEach(n => allNodeIdsToDelete.add(n.id))
+    }
+    
+    // 删除所有节点
+    for (const nodeId of allNodeIdsToDelete) {
+      await db.deleteNode(nodeId)
+    }
+    
+    set((state) => ({
+      nodes: state.nodes.filter(n => !allNodeIdsToDelete.has(n.id))
+    }))
   },
 }))
 

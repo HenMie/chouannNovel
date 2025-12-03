@@ -169,20 +169,20 @@ npm install -D msw
 
 | 组件 | 测试用例 | 状态 |
 |------|----------|------|
-| `Button` | 渲染、点击事件、禁用状态、variant | [ ] |
-| `Input` | 渲染、输入变化、placeholder、禁用 | [ ] |
-| `Select` | 渲染、选项选择、受控/非受控 | [ ] |
-| `Dialog` | 打开/关闭、内容渲染、确认/取消 | [ ] |
-| `Tabs` | 切换、内容渲染 | [ ] |
-| `EmptyState` | 不同状态展示 | [ ] |
+| `Button` | 渲染、点击事件、禁用状态、variant | [x] |
+| `Input` | 渲染、输入变化、placeholder、禁用 | [x] |
+| `Select` | 渲染、选项选择、受控/非受控 | [x] |
+| `Dialog` | 打开/关闭、内容渲染、确认/取消 | [x] |
+| `Tabs` | 切换、内容渲染 | [x] |
+| `EmptyState` | 不同状态展示 | [x] |
 
 ### 5.2 业务组件
 
 | 组件 | 测试用例 | 状态 |
 |------|----------|------|
-| `VariablePicker` | 变量列表展示、选择变量、插入变量 | [ ] |
-| `PromptEditor` | 文本编辑、变量插入、提示词预览 | [ ] |
-| `NodeConfigDrawer` | 打开/关闭、配置表单渲染 | [ ] |
+| `VariablePicker` | 变量列表展示、选择变量、插入变量 | [x] |
+| `PromptEditor` | 文本编辑、变量插入、提示词预览 | [x] |
+| `NodeConfigDrawer` | 打开/关闭、配置表单渲染 | [x] |
 
 ---
 
@@ -243,8 +243,8 @@ npm install -D msw
 
 ### 阶段四：组件测试（P2）
 
-- [ ] 基础 UI 组件测试
-- [ ] 业务组件测试
+- [x] 基础 UI 组件测试
+- [x] 业务组件测试
 
 ### 阶段五：E2E 测试（P2）
 
@@ -263,7 +263,8 @@ npm install -D msw
 | `lib/engine/context.ts` | 80%+ | **100%** |
 | `lib/engine/executor.ts` | 80%+ | 49% |
 | `stores/` | 70%+ | ✅ 已覆盖 |
-| `components/ui/` | 60%+ | 0% |
+| `components/ui/` | 60%+ | ✅ 已覆盖 |
+| `components/node/` | 60%+ | ✅ 已覆盖 |
 
 ---
 

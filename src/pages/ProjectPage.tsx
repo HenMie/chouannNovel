@@ -193,19 +193,19 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={handleExportProject}>
-              <Download className="mr-2 h-4 w-4" />
+              <Upload className="mr-2 h-4 w-4" />
               导出项目备份
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleExportSettings}>
-              <Download className="mr-2 h-4 w-4" />
+              <Upload className="mr-2 h-4 w-4" />
               导出设定库
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleImportSettings('merge')}>
-              <Upload className="mr-2 h-4 w-4" />
+              <Download className="mr-2 h-4 w-4" />
               导入设定库（合并）
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleImportSettings('replace')}>
-              <Upload className="mr-2 h-4 w-4" />
+              <Download className="mr-2 h-4 w-4" />
               导入设定库（替换）
             </DropdownMenuItem>
           </DropdownMenuContent>

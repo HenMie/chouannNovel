@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   GripVertical,
@@ -18,6 +18,8 @@ import {
   ChevronRight,
   CornerDownRight,
   Plus,
+  CheckSquare,
+  X,
 } from 'lucide-react'
 import {
   DndContext,
@@ -41,12 +43,14 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { useNodeSelection } from '@/lib/hooks'
 import type { WorkflowNode, NodeType, AIChatConfig, LoopStartConfig, ConditionIfConfig, VarSetConfig, VarGetConfig, TextExtractConfig, TextConcatConfig, ParallelStartConfig, StartConfig } from '@/types'
 
 // 节点类型配置
@@ -467,8 +471,14 @@ interface WorkflowNodeTreeProps {
   onSelectNode: (node: WorkflowNode) => void
   onDeleteNode: (nodeId: string) => void
   onCopyNode: (node: WorkflowNode) => void
+  onCopyNodes?: (nodes: WorkflowNode[]) => void
+  onDeleteNodes?: (nodeIds: string[]) => void
   onReorderNodes: (nodeIds: string[]) => void
   disabled?: boolean
+  // 多选模式
+  multiSelectEnabled?: boolean
+  selectedNodeIds?: Set<string>
+  onSelectionChange?: (selectedIds: Set<string>) => void
 }
 
 // 计算节点的缩进级别和所属块
@@ -507,6 +517,9 @@ function NodeCard({
   isActive,
   isRunning,
   isCollapsed,
+  isSelected,
+  showCheckbox,
+  onSelect,
   onDelete,
   onEdit,
   onCopy,
@@ -524,6 +537,9 @@ function NodeCard({
   isActive?: boolean
   isRunning?: boolean
   isCollapsed?: boolean
+  isSelected?: boolean
+  showCheckbox?: boolean
+  onSelect?: (e: React.MouseEvent) => void
   onDelete: () => void
   onEdit: () => void
   onCopy: () => void
@@ -555,12 +571,33 @@ function NodeCard({
         isDragging && !isOverlay && 'opacity-30', // 原位置变淡
         isOverlay && 'z-50 rounded-md border bg-card shadow-xl ring-1 ring-primary/20', // 拖拽时的样式
         isActive && 'bg-primary/5',
+        isSelected && 'bg-blue-50 dark:bg-blue-950/20 ring-1 ring-blue-200 dark:ring-blue-800', // 多选选中
         isRunning && 'bg-yellow-50 dark:bg-yellow-950/20',
         !isOverlay && 'transition-colors duration-200'
       )}
     >
+      {/* 复选框 */}
+      {showCheckbox && !isStartNode && (
+        <div 
+          className="w-8 flex-shrink-0 flex items-start justify-center pt-2.5"
+          onClick={(e) => {
+            e.stopPropagation()
+            onSelect?.(e)
+          }}
+        >
+          <Checkbox
+            checked={isSelected}
+            onCheckedChange={() => {}}
+            className="cursor-pointer"
+          />
+        </div>
+      )}
+      
       {/* 行号 (Overlay时不显示行号或显示假行号) */}
-      <div className="w-10 flex-shrink-0 flex items-start justify-end pr-2 pt-2.5 text-xs text-muted-foreground/60 select-none font-mono">
+      <div className={cn(
+        "flex-shrink-0 flex items-start justify-end pr-2 pt-2.5 text-xs text-muted-foreground/60 select-none font-mono",
+        showCheckbox && !isStartNode ? "w-6" : "w-10"
+      )}>
         {index + 1}
       </div>
 
@@ -751,6 +788,9 @@ function SortableNodeRow(props: {
   isActive?: boolean
   isRunning?: boolean
   isCollapsed?: boolean
+  isSelected?: boolean
+  showCheckbox?: boolean
+  onSelect?: (e: React.MouseEvent) => void
   onDelete: () => void
   onEdit: () => void
   onCopy: () => void
@@ -792,13 +832,118 @@ export function WorkflowNodeTree({
   onSelectNode,
   onDeleteNode,
   onCopyNode,
+  onCopyNodes,
+  onDeleteNodes,
   onReorderNodes,
   disabled,
+  multiSelectEnabled = false,
+  selectedNodeIds: externalSelectedIds,
+  onSelectionChange,
 }: WorkflowNodeTreeProps) {
   // 折叠状态
   const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set())
   // 拖拽状态
   const [activeId, setActiveId] = useState<string | null>(null)
+  
+  // 内部多选状态（如果没有外部控制）
+  const internalSelection = useNodeSelection()
+  
+  // 使用外部或内部选择状态
+  const selectedIds = externalSelectedIds ?? internalSelection.selectedIds
+  const selectionCount = selectedIds.size
+  const isMultiSelectMode = multiSelectEnabled || selectionCount > 0
+  
+  // 处理选择变化时通知外部
+  useEffect(() => {
+    if (onSelectionChange && !externalSelectedIds) {
+      onSelectionChange(internalSelection.selectedIds)
+    }
+  }, [internalSelection.selectedIds, onSelectionChange, externalSelectedIds])
+  
+  // 处理节点选择
+  const handleNodeSelect = useCallback((nodeId: string, e: React.MouseEvent) => {
+    if (externalSelectedIds && onSelectionChange) {
+      // 外部控制模式
+      const isCtrlOrMeta = e.ctrlKey || e.metaKey
+      const isShift = e.shiftKey
+      
+      const newSelection = new Set(externalSelectedIds)
+      const node = nodes.find(n => n.id === nodeId)
+      
+      // 开始节点不可选
+      if (node?.type === 'start') return
+      
+      if (isShift && externalSelectedIds.size > 0) {
+        // 范围选择
+        const selectedArray = Array.from(externalSelectedIds)
+        const lastId = selectedArray[selectedArray.length - 1]
+        const lastIndex = nodes.findIndex(n => n.id === lastId)
+        const currentIndex = nodes.findIndex(n => n.id === nodeId)
+        
+        if (lastIndex !== -1 && currentIndex !== -1) {
+          const start = Math.min(lastIndex, currentIndex)
+          const end = Math.max(lastIndex, currentIndex)
+          nodes.slice(start, end + 1).forEach(n => {
+            if (n.type !== 'start') newSelection.add(n.id)
+          })
+        }
+      } else if (isCtrlOrMeta) {
+        // 切换选择
+        if (newSelection.has(nodeId)) {
+          newSelection.delete(nodeId)
+        } else {
+          newSelection.add(nodeId)
+        }
+      } else {
+        // 单选
+        newSelection.clear()
+        newSelection.add(nodeId)
+      }
+      
+      onSelectionChange(newSelection)
+    } else {
+      // 内部控制模式
+      internalSelection.handleClick(nodeId, e, nodes)
+    }
+  }, [externalSelectedIds, onSelectionChange, internalSelection, nodes])
+  
+  // 全选
+  const handleSelectAll = useCallback(() => {
+    const selectableNodes = nodes.filter(n => n.type !== 'start')
+    const allIds = new Set(selectableNodes.map(n => n.id))
+    
+    if (onSelectionChange) {
+      onSelectionChange(allIds)
+    } else {
+      internalSelection.selectAll(nodes)
+    }
+  }, [nodes, onSelectionChange, internalSelection])
+  
+  // 清除选择
+  const handleClearSelection = useCallback(() => {
+    if (onSelectionChange) {
+      onSelectionChange(new Set())
+    } else {
+      internalSelection.clearSelection()
+    }
+  }, [onSelectionChange, internalSelection])
+  
+  // 批量复制
+  const handleCopySelected = useCallback(() => {
+    const selectedNodes = nodes.filter(n => selectedIds.has(n.id))
+    if (onCopyNodes) {
+      onCopyNodes(selectedNodes)
+    }
+    handleClearSelection()
+  }, [nodes, selectedIds, onCopyNodes, handleClearSelection])
+  
+  // 批量删除
+  const handleDeleteSelected = useCallback(() => {
+    if (onDeleteNodes) {
+      onDeleteNodes(Array.from(selectedIds))
+    }
+    handleClearSelection()
+  }, [selectedIds, onDeleteNodes, handleClearSelection])
 
   // 计算节点级别
   const nodeLevels = useMemo(() => calculateNodeLevels(nodes), [nodes])
@@ -899,9 +1044,74 @@ export function WorkflowNodeTree({
     <div className="border rounded-lg bg-card overflow-hidden">
       {/* 头部 */}
       <div className="flex items-center gap-2 px-3 py-2 border-b bg-muted/30 text-xs text-muted-foreground">
-        <span className="w-10 text-right pr-2">行号</span>
-        <span className="flex-1">节点</span>
-        <span>操作</span>
+        {/* 多选操作栏 */}
+        {selectionCount > 0 ? (
+          <>
+            <div className="flex items-center gap-2 flex-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={handleClearSelection}
+              >
+                <X className="h-3 w-3 mr-1" />
+                取消
+              </Button>
+              <span className="text-foreground font-medium">
+                已选择 {selectionCount} 个节点
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={handleSelectAll}
+              >
+                <CheckSquare className="h-3 w-3 mr-1" />
+                全选
+              </Button>
+              {onCopyNodes && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      onClick={handleCopySelected}
+                    >
+                      <Copy className="h-3 w-3 mr-1" />
+                      复制
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>复制选中的节点</TooltipContent>
+                </Tooltip>
+              )}
+              {onDeleteNodes && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                      onClick={handleDeleteSelected}
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      删除
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>删除选中的节点</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <span className={cn("text-right pr-2", isMultiSelectMode ? "w-14" : "w-10")}>行号</span>
+            <span className="flex-1">节点</span>
+            <span>操作</span>
+          </>
+        )}
       </div>
 
       {/* 节点列表 */}
@@ -930,6 +1140,9 @@ export function WorkflowNodeTree({
                     isActive={selectedNodeId === node.id}
                     isRunning={runningNodeId === node.id}
                     isCollapsed={isBlockStart && node.block_id ? collapsedBlocks.has(node.block_id) : false}
+                    isSelected={selectedIds.has(node.id)}
+                    showCheckbox={isMultiSelectMode}
+                    onSelect={(e) => handleNodeSelect(node.id, e)}
                     onDelete={() => onDeleteNode(node.id)}
                     onEdit={() => onSelectNode(node)}
                     onCopy={() => onCopyNode(node)}

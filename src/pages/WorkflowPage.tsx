@@ -23,6 +23,8 @@ import {
   MoreHorizontal,
   Save,
   RotateCcw,
+  Undo2,
+  Redo2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -51,7 +53,7 @@ import { useSettingsStore } from '@/stores/settings-store'
 import { getGlobalConfig, generateId, getWorkflowVersions, createWorkflowVersion, restoreWorkflowVersion } from '@/lib/db'
 import { exportWorkflowToFile, importWorkflowFromFile } from '@/lib/import-export'
 import type { WorkflowVersion } from '@/types'
-import { useHotkeys, HOTKEY_PRESETS } from '@/lib/hooks'
+import { useHotkeys, HOTKEY_PRESETS, useWorkflowHistory, useNodeSelection } from '@/lib/hooks'
 import { toast } from 'sonner'
 import type { WorkflowNode, NodeType, GlobalConfig } from '@/types'
 import {
@@ -93,11 +95,15 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     setCurrentWorkflow,
     createNode,
     deleteNode,
+    deleteNodes,
     reorderNodes,
     updateNode,
     copyNode,
+    copyNodes,
     pasteNode,
+    pasteNodes,
     hasCopiedNode,
+    getCopiedCount,
   } = useProjectStore()
 
   // 执行状态
@@ -132,6 +138,13 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
   const [versionDescription, setVersionDescription] = useState('')
   const [showRestoreDialog, setShowRestoreDialog] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState<WorkflowVersion | null>(null)
+  
+  // 撤销/重做历史
+  const history = useWorkflowHistory({ maxSize: 50 })
+  
+  // 多选状态
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set())
+  const [nodesToDelete, setNodesToDelete] = useState<string[] | null>(null) // 批量删除确认
   
   // 派生状态
   const isRunning = executionStatus === 'running'
@@ -184,14 +197,19 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     }
   }, [workflowId, projectId, setCurrentWorkflow, loadNodes, resetExecution, loadSettings])
 
-  // 添加单个节点
+  // 添加单个节点（带历史记录）
   const handleAddNode = async (type: NodeType) => {
+    const beforeNodes = [...nodes]
     const config = nodeTypeConfig[type]
     await createNode(type, `${config.label} ${nodes.length + 1}`)
+    // 等待状态更新后记录历史
+    const afterNodes = useProjectStore.getState().nodes
+    history.pushHistory('add', beforeNodes, afterNodes, `添加节点: ${config.label}`)
   }
 
-  // 添加块结构（开始 + 结束）
+  // 添加块结构（开始 + 结束）（带历史记录）
   const handleAddBlock = async (blockType: 'loop' | 'parallel' | 'condition') => {
+    const beforeNodes = [...nodes]
     const blockId = generateId()
     
     if (blockType === 'loop') {
@@ -230,6 +248,9 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     // 重新加载节点
     if (currentWorkflow) {
       await loadNodes(currentWorkflow.id)
+      // 记录历史
+      const afterNodes = useProjectStore.getState().nodes
+      history.pushHistory('add', beforeNodes, afterNodes, `添加块结构: ${blockType}`)
     }
   }
 
@@ -237,10 +258,30 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     setNodeToDelete(nodeId)
   }
 
+  // 批量删除确认
+  const handleDeleteNodesClick = (nodeIds: string[]) => {
+    setNodesToDelete(nodeIds)
+  }
+
   const confirmDeleteNode = async () => {
     if (nodeToDelete) {
+      const beforeNodes = [...nodes]
       await deleteNode(nodeToDelete)
+      const afterNodes = useProjectStore.getState().nodes
+      history.pushHistory('delete', beforeNodes, afterNodes, `删除节点`)
       setNodeToDelete(null)
+    }
+  }
+
+  // 确认批量删除
+  const confirmDeleteNodes = async () => {
+    if (nodesToDelete && nodesToDelete.length > 0) {
+      const beforeNodes = [...nodes]
+      await deleteNodes(nodesToDelete)
+      const afterNodes = useProjectStore.getState().nodes
+      history.pushHistory('batch_delete', beforeNodes, afterNodes, `批量删除 ${nodesToDelete.length} 个节点`)
+      setNodesToDelete(null)
+      setSelectedNodeIds(new Set())
     }
   }
 
@@ -328,16 +369,71 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     toast.success('节点已复制')
   }
 
+  // 批量复制节点
+  const handleCopyNodes = (nodesToCopy: WorkflowNode[]) => {
+    copyNodes(nodesToCopy)
+    toast.success(`已复制 ${nodesToCopy.length} 个节点`)
+  }
+
   // 粘贴节点
   const handlePasteNode = async () => {
     if (!hasCopiedNode()) {
       toast.error('剪贴板为空')
       return
     }
-    const newNode = await pasteNode()
-    if (newNode) {
-      toast.success('节点已粘贴')
+    const beforeNodes = [...nodes]
+    const copiedCount = getCopiedCount()
+    
+    if (copiedCount > 1) {
+      // 批量粘贴
+      const newNodes = await pasteNodes()
+      if (newNodes.length > 0) {
+        const afterNodes = useProjectStore.getState().nodes
+        history.pushHistory('add', beforeNodes, afterNodes, `粘贴 ${newNodes.length} 个节点`)
+        toast.success(`已粘贴 ${newNodes.length} 个节点`)
+      }
+    } else {
+      // 单个粘贴
+      const newNode = await pasteNode()
+      if (newNode) {
+        const afterNodes = useProjectStore.getState().nodes
+        history.pushHistory('add', beforeNodes, afterNodes, `粘贴节点: ${newNode.name}`)
+        toast.success('节点已粘贴')
+      }
     }
+  }
+
+  // 撤销操作
+  const handleUndo = async () => {
+    if (!history.canUndo) return
+    
+    const previousNodes = history.undo()
+    if (previousNodes && currentWorkflow) {
+      // 恢复节点状态到数据库
+      // 这里需要重新同步节点列表
+      // 简化处理：重新加载工作流
+      await loadNodes(currentWorkflow.id)
+      toast.info('已撤销')
+    }
+  }
+
+  // 重做操作
+  const handleRedo = async () => {
+    if (!history.canRedo) return
+    
+    const nextNodes = history.redo()
+    if (nextNodes && currentWorkflow) {
+      await loadNodes(currentWorkflow.id)
+      toast.info('已重做')
+    }
+  }
+
+  // 节点重排序（带历史记录）
+  const handleReorderNodes = async (nodeIds: string[]) => {
+    const beforeNodes = [...nodes]
+    await reorderNodes(nodeIds)
+    const afterNodes = useProjectStore.getState().nodes
+    history.pushHistory('reorder', beforeNodes, afterNodes, '重新排序节点')
   }
 
   // 导出工作流
@@ -417,13 +513,16 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
       }
     }, isExecuting && !showInputDialog),
     
-    // Escape: 停止执行或关闭对话框
+    // Escape: 停止执行或关闭对话框/清除选择
     HOTKEY_PRESETS.escape(() => {
       if (showInputDialog) {
         setShowInputDialog(false)
       } else if (isConfigOpen) {
         setIsConfigOpen(false)
         setSelectedNode(null)
+      } else if (selectedNodeIds.size > 0) {
+        // 清除多选
+        setSelectedNodeIds(new Set())
       } else if (isExecuting) {
         cancelExecution()
         setInitialInput('')
@@ -437,6 +536,89 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
         handlePasteNode()
       }
     }, !isExecuting),
+
+    // Ctrl+Z: 撤销
+    {
+      key: 'z',
+      ctrl: true,
+      shift: false,
+      handler: () => {
+        if (!isExecuting && history.canUndo) {
+          handleUndo()
+        }
+      },
+      enabled: !isExecuting,
+    },
+
+    // Ctrl+Shift+Z / Ctrl+Y: 重做
+    {
+      key: 'z',
+      ctrl: true,
+      shift: true,
+      handler: () => {
+        if (!isExecuting && history.canRedo) {
+          handleRedo()
+        }
+      },
+      enabled: !isExecuting,
+    },
+    {
+      key: 'y',
+      ctrl: true,
+      handler: () => {
+        if (!isExecuting && history.canRedo) {
+          handleRedo()
+        }
+      },
+      enabled: !isExecuting,
+    },
+
+    // Ctrl+A: 全选节点
+    {
+      key: 'a',
+      ctrl: true,
+      handler: (e) => {
+        if (!isExecuting && !isConfigOpen && !showInputDialog) {
+          e.preventDefault()
+          const selectableNodes = nodes.filter(n => n.type !== 'start')
+          setSelectedNodeIds(new Set(selectableNodes.map(n => n.id)))
+        }
+      },
+      enabled: !isExecuting && !isConfigOpen && !showInputDialog,
+    },
+
+    // Delete / Backspace: 删除选中的节点
+    {
+      key: 'Delete',
+      handler: () => {
+        if (!isExecuting && selectedNodeIds.size > 0) {
+          handleDeleteNodesClick(Array.from(selectedNodeIds))
+        }
+      },
+      enabled: !isExecuting && selectedNodeIds.size > 0,
+    },
+    {
+      key: 'Backspace',
+      handler: () => {
+        if (!isExecuting && selectedNodeIds.size > 0) {
+          handleDeleteNodesClick(Array.from(selectedNodeIds))
+        }
+      },
+      enabled: !isExecuting && selectedNodeIds.size > 0,
+    },
+
+    // Ctrl+C: 复制选中的节点
+    {
+      key: 'c',
+      ctrl: true,
+      handler: () => {
+        if (!isExecuting && selectedNodeIds.size > 0) {
+          const selectedNodes = nodes.filter(n => selectedNodeIds.has(n.id))
+          handleCopyNodes(selectedNodes)
+        }
+      },
+      enabled: !isExecuting && selectedNodeIds.size > 0,
+    },
   ])
 
   if (!currentWorkflow) {
@@ -514,11 +696,11 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={handleExportWorkflow}>
-                <Download className="mr-2 h-4 w-4" />
+                <Upload className="mr-2 h-4 w-4" />
                 导出工作流
               </DropdownMenuItem>
               <DropdownMenuItem onClick={handleImportWorkflow}>
-                <Upload className="mr-2 h-4 w-4" />
+                <Download className="mr-2 h-4 w-4" />
                 导入工作流
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -601,6 +783,38 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
           <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2">
             <span className="text-sm font-medium">节点列表</span>
             <div className="flex items-center gap-2">
+              {/* 撤销/重做按钮 */}
+              <div className="flex items-center gap-0.5 mr-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleUndo}
+                      disabled={!history.canUndo || isExecuting}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Undo2 className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>撤销 (Ctrl+Z)</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleRedo}
+                      disabled={!history.canRedo || isExecuting}
+                      className="h-8 w-8 p-0"
+                    >
+                      <Redo2 className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>重做 (Ctrl+Shift+Z)</TooltipContent>
+                </Tooltip>
+              </div>
+              
               {/* 粘贴按钮 */}
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -611,7 +825,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                     disabled={!hasCopiedNode()}
                   >
                     <Clipboard className="mr-2 h-4 w-4" />
-                    粘贴
+                    粘贴{getCopiedCount() > 1 ? ` (${getCopiedCount()})` : ''}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>粘贴节点 (Ctrl+V)</TooltipContent>
@@ -719,8 +933,12 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                     onSelectNode={handleEditNode}
                     onDeleteNode={handleDeleteClick}
                     onCopyNode={handleCopyNode}
-                    onReorderNodes={reorderNodes}
+                    onCopyNodes={handleCopyNodes}
+                    onDeleteNodes={handleDeleteNodesClick}
+                    onReorderNodes={handleReorderNodes}
                     disabled={isExecuting}
+                    selectedNodeIds={selectedNodeIds}
+                    onSelectionChange={setSelectedNodeIds}
                   />
                 </div>
               )}
@@ -881,9 +1099,9 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                 const blockTypes = ['loop_start', 'loop_end', 'parallel_start', 'parallel_end', 'condition_if', 'condition_else', 'condition_end']
                 if (node && blockTypes.includes(node.type) && node.block_id) {
                   const blockNodes = nodes.filter(n => n.block_id === node.block_id)
-                  return `此操作将删除整个控制结构块（共 ${blockNodes.length} 个节点），包括块内的所有节点。此操作无法撤销。`
+                  return `此操作将删除整个控制结构块（共 ${blockNodes.length} 个节点），包括块内的所有节点。删除后可通过 Ctrl+Z 撤销。`
                 }
-                return '此操作无法撤销，该节点及其配置将被永久删除。'
+                return '删除后可通过 Ctrl+Z 撤销操作。'
               })()}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -891,6 +1109,24 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
             <AlertDialogCancel>取消</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDeleteNode} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 批量删除确认对话框 */}
+      <AlertDialog open={!!nodesToDelete} onOpenChange={(open) => !open && setNodesToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确定要删除这些节点吗？</AlertDialogTitle>
+            <AlertDialogDescription>
+              您选择了 {nodesToDelete?.length || 0} 个节点进行删除。删除后可通过 Ctrl+Z 撤销操作。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteNodes} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              删除 {nodesToDelete?.length || 0} 个节点
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

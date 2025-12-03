@@ -1,12 +1,4 @@
 import React from 'react'
-import { Moon, Sun, Monitor } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -15,7 +7,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
-import { useThemeStore } from '@/stores/theme-store'
 
 export interface HeaderProps {
   title?: string
@@ -25,8 +16,6 @@ export interface HeaderProps {
 }
 
 export function Header({ title, breadcrumbs, children, onNavigate }: HeaderProps) {
-  const { theme, setTheme } = useThemeStore()
-
   // 处理面包屑点击导航
   const handleBreadcrumbClick = (href: string) => {
     if (onNavigate) {
@@ -36,7 +25,8 @@ export function Header({ title, breadcrumbs, children, onNavigate }: HeaderProps
 
   return (
     <header className="flex h-14 items-center justify-between border-b bg-background px-4">
-      <div className="flex items-center gap-4">
+      {/* 左侧：面包屑导航 */}
+      <div className="flex items-center">
         {breadcrumbs && breadcrumbs.length > 0 ? (
           <Breadcrumb>
             <BreadcrumbList>
@@ -65,40 +55,14 @@ export function Header({ title, breadcrumbs, children, onNavigate }: HeaderProps
         ) : (
           title && <h2 className="text-lg font-semibold">{title}</h2>
         )}
-        {children}
       </div>
 
-      <div className="flex items-center gap-2">
-        {/* 主题切换 */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              {theme === 'light' ? (
-                <Sun className="h-5 w-5" />
-              ) : theme === 'dark' ? (
-                <Moon className="h-5 w-5" />
-              ) : (
-                <Monitor className="h-5 w-5" />
-              )}
-              <span className="sr-only">切换主题</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setTheme('light')}>
-              <Sun className="mr-2 h-4 w-4" />
-              浅色
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setTheme('dark')}>
-              <Moon className="mr-2 h-4 w-4" />
-              深色
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setTheme('system')}>
-              <Monitor className="mr-2 h-4 w-4" />
-              跟随系统
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      {/* 右侧：功能按钮 */}
+      {children && (
+        <div className="flex items-center gap-2">
+          {children}
+        </div>
+      )}
     </header>
   )
 }

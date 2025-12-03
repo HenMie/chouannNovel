@@ -9,7 +9,7 @@ import {
   Trash2,
   Calendar,
   Layout,
-  Upload,
+  Download,
   ArrowUpDown,
   Clock,
 } from 'lucide-react'
@@ -198,7 +198,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
                  className="h-9 gap-2"
                  onClick={handleImportProject}
                >
-                 <Upload className="h-3.5 w-3.5" />
+                 <Download className="h-3.5 w-3.5" />
                  导入项目
                </Button>
                <Button

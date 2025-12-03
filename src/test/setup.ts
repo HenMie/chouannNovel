@@ -57,11 +57,12 @@ Object.defineProperty(window, "matchMedia", {
 })
 
 // ========== Mock ResizeObserver ==========
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}))
+class MockResizeObserver {
+  observe = vi.fn()
+  unobserve = vi.fn()
+  disconnect = vi.fn()
+}
+global.ResizeObserver = MockResizeObserver as any
 
 // ========== Mock IntersectionObserver ==========
 global.IntersectionObserver = vi.fn().mockImplementation(() => ({
@@ -69,6 +70,22 @@ global.IntersectionObserver = vi.fn().mockImplementation(() => ({
   unobserve: vi.fn(),
   disconnect: vi.fn(),
 }))
+
+// ========== Mock PointerCapture API ==========
+// Radix UI 需要这些 API
+if (typeof Element.prototype.hasPointerCapture === "undefined") {
+  Element.prototype.hasPointerCapture = vi.fn().mockReturnValue(false)
+  Element.prototype.setPointerCapture = vi.fn()
+  Element.prototype.releasePointerCapture = vi.fn()
+}
+
+// ========== Mock scrollIntoView ==========
+// JSDOM 不支持 scrollIntoView
+Element.prototype.scrollIntoView = vi.fn()
+
+// ========== Mock document.execCommand ==========
+// contenteditable 编辑器需要这个 API
+document.execCommand = vi.fn().mockReturnValue(true)
 
 // ========== 测试生命周期 ==========
 beforeAll(() => {

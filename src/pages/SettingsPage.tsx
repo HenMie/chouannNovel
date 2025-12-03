@@ -14,6 +14,9 @@ import {
   Trash2,
   ChevronDown,
   ChevronUp,
+  Sun,
+  Moon,
+  Monitor,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,9 +36,10 @@ import { TypographyH3, TypographyMuted } from '@/components/ui/typography'
 import { Header } from '@/components/layout/Header'
 import { toast } from 'sonner'
 import * as db from '@/lib/db'
-import type { GlobalConfig, AIProvider, CustomModel } from '@/types'
+import type { GlobalConfig, AIProvider, CustomModel, Theme } from '@/types'
 import { getBuiltinModelsByProvider } from '@/lib/ai'
 import { cn } from '@/lib/utils'
+import { useThemeStore } from '@/stores/theme-store'
 
 interface SettingsPageProps {
   onNavigate: (path: string) => void
@@ -86,6 +90,70 @@ function SparklesIcon({ className }: { className?: string }) {
     >
       <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
     </svg>
+  )
+}
+
+// 主题选项配置
+const themeOptions: Array<{
+  value: Theme
+  label: string
+  description: string
+  icon: React.ReactNode
+}> = [
+  {
+    value: 'light',
+    label: '浅色',
+    description: '明亮的白色背景',
+    icon: <Sun className="h-5 w-5" />,
+  },
+  {
+    value: 'dark',
+    label: '深色',
+    description: '深色背景，减少眼睛疲劳',
+    icon: <Moon className="h-5 w-5" />,
+  },
+  {
+    value: 'system',
+    label: '跟随系统',
+    description: '自动匹配系统的深浅色设置',
+    icon: <Monitor className="h-5 w-5" />,
+  },
+]
+
+// 主题选择器组件
+function ThemeSelector() {
+  const { theme, setTheme } = useThemeStore()
+
+  return (
+    <div className="grid gap-3 md:grid-cols-3">
+      {themeOptions.map((option) => (
+        <div
+          key={option.value}
+          className={cn(
+            'flex cursor-pointer flex-col items-center gap-2 rounded-lg border p-4 transition-all hover:border-primary/50',
+            theme === option.value
+              ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+              : 'border-border bg-muted/30'
+          )}
+          onClick={() => setTheme(option.value)}
+        >
+          <div
+            className={cn(
+              'flex h-10 w-10 items-center justify-center rounded-full transition-colors',
+              theme === option.value
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted text-muted-foreground'
+            )}
+          >
+            {option.icon}
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium">{option.label}</p>
+            <p className="text-xs text-muted-foreground">{option.description}</p>
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -647,6 +715,20 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
 
             {activeTab === 'general' && (
               <div className="space-y-6">
+                {/* 外观设置 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>外观</CardTitle>
+                    <CardDescription>
+                      设置应用的显示主题
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ThemeSelector />
+                  </CardContent>
+                </Card>
+
+                {/* 执行设置 */}
                 <Card>
                   <CardHeader>
                     <CardTitle>执行设置</CardTitle>
