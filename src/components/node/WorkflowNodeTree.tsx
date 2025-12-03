@@ -27,6 +27,10 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+  DropAnimation,
+  defaultDropAnimationSideEffects,
 } from '@dnd-kit/core'
 import {
   arrayMove,
@@ -491,8 +495,8 @@ function calculateNodeLevels(nodes: WorkflowNode[]): Map<string, { level: number
   return result
 }
 
-// 节点行组件
-function NodeRow({
+// 节点卡片组件（纯展示）
+function NodeCard({
   node,
   index,
   blockStack,
@@ -504,6 +508,11 @@ function NodeRow({
   onCopy,
   onToggleCollapse,
   disabled,
+  isDragging,
+  isOverlay,
+  dragHandleProps,
+  style,
+  wrapperRef,
 }: {
   node: WorkflowNode
   index: number
@@ -516,34 +525,36 @@ function NodeRow({
   onCopy: () => void
   onToggleCollapse?: () => void
   disabled?: boolean
+  isDragging?: boolean
+  isOverlay?: boolean
+  dragHandleProps?: any
+  style?: React.CSSProperties
+  wrapperRef?: (node: HTMLElement | null) => void
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: node.id, disabled })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
-
   const config = nodeTypeConfig[node.type]
   const Icon = config.icon
   const isBlockStart = config.isBlockStart
 
+  // Overlay 状态下的特定样式
+  const overlayStyle = isOverlay ? {
+    cursor: 'grabbing',
+    scale: 1.02,
+  } : {}
+
   return (
-    <motion.div
-      ref={setNodeRef}
-      style={style}
-      initial={{ opacity: 0, x: -10 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -10 }}
+    <div
+      ref={wrapperRef}
+      style={{ ...style, ...overlayStyle }}
       className={cn(
-        'group relative flex items-stretch',
-        isDragging && 'z-50 opacity-80',
+        'group relative flex items-stretch bg-card',
+        isDragging && !isOverlay && 'opacity-30', // 原位置变淡
+        isOverlay && 'z-50 rounded-md border bg-card shadow-xl ring-1 ring-primary/20', // 拖拽时的样式
         isActive && 'bg-primary/5',
-        isRunning && 'bg-yellow-50 dark:bg-yellow-950/20'
+        isRunning && 'bg-yellow-50 dark:bg-yellow-950/20',
+        !isOverlay && 'transition-colors duration-200'
       )}
     >
-      {/* 行号 */}
+      {/* 行号 (Overlay时不显示行号或显示假行号) */}
       <div className="w-10 flex-shrink-0 flex items-start justify-end pr-2 pt-2.5 text-xs text-muted-foreground/60 select-none font-mono">
         {index + 1}
       </div>
@@ -589,7 +600,8 @@ function NodeRow({
       <div 
         className={cn(
           'flex-1 py-2 pr-4 cursor-pointer min-w-0',
-          'border-b border-transparent hover:border-muted',
+          'border-b border-transparent',
+          !isDragging && 'hover:border-muted',
         )}
         onClick={() => {
           if (disabled) return
@@ -639,16 +651,16 @@ function NodeRow({
 
       {/* 操作按钮 */}
       <div className={cn(
-        'flex items-center gap-0.5 pr-2 opacity-0 transition-opacity',
-        'group-hover:opacity-100'
+        'flex items-center gap-0.5 pr-2 transition-opacity',
+        isOverlay ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
       )}>
         {/* 拖拽手柄 */}
         <button
-          {...attributes}
-          {...listeners}
+          {...dragHandleProps}
           className={cn(
             'cursor-grab touch-none rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-foreground',
-            disabled && 'cursor-not-allowed opacity-40'
+            disabled && 'cursor-not-allowed opacity-40',
+            isOverlay && 'cursor-grabbing'
           )}
           disabled={disabled}
           onClick={(e) => e.stopPropagation()}
@@ -656,60 +668,104 @@ function NodeRow({
           <GripVertical className="h-3.5 w-3.5" />
         </button>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 text-muted-foreground hover:text-foreground"
-              disabled={disabled}
-              onClick={(e) => {
-                e.stopPropagation()
-                onCopy()
-              }}
-            >
-              <Copy className="h-3 w-3" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>复制</TooltipContent>
-        </Tooltip>
+        {!isOverlay && (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                  disabled={disabled}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCopy()
+                  }}
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>复制</TooltipContent>
+            </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 text-muted-foreground hover:text-foreground"
-              disabled={disabled}
-              onClick={(e) => {
-                e.stopPropagation()
-                onEdit()
-              }}
-            >
-              <Settings className="h-3 w-3" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>配置</TooltipContent>
-        </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                  disabled={disabled}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEdit()
+                  }}
+                >
+                  <Settings className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>配置</TooltipContent>
+            </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 text-muted-foreground hover:text-destructive"
-              disabled={disabled}
-              onClick={(e) => {
-                e.stopPropagation()
-                onDelete()
-              }}
-            >
-              <Trash2 className="h-3 w-3" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>删除</TooltipContent>
-        </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                  disabled={disabled}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDelete()
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>删除</TooltipContent>
+            </Tooltip>
+          </>
+        )}
       </div>
+    </div>
+  )
+}
+
+// 可排序节点行组件
+function SortableNodeRow(props: {
+  node: WorkflowNode
+  index: number
+  blockStack: { id: string; type: string }[]
+  isActive?: boolean
+  isRunning?: boolean
+  isCollapsed?: boolean
+  onDelete: () => void
+  onEdit: () => void
+  onCopy: () => void
+  onToggleCollapse?: () => void
+  disabled?: boolean
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: props.node.id, disabled: props.disabled })
+
+  const style = {
+    transform: CSS.Translate.toString(transform), // 使用 Translate 避免缩放问题
+    transition,
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -10 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -10 }}
+      layout={false} // 禁用 layout 动画以避免与 dnd-kit 冲突
+    >
+      <NodeCard
+        {...props}
+        wrapperRef={setNodeRef}
+        style={style}
+        isDragging={isDragging}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
     </motion.div>
   )
 }
@@ -726,6 +782,8 @@ export function WorkflowNodeTree({
 }: WorkflowNodeTreeProps) {
   // 折叠状态
   const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set())
+  // 拖拽状态
+  const [activeId, setActiveId] = useState<string | null>(null)
 
   // 计算节点级别
   const nodeLevels = useMemo(() => calculateNodeLevels(nodes), [nodes])
@@ -758,14 +816,23 @@ export function WorkflowNodeTree({
   }, [nodes, collapsedBlocks])
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8, // 防止误触
+      },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
   )
 
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string)
+  }
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
+    setActiveId(null)
 
     if (over && active.id !== over.id) {
       const oldIndex = nodes.findIndex((n) => n.id === active.id)
@@ -773,6 +840,10 @@ export function WorkflowNodeTree({
       const newOrder = arrayMove(nodes, oldIndex, newIndex)
       onReorderNodes(newOrder.map((n) => n.id))
     }
+  }
+  
+  const handleDragCancel = () => {
+    setActiveId(null)
   }
 
   const toggleBlockCollapse = useCallback((blockId: string) => {
@@ -787,6 +858,21 @@ export function WorkflowNodeTree({
     })
   }, [])
 
+  const activeNode = useMemo(() => 
+    nodes.find(n => n.id === activeId),
+    [activeId, nodes]
+  )
+  
+  const dropAnimation: DropAnimation = {
+    sideEffects: defaultDropAnimationSideEffects({
+      styles: {
+        active: {
+          opacity: '0.4',
+        },
+      },
+    }),
+  }
+
   return (
     <div className="border rounded-lg bg-card overflow-hidden">
       {/* 头部 */}
@@ -800,7 +886,9 @@ export function WorkflowNodeTree({
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
       >
         <SortableContext items={visibleNodes} strategy={verticalListSortingStrategy}>
           <div className="divide-y divide-border/50">
@@ -812,7 +900,7 @@ export function WorkflowNodeTree({
                 const nodeIndex = nodes.indexOf(node)
                 
                 return (
-                  <NodeRow
+                  <SortableNodeRow
                     key={node.id}
                     node={node}
                     index={nodeIndex}
@@ -835,6 +923,24 @@ export function WorkflowNodeTree({
             </AnimatePresence>
           </div>
         </SortableContext>
+        
+        <DragOverlay dropAnimation={dropAnimation}>
+          {activeNode ? (
+            <NodeCard
+              node={activeNode}
+              index={nodes.indexOf(activeNode)}
+              blockStack={nodeLevels.get(activeNode.id)?.blockStack || []}
+              isActive={selectedNodeId === activeNode.id}
+              isRunning={runningNodeId === activeNode.id}
+              isCollapsed={false} // 拖拽时保持展开或保持原样？一般展开更好看
+              onDelete={() => {}}
+              onEdit={() => {}}
+              onCopy={() => {}}
+              isOverlay
+              dragHandleProps={{}} // Overlay 不需要事件监听
+            />
+          ) : null}
+        </DragOverlay>
       </DndContext>
 
       {/* 空状态 */}
