@@ -1,6 +1,6 @@
 // AI 对话节点配置表单
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { Users, Globe, Palette, FileText, Check, Settings2, ChevronDown, ChevronRight } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -21,13 +21,14 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { getAvailableModels, getModelConfig, type ModelConfig } from '@/lib/ai'
 import { useSettingsStore } from '@/stores/settings-store'
-import type { AIChatConfig as AIChatConfigType, GlobalConfig, AIProvider, SettingCategory } from '@/types'
+import type { AIChatConfig as AIChatConfigType, GlobalConfig, AIProvider, SettingCategory, WorkflowNode, VarSetConfig } from '@/types'
 import { cn } from '@/lib/utils'
 
 interface AIChatConfigProps {
   config: Partial<AIChatConfigType>
   globalConfig: GlobalConfig | null
   projectId?: string
+  nodes?: WorkflowNode[]  // 所有节点，用于检测变量
   onChange: (config: Partial<AIChatConfigType>) => void
 }
 
@@ -45,21 +46,50 @@ const SETTING_CATEGORIES: Array<{
 
 // 默认配置
 const defaultConfig: AIChatConfigType = {
-  provider: 'openai',
-  model: 'gpt-4o',
-  prompt: '',
+  provider: 'gemini',
+  model: 'gemini-2.5-flash',
+  system_prompt: '',
+  user_prompt: '{{上一节点}}',
   temperature: 0.7,
   max_tokens: 4096,
   enable_history: false,
   history_count: 5,
   setting_ids: [],
-  input_source: 'previous',
 }
 
-export function AIChatConfigForm({ config, globalConfig, projectId, onChange }: AIChatConfigProps) {
-  // 合并默认配置
-  const currentConfig: AIChatConfigType = { ...defaultConfig, ...config }
+export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], onChange }: AIChatConfigProps) {
+  // 合并默认配置，兼容旧版 prompt 字段
+  const legacyConfig = config as any
+  const migratedConfig: Partial<AIChatConfigType> = {
+    ...config,
+    // 如果有旧的 prompt 字段，迁移到 system_prompt
+    system_prompt: config.system_prompt ?? legacyConfig.prompt ?? '',
+    user_prompt: config.user_prompt ?? '{{上一节点}}',
+  }
+  const currentConfig: AIChatConfigType = { ...defaultConfig, ...migratedConfig }
   const [showAdvanced, setShowAdvanced] = useState(false)
+  
+  // 插入变量到编辑器
+  const insertVariable = (editorId: string, variable: string) => {
+    const editor = document.getElementById(editorId) as any
+    if (editor?.insertVariable) {
+      editor.insertVariable(variable)
+    }
+  }
+  
+  // 从节点中提取所有已定义的变量名
+  const definedVariables = useMemo(() => {
+    const variables: string[] = []
+    nodes.forEach(node => {
+      if (node.type === 'var_set') {
+        const varConfig = node.config as VarSetConfig
+        if (varConfig?.variable_name && !variables.includes(varConfig.variable_name)) {
+          variables.push(varConfig.variable_name)
+        }
+      }
+    })
+    return variables
+  }, [nodes])
 
   // 获取设定库
   const { settings, loadSettings, getSettingsByCategory } = useSettingsStore()
@@ -73,7 +103,7 @@ export function AIChatConfigForm({ config, globalConfig, projectId, onChange }: 
 
   // 获取可用模型列表
   const availableModels = globalConfig ? getAvailableModels(globalConfig) : []
-  const currentModelConfig = getModelConfig(currentConfig.model)
+  const currentModelConfig = getModelConfig(currentConfig.model, globalConfig ?? undefined)
 
   // 按提供商分组模型
   const modelsByProvider = availableModels.reduce(
@@ -101,7 +131,7 @@ export function AIChatConfigForm({ config, globalConfig, projectId, onChange }: 
 
   // 当模型变化时，自动更新提供商
   const handleModelChange = (modelId: string) => {
-    const modelConfig = getModelConfig(modelId)
+    const modelConfig = getModelConfig(modelId, globalConfig ?? undefined)
     if (modelConfig) {
       updateConfig({
         model: modelId,
@@ -158,60 +188,90 @@ export function AIChatConfigForm({ config, globalConfig, projectId, onChange }: 
 
       <Separator />
 
-      {/* 提示词 */}
-      <div className="space-y-2">
-        <Label htmlFor="prompt">提示词</Label>
+      {/* 系统提示词 */}
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <Label htmlFor="system_prompt">系统提示词</Label>
+          <p className="text-xs text-muted-foreground">
+            作为 System Message 发送，用于设定 AI 的角色和行为
+          </p>
+        </div>
         <PromptEditor
-          id="prompt"
-          placeholder="输入提示词，支持 {{变量名}} 插值..."
-          value={currentConfig.prompt}
-          onChange={(value) => updateConfig({ prompt: value })}
+          id="system_prompt"
+          placeholder="输入系统提示词，支持 {{变量名}} 插值..."
+          value={currentConfig.system_prompt}
+          onChange={(value) => updateConfig({ system_prompt: value })}
         />
-        <p className="text-xs text-muted-foreground">
-          使用 <span className="prompt-var prompt-var-custom">{'{{变量名}}'}</span> 引用变量，
-          <span className="prompt-var prompt-var-builtin">{'{{上一节点}}'}</span> 引用上一节点输出
-        </p>
+        
+        {/* 快捷插入区 - 系统提示词 */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => insertVariable('system_prompt', '{{上一节点}}')}
+          >
+            <span className="prompt-var prompt-var-builtin">{'{{上一节点}}'}</span>
+          </Button>
+          
+          {definedVariables.map((varName) => (
+            <Button
+              key={varName}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => insertVariable('system_prompt', `{{${varName}}}`)}
+            >
+              <span className="prompt-var prompt-var-custom">{`{{${varName}}}`}</span>
+            </Button>
+          ))}
+        </div>
       </div>
 
       <Separator />
 
-      {/* 数据源设置 */}
-      <div className="space-y-4">
-        <Label>输入数据源</Label>
-        <div className="grid gap-4 rounded-lg border p-4 bg-muted/20">
-          <Select
-            value={currentConfig.input_source}
-            onValueChange={(value: 'previous' | 'variable' | 'custom') =>
-              updateConfig({ input_source: value })
-            }
+      {/* 用户问题 */}
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <Label htmlFor="user_prompt">用户问题</Label>
+          <p className="text-xs text-muted-foreground">
+            作为 User Message 发送给 AI
+          </p>
+        </div>
+        <PromptEditor
+          id="user_prompt"
+          placeholder="输入用户问题，默认为上一节点输出..."
+          value={currentConfig.user_prompt}
+          onChange={(value) => updateConfig({ user_prompt: value })}
+          minHeight="80px"
+        />
+        
+        {/* 快捷插入区 - 用户问题 */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => insertVariable('user_prompt', '{{上一节点}}')}
           >
-            <SelectTrigger className="bg-background">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="previous">上一节点输出</SelectItem>
-              <SelectItem value="variable">引用变量</SelectItem>
-              <SelectItem value="custom">自定义内容</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {currentConfig.input_source === 'variable' && (
-            <Input
-              placeholder="输入变量名"
-              value={currentConfig.input_variable || ''}
-              onChange={(e) => updateConfig({ input_variable: e.target.value })}
-              className="bg-background"
-            />
-          )}
-
-          {currentConfig.input_source === 'custom' && (
-            <Textarea
-              placeholder="输入自定义内容..."
-              className="min-h-[80px] bg-background"
-              value={currentConfig.custom_input || ''}
-              onChange={(e) => updateConfig({ custom_input: e.target.value })}
-            />
-          )}
+            <span className="prompt-var prompt-var-builtin">{'{{上一节点}}'}</span>
+          </Button>
+          
+          {definedVariables.map((varName) => (
+            <Button
+              key={varName}
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => insertVariable('user_prompt', `{{${varName}}}`)}
+            >
+              <span className="prompt-var prompt-var-custom">{`{{${varName}}}`}</span>
+            </Button>
+          ))}
         </div>
       </div>
 
@@ -224,7 +284,7 @@ export function AIChatConfigForm({ config, globalConfig, projectId, onChange }: 
             <div className="space-y-1">
               <Label className="text-base font-medium">设定引用</Label>
               <p className="text-xs text-muted-foreground">
-                选择要注入到提示词中的设定
+                选择要注入到系统提示词中的设定
               </p>
             </div>
 

@@ -476,6 +476,7 @@ export class WorkflowExecutor {
    */
   private async executeAIChatNode(node: WorkflowNode): Promise<string> {
     const config = node.config as AIChatConfig
+    const legacyConfig = node.config as any  // 兼容旧版配置
     
     // 检查 API 配置
     const providerConfig = this.globalConfig.ai_providers[config.provider]
@@ -483,21 +484,22 @@ export class WorkflowExecutor {
       throw new Error(`AI 提供商 ${config.provider} 未配置或未启用`)
     }
 
-    // 获取输入
-    const input = this.context.getNodeInput(node)
-    
-    // 更新节点输入
-    this.context.updateNodeState(node.id, { input })
+    // 构建系统提示词（变量插值），兼容旧版 prompt 字段
+    const systemPromptRaw = config.system_prompt ?? legacyConfig.prompt ?? ''
+    let systemPrompt = systemPromptRaw ? this.context.interpolate(systemPromptRaw) : ''
 
-    // 构建提示词（变量插值）
-    let prompt = this.context.interpolate(config.prompt)
-
-    // 注入设定
+    // 注入设定到系统提示词
     const settingsInjection = this.generateSettingsInjection(config.setting_ids || [])
     if (settingsInjection) {
-      // 将设定注入到提示词开头
-      prompt = settingsInjection + '\n\n' + prompt
+      systemPrompt = settingsInjection + (systemPrompt ? '\n\n' + systemPrompt : '')
     }
+
+    // 构建用户问题（变量插值），默认使用 {{上一节点}}
+    const userPromptTemplate = config.user_prompt || '{{上一节点}}'
+    const userPrompt = this.context.interpolate(userPromptTemplate)
+    
+    // 更新节点输入（显示用户问题）
+    this.context.updateNodeState(node.id, { input: userPrompt })
 
     // 构建消息列表
     const messages: Message[] = []
@@ -508,15 +510,16 @@ export class WorkflowExecutor {
       messages.push(...history)
     }
 
-    // 添加当前消息
-    // 如果 prompt 不为空，使用 prompt 作为系统消息，input 作为用户消息
-    if (prompt) {
-      messages.push({ role: 'system', content: prompt })
+    // 添加系统消息
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt })
     }
-    if (input) {
-      messages.push({ role: 'user', content: input })
-    } else if (!prompt) {
-      throw new Error('AI 对话节点需要输入或提示词')
+    
+    // 添加用户消息
+    if (userPrompt) {
+      messages.push({ role: 'user', content: userPrompt })
+    } else if (!systemPrompt) {
+      throw new Error('AI 对话节点需要系统提示词或用户问题')
     }
 
     // 创建 AbortController
@@ -561,8 +564,8 @@ export class WorkflowExecutor {
 
     // 保存到对话历史
     if (config.enable_history) {
-      if (input) {
-        this.context.addToHistory(node.id, { role: 'user', content: input })
+      if (userPrompt) {
+        this.context.addToHistory(node.id, { role: 'user', content: userPrompt })
       }
       this.context.addToHistory(node.id, { role: 'assistant', content: fullOutput })
     }

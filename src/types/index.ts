@@ -127,7 +127,8 @@ export type AIProvider = 'openai' | 'gemini' | 'claude'
 export interface AIChatConfig {
   provider: AIProvider
   model: string
-  prompt: string
+  system_prompt: string      // 系统提示词 (system message)
+  user_prompt: string        // 用户问题 (user message)，默认 {{上一节点}}
   temperature?: number
   max_tokens?: number
   top_p?: number
@@ -135,9 +136,6 @@ export interface AIChatConfig {
   enable_history: boolean
   history_count: number
   setting_ids: string[]
-  input_source: 'previous' | 'variable' | 'custom'
-  input_variable?: string
-  custom_input?: string
 }
 
 // 条件节点配置
@@ -268,11 +266,22 @@ export interface SettingPrompt {
   enabled: boolean
 }
 
+// 自定义模型配置
+export interface CustomModel {
+  id: string
+  name: string
+  enabled: boolean
+}
+
 // AI 提供商配置
 export interface AIProviderConfig {
   api_key: string
   base_url?: string
   enabled: boolean
+  // 启用的内置模型 ID 列表
+  enabled_models?: string[]
+  // 用户自定义模型
+  custom_models?: CustomModel[]
 }
 
 // 全局配置

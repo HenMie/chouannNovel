@@ -204,15 +204,20 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
     
     case 'ai_chat': {
       const aiConfig = config as AIChatConfig
-      const inputDesc = aiConfig?.input_source === 'variable' && aiConfig?.input_variable
-        ? <Tag color="green">{aiConfig.input_variable}</Tag>
-        : aiConfig?.input_source === 'custom' && aiConfig?.custom_input
-        ? <Tag color="blue">{aiConfig.custom_input.slice(0, 20)}{aiConfig.custom_input.length > 20 ? '...' : ''}</Tag>
-        : <Tag color="gray">上一节点输出</Tag>
+      const userPrompt = (aiConfig?.user_prompt || '{{上一节点}}').trim()
+      let inputDesc: React.ReactNode = <Tag color="gray">上一节点输出</Tag>
+      
+      if (userPrompt && userPrompt !== '{{上一节点}}') {
+        const preview = userPrompt.length > 20 ? `${userPrompt.slice(0, 20)}...` : userPrompt
+        inputDesc = <Tag color="blue">{preview}</Tag>
+      }
       
       return (
         <span className="text-muted-foreground">
           使用 <Tag color="purple">{aiConfig?.provider || 'AI'}</Tag> 的 <Tag color="purple">{aiConfig?.model || '模型'}</Tag> 处理 {inputDesc}
+          {aiConfig?.system_prompt && (
+            <span className="ml-1 text-xs opacity-60">（含系统提示词）</span>
+          )}
           {aiConfig?.enable_history && <span className="ml-1 text-xs opacity-60">（带对话历史）</span>}
         </span>
       )

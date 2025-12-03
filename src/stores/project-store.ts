@@ -231,6 +231,52 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   deleteNode: async (id) => {
+    const { nodes } = get()
+    const nodeToDelete = nodes.find((n) => n.id === id)
+    
+    if (!nodeToDelete) {
+      await db.deleteNode(id)
+      set((state) => ({ nodes: state.nodes.filter((n) => n.id !== id) }))
+      return
+    }
+
+    // 控制结构节点类型映射
+    const blockStartTypes = ['loop_start', 'parallel_start', 'condition_if']
+    const blockEndTypes = ['loop_end', 'parallel_end', 'condition_end', 'condition_else']
+    
+    // 如果删除的是控制结构的开始节点，需要删除整个块
+    if (blockStartTypes.includes(nodeToDelete.type) && nodeToDelete.block_id) {
+      const blockId = nodeToDelete.block_id
+      // 找到所有属于同一块的节点
+      const nodesToDelete = nodes.filter((n) => n.block_id === blockId)
+      
+      // 删除所有相关节点
+      for (const node of nodesToDelete) {
+        await db.deleteNode(node.id)
+      }
+      
+      set((state) => ({ 
+        nodes: state.nodes.filter((n) => n.block_id !== blockId) 
+      }))
+      return
+    }
+    
+    // 如果删除的是控制结构的结束节点或 else 节点，也删除整个块
+    if (blockEndTypes.includes(nodeToDelete.type) && nodeToDelete.block_id) {
+      const blockId = nodeToDelete.block_id
+      const nodesToDelete = nodes.filter((n) => n.block_id === blockId)
+      
+      for (const node of nodesToDelete) {
+        await db.deleteNode(node.id)
+      }
+      
+      set((state) => ({ 
+        nodes: state.nodes.filter((n) => n.block_id !== blockId) 
+      }))
+      return
+    }
+    
+    // 普通节点直接删除
     await db.deleteNode(id)
     set((state) => ({ nodes: state.nodes.filter((n) => n.id !== id) }))
   },

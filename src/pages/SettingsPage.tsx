@@ -1,18 +1,19 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
 import {
   ArrowLeft,
   Eye,
   EyeOff,
   Check,
   Bot,
-  Zap,
   Cpu,
   Copy,
   Wifi,
   Settings,
-  Monitor,
   Save,
+  Plus,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,17 +22,19 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  CardFooter,
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
+import { Badge } from '@/components/ui/badge'
 import { TypographyH3, TypographyMuted } from '@/components/ui/typography'
 import { Header } from '@/components/layout/Header'
 import { toast } from 'sonner'
 import * as db from '@/lib/db'
-import type { GlobalConfig, AIProvider } from '@/types'
+import type { GlobalConfig, AIProvider, CustomModel } from '@/types'
+import { getBuiltinModelsByProvider } from '@/lib/ai'
 import { cn } from '@/lib/utils'
 
 interface SettingsPageProps {
@@ -43,34 +46,27 @@ const aiProviders: Array<{
   id: AIProvider
   name: string
   description: string
-  models: string[]
   defaultBaseUrl: string
   icon: React.ReactNode
 }> = [
   {
-    id: 'openai',
-    name: 'OpenAI',
-    description: 'GPT-4o, GPT-4o-mini, o1 等模型',
-    models: ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini'],
-    defaultBaseUrl: 'https://api.openai.com/v1',
-    icon: <Bot className="h-6 w-6 text-green-500" />,
-  },
-  {
     id: 'gemini',
     name: 'Google Gemini',
-    description: 'Gemini 2.0 Flash, Gemini 2.5 Pro 等模型',
-    models: ['gemini-2.0-flash-exp', 'gemini-2.5-pro', 'gemini-1.5-pro'],
+    description: 'Gemini 3 Pro, Gemini 2.5 Pro/Flash 等模型',
     defaultBaseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     icon: <SparklesIcon className="h-6 w-6 text-blue-500" />,
   },
   {
+    id: 'openai',
+    name: 'OpenAI',
+    description: 'GPT-5.1, GPT-5, GPT-5 Mini 等模型',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    icon: <Bot className="h-6 w-6 text-green-500" />,
+  },
+  {
     id: 'claude',
     name: 'Anthropic Claude',
-    description: 'Claude 3.5 Sonnet, Haiku 等模型',
-    models: [
-      'claude-3-5-sonnet-20241022',
-      'claude-3-5-haiku-20241022',
-    ],
+    description: 'Claude Opus 4.5, Sonnet 4.5, Haiku 4.5 等模型',
     defaultBaseUrl: 'https://api.anthropic.com',
     icon: <Cpu className="h-6 w-6 text-orange-500" />,
   },
@@ -104,6 +100,18 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
     claude: false,
   })
   const [isTestingConnection, setIsTestingConnection] = useState<string | null>(null)
+  // 模型配置展开状态
+  const [expandedModels, setExpandedModels] = useState<Record<AIProvider, boolean>>({
+    openai: false,
+    gemini: false,
+    claude: false,
+  })
+  // 自定义模型表单
+  const [newCustomModel, setNewCustomModel] = useState<Record<AIProvider, { id: string; name: string }>>({
+    openai: { id: '', name: '' },
+    gemini: { id: '', name: '' },
+    claude: { id: '', name: '' },
+  })
 
   useEffect(() => {
     loadConfig()
@@ -172,6 +180,107 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
       setIsTestingConnection(null)
       toast.success(`${providerId} 连接测试成功 (模拟)`)
     }, 1500)
+  }
+
+  // 切换内置模型的启用状态
+  const toggleBuiltinModel = (provider: AIProvider, modelId: string) => {
+    if (!config) return
+
+    const currentModels = config.ai_providers[provider]?.enabled_models || []
+    const isEnabled = currentModels.includes(modelId)
+    const newModels = isEnabled
+      ? currentModels.filter((id) => id !== modelId)
+      : [...currentModels, modelId]
+
+    setConfig({
+      ...config,
+      ai_providers: {
+        ...config.ai_providers,
+        [provider]: {
+          ...config.ai_providers[provider],
+          enabled_models: newModels,
+        },
+      },
+    })
+  }
+
+  // 添加自定义模型
+  const addCustomModel = (provider: AIProvider) => {
+    if (!config) return
+
+    const { id, name } = newCustomModel[provider]
+    if (!id.trim() || !name.trim()) {
+      toast.error('请填写模型 ID 和名称')
+      return
+    }
+
+    // 检查是否已存在
+    const existingModels = config.ai_providers[provider]?.custom_models || []
+    if (existingModels.some((m) => m.id === id.trim())) {
+      toast.error('该模型 ID 已存在')
+      return
+    }
+
+    const newModel: CustomModel = {
+      id: id.trim(),
+      name: name.trim(),
+      enabled: true,
+    }
+
+    setConfig({
+      ...config,
+      ai_providers: {
+        ...config.ai_providers,
+        [provider]: {
+          ...config.ai_providers[provider],
+          custom_models: [...existingModels, newModel],
+        },
+      },
+    })
+
+    // 清空表单
+    setNewCustomModel((prev) => ({
+      ...prev,
+      [provider]: { id: '', name: '' },
+    }))
+    toast.success('自定义模型已添加')
+  }
+
+  // 删除自定义模型
+  const removeCustomModel = (provider: AIProvider, modelId: string) => {
+    if (!config) return
+
+    const currentModels = config.ai_providers[provider]?.custom_models || []
+    setConfig({
+      ...config,
+      ai_providers: {
+        ...config.ai_providers,
+        [provider]: {
+          ...config.ai_providers[provider],
+          custom_models: currentModels.filter((m) => m.id !== modelId),
+        },
+      },
+    })
+    toast.success('自定义模型已删除')
+  }
+
+  // 切换自定义模型的启用状态
+  const toggleCustomModel = (provider: AIProvider, modelId: string) => {
+    if (!config) return
+
+    const currentModels = config.ai_providers[provider]?.custom_models || []
+    setConfig({
+      ...config,
+      ai_providers: {
+        ...config.ai_providers,
+        [provider]: {
+          ...config.ai_providers[provider],
+          custom_models: currentModels.map((m) =>
+            m.id === modelId ? { ...m, enabled: !m.enabled } : m
+          ),
+        },
+      },
+    })
   }
 
   if (isLoading) {
@@ -396,6 +505,139 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                         <p className="text-[10px] text-muted-foreground">
                           默认: {provider.defaultBaseUrl}
                         </p>
+                      </div>
+
+                      {/* 模型配置区域 */}
+                      <Separator />
+                      <div className="space-y-3">
+                        <div 
+                          className="flex items-center justify-between cursor-pointer py-1"
+                          onClick={() => setExpandedModels((prev) => ({
+                            ...prev,
+                            [provider.id]: !prev[provider.id],
+                          }))}
+                        >
+                          <Label className="cursor-pointer">模型配置</Label>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary" className="text-xs">
+                              {(config?.ai_providers[provider.id]?.enabled_models?.length || 0) + 
+                               (config?.ai_providers[provider.id]?.custom_models?.filter(m => m.enabled).length || 0)} 个启用
+                            </Badge>
+                            {expandedModels[provider.id] ? (
+                              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </div>
+                        </div>
+
+                        {expandedModels[provider.id] && (
+                          <div className="space-y-4 pt-2">
+                            {/* 内置模型 */}
+                            <div className="space-y-2">
+                              <p className="text-xs font-medium text-muted-foreground">内置模型</p>
+                              <div className="grid gap-2">
+                                {getBuiltinModelsByProvider(provider.id).map((model) => {
+                                  const isEnabled = config?.ai_providers[provider.id]?.enabled_models?.includes(model.id) || false
+                                  return (
+                                    <div
+                                      key={model.id}
+                                      className={cn(
+                                        "flex items-center justify-between rounded-lg border p-3 transition-colors",
+                                        isEnabled ? "bg-primary/5 border-primary/20" : "bg-muted/30"
+                                      )}
+                                    >
+                                      <div className="space-y-0.5">
+                                        <p className="text-sm font-medium">{model.name}</p>
+                                        <p className="text-xs text-muted-foreground font-mono">{model.id}</p>
+                                      </div>
+                                      <Switch
+                                        checked={isEnabled}
+                                        onCheckedChange={() => toggleBuiltinModel(provider.id, model.id)}
+                                      />
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+
+                            {/* 自定义模型 */}
+                            <div className="space-y-2">
+                              <p className="text-xs font-medium text-muted-foreground">自定义模型</p>
+                              
+                              {/* 已添加的自定义模型 */}
+                              {(config?.ai_providers[provider.id]?.custom_models || []).length > 0 && (
+                                <div className="grid gap-2 mb-3">
+                                  {config?.ai_providers[provider.id]?.custom_models?.map((model) => (
+                                    <div
+                                      key={model.id}
+                                      className={cn(
+                                        "flex items-center justify-between rounded-lg border p-3 transition-colors",
+                                        model.enabled ? "bg-primary/5 border-primary/20" : "bg-muted/30"
+                                      )}
+                                    >
+                                      <div className="space-y-0.5">
+                                        <p className="text-sm font-medium">{model.name}</p>
+                                        <p className="text-xs text-muted-foreground font-mono">{model.id}</p>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Switch
+                                          checked={model.enabled}
+                                          onCheckedChange={() => toggleCustomModel(provider.id, model.id)}
+                                        />
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                          onClick={() => removeCustomModel(provider.id, model.id)}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* 添加自定义模型表单 */}
+                              <div className="flex gap-2">
+                                <Input
+                                  placeholder="模型 ID"
+                                  value={newCustomModel[provider.id].id}
+                                  onChange={(e) =>
+                                    setNewCustomModel((prev) => ({
+                                      ...prev,
+                                      [provider.id]: { ...prev[provider.id], id: e.target.value },
+                                    }))
+                                  }
+                                  className="flex-1 font-mono text-sm"
+                                />
+                                <Input
+                                  placeholder="显示名称"
+                                  value={newCustomModel[provider.id].name}
+                                  onChange={(e) =>
+                                    setNewCustomModel((prev) => ({
+                                      ...prev,
+                                      [provider.id]: { ...prev[provider.id], name: e.target.value },
+                                    }))
+                                  }
+                                  className="flex-1"
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => addCustomModel(provider.id)}
+                                  disabled={!newCustomModel[provider.id].id.trim() || !newCustomModel[provider.id].name.trim()}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground">
+                                添加该提供商支持的其他模型
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

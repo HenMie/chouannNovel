@@ -736,9 +736,26 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
       <AlertDialog open={!!nodeToDelete} onOpenChange={(open) => !open && setNodeToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>确定要删除这个节点吗？</AlertDialogTitle>
+            <AlertDialogTitle>
+              {(() => {
+                const node = nodes.find(n => n.id === nodeToDelete)
+                const blockTypes = ['loop_start', 'loop_end', 'parallel_start', 'parallel_end', 'condition_if', 'condition_else', 'condition_end']
+                if (node && blockTypes.includes(node.type)) {
+                  return '确定要删除这个控制结构吗？'
+                }
+                return '确定要删除这个节点吗？'
+              })()}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              此操作无法撤销，该节点及其配置将被永久删除。
+              {(() => {
+                const node = nodes.find(n => n.id === nodeToDelete)
+                const blockTypes = ['loop_start', 'loop_end', 'parallel_start', 'parallel_end', 'condition_if', 'condition_else', 'condition_end']
+                if (node && blockTypes.includes(node.type) && node.block_id) {
+                  const blockNodes = nodes.filter(n => n.block_id === node.block_id)
+                  return `此操作将删除整个控制结构块（共 ${blockNodes.length} 个节点），包括块内的所有节点。此操作无法撤销。`
+                }
+                return '此操作无法撤销，该节点及其配置将被永久删除。'
+              })()}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -128,40 +128,43 @@
   content: attr(data-placeholder);
   color: var(--muted-foreground);
   pointer-events: none;
+  white-space: pre-wrap;
 }
 
-/* 变量高亮样式 */
+/* 变量标签样式 - 不可编辑的整体 */
 .prompt-var {
-  display: inline;
-  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  margin: 0 1px;
   border-radius: 4px;
   font-weight: 500;
+  font-size: 0.875em;
   white-space: nowrap;
+  cursor: default;
+  user-select: all; /* 点击时整体选中 */
+  vertical-align: baseline;
 }
 
-/* 内置变量（input, previous）- 蓝色 */
+/* 内置变量（input, previous, 上一节点）- 蓝色 */
 .prompt-var-builtin {
-  background-color: oklch(0.7 0.15 250 / 20%);
-  color: oklch(0.5 0.2 250);
-  border: 1px solid oklch(0.7 0.15 250 / 40%);
+  background-color: oklch(0.6 0.18 250);
+  color: white;
 }
 
 .dark .prompt-var-builtin {
-  background-color: oklch(0.5 0.2 250 / 25%);
-  color: oklch(0.8 0.15 250);
-  border: 1px solid oklch(0.5 0.2 250 / 50%);
+  background-color: oklch(0.5 0.2 250);
+  color: white;
 }
 
 /* 自定义变量 - 紫色 */
 .prompt-var-custom {
-  background-color: oklch(0.7 0.2 300 / 20%);
-  color: oklch(0.5 0.25 300);
-  border: 1px solid oklch(0.7 0.2 300 / 40%);
+  background-color: oklch(0.6 0.2 300);
+  color: white;
 }
 
 .dark .prompt-var-custom {
-  background-color: oklch(0.5 0.25 300 / 25%);
-  color: oklch(0.8 0.18 300);
-  border: 1px solid oklch(0.5 0.25 300 / 50%);
+  background-color: oklch(0.5 0.22 300);
+  color: white;
 }
 

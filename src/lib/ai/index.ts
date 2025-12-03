@@ -23,50 +23,12 @@ export interface ModelConfig {
   defaultMaxTokens?: number
 }
 
-// 支持的模型列表
-export const MODELS: ModelConfig[] = [
-  // OpenAI 模型
-  {
-    id: 'gpt-4o',
-    name: 'GPT-4o',
-    provider: 'openai',
-    supportsTemperature: true,
-    supportsMaxTokens: true,
-    supportsTopP: true,
-    defaultMaxTokens: 4096,
-  },
-  {
-    id: 'gpt-4o-mini',
-    name: 'GPT-4o Mini',
-    provider: 'openai',
-    supportsTemperature: true,
-    supportsMaxTokens: true,
-    supportsTopP: true,
-    defaultMaxTokens: 4096,
-  },
-  {
-    id: 'o1',
-    name: 'o1',
-    provider: 'openai',
-    supportsTemperature: false,
-    supportsMaxTokens: true,
-    supportsTopP: false,
-    defaultMaxTokens: 4096,
-  },
-  {
-    id: 'o1-mini',
-    name: 'o1 Mini',
-    provider: 'openai',
-    supportsTemperature: false,
-    supportsMaxTokens: true,
-    supportsTopP: false,
-    defaultMaxTokens: 4096,
-  },
-
+// 系统内置模型列表
+export const BUILTIN_MODELS: ModelConfig[] = [
   // Gemini 模型
   {
-    id: 'gemini-2.0-flash-exp',
-    name: 'Gemini 2.0 Flash',
+    id: 'gemini-3-pro-preview',
+    name: 'Gemini 3 Pro Preview',
     provider: 'gemini',
     supportsTemperature: true,
     supportsMaxTokens: true,
@@ -75,7 +37,7 @@ export const MODELS: ModelConfig[] = [
     defaultMaxTokens: 8192,
   },
   {
-    id: 'gemini-2.5-pro-preview-06-05',
+    id: 'gemini-2.5-pro',
     name: 'Gemini 2.5 Pro',
     provider: 'gemini',
     supportsTemperature: true,
@@ -85,19 +47,49 @@ export const MODELS: ModelConfig[] = [
     defaultMaxTokens: 8192,
   },
   {
-    id: 'gemini-1.5-pro',
-    name: 'Gemini 1.5 Pro',
+    id: 'gemini-2.5-flash',
+    name: 'Gemini 2.5 Flash',
     provider: 'gemini',
     supportsTemperature: true,
     supportsMaxTokens: true,
     supportsTopP: true,
+    supportsThinkingLevel: true,
     defaultMaxTokens: 8192,
+  },
+
+  // OpenAI 模型
+  {
+    id: 'gpt-5.1',
+    name: 'GPT-5.1',
+    provider: 'openai',
+    supportsTemperature: true,
+    supportsMaxTokens: true,
+    supportsTopP: true,
+    defaultMaxTokens: 4096,
+  },
+  {
+    id: 'gpt-5',
+    name: 'GPT-5',
+    provider: 'openai',
+    supportsTemperature: true,
+    supportsMaxTokens: true,
+    supportsTopP: true,
+    defaultMaxTokens: 4096,
+  },
+  {
+    id: 'gpt-5-mini',
+    name: 'GPT-5 Mini',
+    provider: 'openai',
+    supportsTemperature: true,
+    supportsMaxTokens: true,
+    supportsTopP: true,
+    defaultMaxTokens: 4096,
   },
 
   // Claude 模型
   {
-    id: 'claude-sonnet-4-20250514',
-    name: 'Claude Sonnet 4',
+    id: 'claude-opus-4-5-20251101',
+    name: 'Claude Opus 4.5',
     provider: 'claude',
     supportsTemperature: true,
     supportsMaxTokens: true,
@@ -105,8 +97,8 @@ export const MODELS: ModelConfig[] = [
     defaultMaxTokens: 4096,
   },
   {
-    id: 'claude-3-5-haiku-20241022',
-    name: 'Claude 3.5 Haiku',
+    id: 'claude-sonnet-4-5-20250929',
+    name: 'Claude Sonnet 4.5',
     provider: 'claude',
     supportsTemperature: true,
     supportsMaxTokens: true,
@@ -114,8 +106,8 @@ export const MODELS: ModelConfig[] = [
     defaultMaxTokens: 4096,
   },
   {
-    id: 'claude-3-5-sonnet-20241022',
-    name: 'Claude 3.5 Sonnet',
+    id: 'claude-haiku-4-5-20251001',
+    name: 'Claude Haiku 4.5',
     provider: 'claude',
     supportsTemperature: true,
     supportsMaxTokens: true,
@@ -124,21 +116,89 @@ export const MODELS: ModelConfig[] = [
   },
 ]
 
+// 兼容旧版本：MODELS 指向 BUILTIN_MODELS
+export const MODELS = BUILTIN_MODELS
+
 /**
- * 获取可用的模型列表（已启用的提供商）
+ * 获取指定提供商的内置模型列表
+ */
+export function getBuiltinModelsByProvider(provider: AIProvider): ModelConfig[] {
+  return BUILTIN_MODELS.filter((m) => m.provider === provider)
+}
+
+/**
+ * 获取可用的模型列表（已启用的提供商 + 已启用的模型）
  */
 export function getAvailableModels(globalConfig: GlobalConfig): ModelConfig[] {
-  return MODELS.filter((model) => {
-    const config = globalConfig.ai_providers[model.provider]
-    return config?.enabled && config.api_key
-  })
+  const result: ModelConfig[] = []
+
+  for (const provider of ['openai', 'gemini', 'claude'] as AIProvider[]) {
+    const config = globalConfig.ai_providers[provider]
+    if (!config?.enabled || !config.api_key) continue
+
+    // 获取该提供商启用的内置模型
+    const enabledModelIds = config.enabled_models || []
+    const builtinModels = BUILTIN_MODELS.filter(
+      (m) => m.provider === provider && enabledModelIds.includes(m.id)
+    )
+    result.push(...builtinModels)
+
+    // 添加自定义模型
+    const customModels = config.custom_models || []
+    for (const custom of customModels) {
+      if (custom.enabled) {
+        result.push({
+          id: custom.id,
+          name: custom.name,
+          provider,
+          supportsTemperature: true,
+          supportsMaxTokens: true,
+          supportsTopP: true,
+          defaultMaxTokens: 4096,
+        })
+      }
+    }
+  }
+
+  return result
 }
 
 /**
  * 根据模型 ID 获取模型配置
  */
-export function getModelConfig(modelId: string): ModelConfig | undefined {
-  return MODELS.find((m) => m.id === modelId)
+export function getModelConfig(modelId: string, globalConfig?: GlobalConfig): ModelConfig | undefined {
+  // 首先在内置模型中查找
+  const builtinModel = BUILTIN_MODELS.find((m) => m.id === modelId)
+  if (builtinModel) return builtinModel
+
+  // 如果提供了全局配置，在自定义模型中查找
+  if (globalConfig) {
+    for (const provider of ['openai', 'gemini', 'claude'] as AIProvider[]) {
+      const config = globalConfig.ai_providers[provider]
+      const customModel = config?.custom_models?.find((m) => m.id === modelId)
+      if (customModel) {
+        return {
+          id: customModel.id,
+          name: customModel.name,
+          provider,
+          supportsTemperature: true,
+          supportsMaxTokens: true,
+          supportsTopP: true,
+          defaultMaxTokens: 4096,
+        }
+      }
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * 根据模型 ID 获取其所属的提供商
+ */
+export function getModelProvider(modelId: string, globalConfig?: GlobalConfig): AIProvider | undefined {
+  const config = getModelConfig(modelId, globalConfig)
+  return config?.provider
 }
 
 /**

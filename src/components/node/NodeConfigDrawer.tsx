@@ -166,6 +166,7 @@ export function NodeConfigDrawer({
             config={config as Partial<AIChatConfig>}
             globalConfig={globalConfig}
             projectId={projectId}
+            nodes={nodes}
             onChange={setConfig}
           />
         )

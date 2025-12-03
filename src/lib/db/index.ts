@@ -500,6 +500,13 @@ export async function upsertSettingPrompt(
 
 // ========== 全局配置操作 ==========
 
+// 默认启用的模型列表
+const DEFAULT_ENABLED_MODELS = {
+  gemini: ['gemini-3-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+  openai: ['gpt-5.1', 'gpt-5', 'gpt-5-mini'],
+  claude: ['claude-opus-4-5-20251101', 'claude-sonnet-4-5-20250929', 'claude-haiku-4-5-20251001'],
+}
+
 export async function getGlobalConfig(): Promise<GlobalConfig> {
   const db = await getDatabase()
   const results = await db.select<
@@ -511,9 +518,24 @@ export async function getGlobalConfig(): Promise<GlobalConfig> {
     return {
       id: 1,
       ai_providers: {
-        openai: { api_key: '', enabled: false },
-        gemini: { api_key: '', enabled: false },
-        claude: { api_key: '', enabled: false },
+        openai: { 
+          api_key: '', 
+          enabled: false, 
+          enabled_models: DEFAULT_ENABLED_MODELS.openai,
+          custom_models: [],
+        },
+        gemini: { 
+          api_key: '', 
+          enabled: false, 
+          enabled_models: DEFAULT_ENABLED_MODELS.gemini,
+          custom_models: [],
+        },
+        claude: { 
+          api_key: '', 
+          enabled: false, 
+          enabled_models: DEFAULT_ENABLED_MODELS.claude,
+          custom_models: [],
+        },
       },
       theme: 'system',
       default_loop_max: 10,
@@ -521,9 +543,19 @@ export async function getGlobalConfig(): Promise<GlobalConfig> {
     }
   }
 
+  const aiProviders = JSON.parse(results[0].ai_providers)
+  
+  // 迁移：为旧配置添加默认模型列表
+  for (const provider of ['openai', 'gemini', 'claude'] as const) {
+    if (aiProviders[provider] && !aiProviders[provider].enabled_models) {
+      aiProviders[provider].enabled_models = DEFAULT_ENABLED_MODELS[provider]
+      aiProviders[provider].custom_models = []
+    }
+  }
+
   return {
     ...results[0],
-    ai_providers: JSON.parse(results[0].ai_providers),
+    ai_providers: aiProviders,
   }
 }
 
