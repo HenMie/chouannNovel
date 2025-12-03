@@ -50,6 +50,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { TypographyH2, TypographyMuted, TypographyH4 } from '@/components/ui/typography'
 import { useProjectStore } from '@/stores/project-store'
+import { importProjectFromFile } from '@/lib/import-export'
+import { toast } from 'sonner'
 import type { Project } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -123,6 +125,22 @@ export function HomePage({ onNavigate }: HomePageProps) {
     }
   }
 
+  // 从备份导入项目
+  const handleImportProject = async () => {
+    try {
+      const result = await importProjectFromFile()
+      if (result.success && result.project) {
+        // 重新加载项目列表
+        loadProjects()
+        toast.success(`项目 "${result.project.name}" 导入成功`)
+        // 导航到新导入的项目
+        onNavigate(`/project/${result.project.id}`)
+      }
+    } catch (error) {
+      toast.error('导入失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    }
+  }
+
   return (
     <div className="flex h-full flex-col bg-background">
       <Header title="首页" />
@@ -178,10 +196,10 @@ export function HomePage({ onNavigate }: HomePageProps) {
                  variant="outline"
                  size="sm"
                  className="h-9 gap-2"
-                 onClick={() => alert('导入功能开发中')}
+                 onClick={handleImportProject}
                >
                  <Upload className="h-3.5 w-3.5" />
-                 导入
+                 导入项目
                </Button>
                <Button
                   size="sm"

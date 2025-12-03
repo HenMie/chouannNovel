@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ArrowLeft,
   Plus,
@@ -48,6 +49,7 @@ import {
 import { Header } from '@/components/layout/Header'
 import { useProjectStore } from '@/stores/project-store'
 import { useSettingsStore } from '@/stores/settings-store'
+import { useDebouncedValue } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { SettingCategory, Setting } from '@/types'
 
@@ -95,8 +97,196 @@ const CATEGORIES: Array<{
   },
 ]
 
+// 虚拟设定列表组件
+function VirtualSettingsList({
+  settings,
+  onEdit,
+  onDelete,
+  onToggle,
+}: {
+  settings: Setting[]
+  onEdit: (setting: Setting) => void
+  onDelete: (setting: Setting) => void
+  onToggle: (id: string) => void
+}) {
+  const parentRef = useRef<HTMLDivElement>(null)
+  // 跟踪展开状态以动态调整高度
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+
+  const virtualizer = useVirtualizer({
+    count: settings.length,
+    getScrollElement: () => parentRef.current,
+    // 根据展开状态动态计算高度
+    estimateSize: useCallback((index: number) => {
+      const setting = settings[index]
+      const isExpanded = expandedIds.has(setting.id)
+      // 基础高度约 70px，展开后根据内容增加
+      return isExpanded ? Math.min(200, 70 + setting.content.length / 3) : 70
+    }, [settings, expandedIds]),
+    overscan: 5,
+    getItemKey: (index) => settings[index].id,
+  })
+
+  const virtualItems = virtualizer.getVirtualItems()
+
+  // 如果设定数量较少（<20），直接渲染不使用虚拟化
+  if (settings.length < 20) {
+    return (
+      <div className="space-y-3">
+        <AnimatePresence mode="popLayout">
+          {settings.map((setting, index) => (
+            <SettingCard
+              key={setting.id}
+              setting={setting}
+              index={index}
+              onEdit={() => onEdit(setting)}
+              onDelete={() => onDelete(setting)}
+              onToggle={() => onToggle(setting.id)}
+            />
+          ))}
+        </AnimatePresence>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      ref={parentRef}
+      className="h-[calc(100vh-320px)] min-h-[300px] overflow-auto"
+    >
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          width: '100%',
+          position: 'relative',
+        }}
+      >
+        {virtualItems.map((virtualItem) => {
+          const setting = settings[virtualItem.index]
+          return (
+            <div
+              key={virtualItem.key}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualItem.start}px)`,
+                paddingBottom: '12px',
+              }}
+            >
+              <SettingCardVirtual
+                setting={setting}
+                isExpanded={expandedIds.has(setting.id)}
+                onToggleExpand={() => {
+                  toggleExpanded(setting.id)
+                  // 重新测量
+                  virtualizer.measureElement(null)
+                }}
+                onEdit={() => onEdit(setting)}
+                onDelete={() => onDelete(setting)}
+                onToggle={() => onToggle(setting.id)}
+              />
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// 虚拟列表专用的设定卡片（无动画版本，提高性能）
+function SettingCardVirtual({
+  setting,
+  isExpanded,
+  onToggleExpand,
+  onEdit,
+  onDelete,
+  onToggle,
+}: {
+  setting: Setting
+  isExpanded: boolean
+  onToggleExpand: () => void
+  onEdit: () => void
+  onDelete: () => void
+  onToggle: () => void
+}) {
+  return (
+    <Card className={`transition-colors hover:border-primary/50 ${!setting.enabled ? 'opacity-60' : ''}`}>
+      <CardHeader className="pb-2 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={onToggleExpand}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </Button>
+            <div className="flex items-center gap-2">
+               <CardTitle className="text-sm font-semibold">{setting.name}</CardTitle>
+               {!setting.enabled && (
+                  <span className="text-[10px] bg-muted px-1.5 rounded text-muted-foreground">已禁用</span>
+               )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Switch
+              id={`switch-${setting.id}`}
+              checked={setting.enabled}
+              onCheckedChange={onToggle}
+              className="scale-75 mr-2"
+            />
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit}>
+              <Edit2 className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-destructive hover:text-destructive"
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      {isExpanded ? (
+        <CardContent className="pt-0 pb-3 px-3 ml-9">
+          <div className="rounded bg-muted/30 p-3 text-sm font-mono whitespace-pre-wrap">
+            {setting.content}
+          </div>
+        </CardContent>
+      ) : (
+        <CardContent className="pt-0 pb-3 px-3 ml-9">
+          <p className="line-clamp-1 text-xs text-muted-foreground">
+            {setting.content}
+          </p>
+        </CardContent>
+      )}
+    </Card>
+  )
+}
+
 export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: SettingsLibraryPageProps) {
-  const { currentProject, setCurrentProject, projects, loadProjects } = useProjectStore()
+  const { currentProject, setCurrentProject, projects, loadProjects, loadWorkflows } = useProjectStore()
   const {
     loading,
     loadSettings,
@@ -132,18 +322,20 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
       const project = useProjectStore.getState().projects.find((p) => p.id === projectId)
       if (project) {
         setCurrentProject(project)
+        // 显式加载工作流，因为 setCurrentProject 会清空 workflows
+        loadWorkflows(project.id)
       }
     }
     loadData()
-  }, [projectId, projects.length, loadProjects, setCurrentProject])
+  }, [projectId, projects.length, loadProjects, setCurrentProject, loadWorkflows])
+
+  // 使用防抖的搜索查询
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
 
   // 搜索和加载设定
   useEffect(() => {
-    const timer = setTimeout(() => {
-      loadSettings(projectId, searchQuery)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [projectId, searchQuery, loadSettings])
+    loadSettings(projectId, debouncedSearchQuery)
+  }, [projectId, debouncedSearchQuery, loadSettings])
 
   // 获取当前分类的设定
   const currentCategorySettings = getSettingsByCategory(activeTab)
@@ -355,20 +547,12 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                       </CardContent>
                     </Card>
                   ) : (
-                    <div className="space-y-3">
-                      <AnimatePresence mode="popLayout">
-                        {currentCategorySettings.map((setting, index) => (
-                          <SettingCard
-                            key={setting.id}
-                            setting={setting}
-                            index={index}
-                            onEdit={() => handleEdit(setting)}
-                            onDelete={() => setDeletingSetting(setting)}
-                            onToggle={() => toggleSetting(setting.id)}
-                          />
-                        ))}
-                      </AnimatePresence>
-                    </div>
+                    <VirtualSettingsList
+                      settings={currentCategorySettings}
+                      onEdit={handleEdit}
+                      onDelete={setDeletingSetting}
+                      onToggle={toggleSetting}
+                    />
                   )}
                 </TabsContent>
               ))}

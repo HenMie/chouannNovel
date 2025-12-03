@@ -10,7 +10,13 @@ import type {
   NodeResult,
   ProjectStats,
   GlobalStats,
+  ExportedWorkflow,
+  ExportedSettings,
+  ExportedProject,
+  WorkflowVersion,
+  WorkflowSnapshot,
 } from '@/types'
+import { EXPORT_VERSION } from '@/types'
 
 // 数据库单例
 let db: Database | null = null
@@ -842,6 +848,521 @@ export async function getProjectStats(projectId: string): Promise<ProjectStats> 
     worldview_count: worldviewResult[0]?.count || 0,
     workflow_count: workflowResult[0]?.count || 0,
     total_word_count: wordCountResult[0]?.count || 0,
+  }
+}
+
+// ========== 工作流导入/导出 ==========
+
+/**
+ * 导出工作流为 JSON 格式
+ */
+export async function exportWorkflow(workflowId: string): Promise<ExportedWorkflow | null> {
+  const workflow = await getWorkflow(workflowId)
+  if (!workflow) return null
+
+  const nodes = await getNodes(workflowId)
+
+  return {
+    version: EXPORT_VERSION,
+    exported_at: new Date().toISOString(),
+    workflow: {
+      name: workflow.name,
+      description: workflow.description,
+      loop_max_count: workflow.loop_max_count,
+      timeout_seconds: workflow.timeout_seconds,
+    },
+    nodes: nodes.map((node) => ({
+      type: node.type,
+      name: node.name,
+      config: node.config,
+      order_index: node.order_index,
+      block_id: node.block_id,
+      parent_block_id: node.parent_block_id,
+    })),
+  }
+}
+
+/**
+ * 导入工作流到指定项目
+ */
+export async function importWorkflow(
+  projectId: string,
+  data: ExportedWorkflow,
+  newName?: string
+): Promise<Workflow> {
+  const db = await getDatabase()
+  const workflowId = generateId()
+  const now = new Date().toISOString()
+
+  // 创建工作流
+  await db.execute(
+    `INSERT INTO workflows (id, project_id, name, description, loop_max_count, timeout_seconds, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      workflowId,
+      projectId,
+      newName || data.workflow.name,
+      data.workflow.description || null,
+      data.workflow.loop_max_count,
+      data.workflow.timeout_seconds,
+      now,
+      now,
+    ]
+  )
+
+  // 创建 block_id 映射（用于保持块结构关系）
+  const blockIdMap = new Map<string, string>()
+  
+  // 先收集所有需要映射的 block_id
+  for (const node of data.nodes) {
+    if (node.block_id && !blockIdMap.has(node.block_id)) {
+      blockIdMap.set(node.block_id, generateId())
+    }
+  }
+
+  // 创建节点
+  for (const node of data.nodes) {
+    const nodeId = generateId()
+    const newBlockId = node.block_id ? blockIdMap.get(node.block_id) : null
+    const newParentBlockId = node.parent_block_id ? blockIdMap.get(node.parent_block_id) : null
+
+    await db.execute(
+      `INSERT INTO nodes (id, workflow_id, type, name, config, order_index, block_id, parent_block_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        nodeId,
+        workflowId,
+        node.type,
+        node.name,
+        JSON.stringify(node.config),
+        node.order_index,
+        newBlockId,
+        newParentBlockId,
+        now,
+        now,
+      ]
+    )
+  }
+
+  return {
+    id: workflowId,
+    project_id: projectId,
+    name: newName || data.workflow.name,
+    description: data.workflow.description,
+    loop_max_count: data.workflow.loop_max_count,
+    timeout_seconds: data.workflow.timeout_seconds,
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+// ========== 设定库导入/导出 ==========
+
+/**
+ * 导出设定库为 JSON 格式
+ */
+export async function exportSettings(projectId: string): Promise<ExportedSettings> {
+  const settings = await getSettings(projectId)
+  const prompts = await getSettingPrompts(projectId)
+
+  return {
+    version: EXPORT_VERSION,
+    exported_at: new Date().toISOString(),
+    settings: settings.map((s) => ({
+      category: s.category,
+      name: s.name,
+      content: s.content,
+      enabled: s.enabled,
+    })),
+    setting_prompts: prompts.map((p) => ({
+      category: p.category,
+      prompt_template: p.prompt_template,
+      enabled: p.enabled,
+    })),
+  }
+}
+
+/**
+ * 导入设定库到指定项目
+ * @param mode 'merge' 合并（保留现有设定），'replace' 替换（清空后导入）
+ */
+export async function importSettings(
+  projectId: string,
+  data: ExportedSettings,
+  mode: 'merge' | 'replace' = 'merge'
+): Promise<void> {
+  const db = await getDatabase()
+  const now = new Date().toISOString()
+
+  if (mode === 'replace') {
+    // 清空现有设定
+    await db.execute('DELETE FROM settings WHERE project_id = ?', [projectId])
+    await db.execute('DELETE FROM setting_prompts WHERE project_id = ?', [projectId])
+  }
+
+  // 导入设定
+  for (const setting of data.settings) {
+    const id = generateId()
+    await db.execute(
+      `INSERT INTO settings (id, project_id, category, name, content, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, projectId, setting.category, setting.name, setting.content, setting.enabled ? 1 : 0, now, now]
+    )
+  }
+
+  // 导入设定提示词
+  if (data.setting_prompts) {
+    for (const prompt of data.setting_prompts) {
+      // 检查是否已存在该分类的提示词
+      const existing = await getSettingPrompt(projectId, prompt.category)
+      if (existing && mode === 'merge') {
+        // 合并模式下跳过已存在的提示词
+        continue
+      }
+      
+      const id = generateId()
+      await db.execute(
+        `INSERT OR REPLACE INTO setting_prompts (id, project_id, category, prompt_template, enabled)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, projectId, prompt.category, prompt.prompt_template, prompt.enabled ? 1 : 0]
+      )
+    }
+  }
+}
+
+// ========== 项目备份与恢复 ==========
+
+/**
+ * 导出完整项目数据
+ */
+export async function exportProject(projectId: string): Promise<ExportedProject | null> {
+  const project = await getProject(projectId)
+  if (!project) return null
+
+  const workflows = await getWorkflows(projectId)
+  const settings = await getSettings(projectId)
+  const prompts = await getSettingPrompts(projectId)
+
+  // 获取每个工作流的节点
+  const workflowsWithNodes = await Promise.all(
+    workflows.map(async (workflow) => {
+      const nodes = await getNodes(workflow.id)
+      return {
+        workflow: {
+          name: workflow.name,
+          description: workflow.description,
+          loop_max_count: workflow.loop_max_count,
+          timeout_seconds: workflow.timeout_seconds,
+        },
+        nodes: nodes.map((node) => ({
+          type: node.type,
+          name: node.name,
+          config: node.config,
+          order_index: node.order_index,
+          block_id: node.block_id,
+          parent_block_id: node.parent_block_id,
+        })),
+      }
+    })
+  )
+
+  return {
+    version: EXPORT_VERSION,
+    exported_at: new Date().toISOString(),
+    project: {
+      name: project.name,
+      description: project.description,
+    },
+    workflows: workflowsWithNodes,
+    settings: settings.map((s) => ({
+      category: s.category,
+      name: s.name,
+      content: s.content,
+      enabled: s.enabled,
+    })),
+    setting_prompts: prompts.map((p) => ({
+      category: p.category,
+      prompt_template: p.prompt_template,
+      enabled: p.enabled,
+    })),
+  }
+}
+
+/**
+ * 从备份恢复项目（创建新项目）
+ */
+export async function importProject(
+  data: ExportedProject,
+  newName?: string
+): Promise<Project> {
+  const db = await getDatabase()
+  const projectId = generateId()
+  const now = new Date().toISOString()
+
+  // 创建项目
+  await db.execute(
+    `INSERT INTO projects (id, name, description, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    [projectId, newName || data.project.name, data.project.description || null, now, now]
+  )
+
+  // 导入工作流
+  for (const workflowData of data.workflows) {
+    const workflowId = generateId()
+    
+    await db.execute(
+      `INSERT INTO workflows (id, project_id, name, description, loop_max_count, timeout_seconds, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        workflowId,
+        projectId,
+        workflowData.workflow.name,
+        workflowData.workflow.description || null,
+        workflowData.workflow.loop_max_count,
+        workflowData.workflow.timeout_seconds,
+        now,
+        now,
+      ]
+    )
+
+    // 创建 block_id 映射
+    const blockIdMap = new Map<string, string>()
+    for (const node of workflowData.nodes) {
+      if (node.block_id && !blockIdMap.has(node.block_id)) {
+        blockIdMap.set(node.block_id, generateId())
+      }
+    }
+
+    // 导入节点
+    for (const node of workflowData.nodes) {
+      const nodeId = generateId()
+      const newBlockId = node.block_id ? blockIdMap.get(node.block_id) : null
+      const newParentBlockId = node.parent_block_id ? blockIdMap.get(node.parent_block_id) : null
+
+      await db.execute(
+        `INSERT INTO nodes (id, workflow_id, type, name, config, order_index, block_id, parent_block_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          nodeId,
+          workflowId,
+          node.type,
+          node.name,
+          JSON.stringify(node.config),
+          node.order_index,
+          newBlockId,
+          newParentBlockId,
+          now,
+          now,
+        ]
+      )
+    }
+  }
+
+  // 导入设定
+  for (const setting of data.settings) {
+    const id = generateId()
+    await db.execute(
+      `INSERT INTO settings (id, project_id, category, name, content, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, projectId, setting.category, setting.name, setting.content, setting.enabled ? 1 : 0, now, now]
+    )
+  }
+
+  // 导入设定提示词
+  for (const prompt of data.setting_prompts) {
+    const id = generateId()
+    await db.execute(
+      `INSERT INTO setting_prompts (id, project_id, category, prompt_template, enabled)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, projectId, prompt.category, prompt.prompt_template, prompt.enabled ? 1 : 0]
+    )
+  }
+
+  return {
+    id: projectId,
+    name: newName || data.project.name,
+    description: data.project.description,
+    created_at: now,
+    updated_at: now,
+  }
+}
+
+// ========== 工作流版本历史 ==========
+
+/**
+ * 获取工作流的版本历史列表
+ */
+export async function getWorkflowVersions(workflowId: string): Promise<WorkflowVersion[]> {
+  const db = await getDatabase()
+  const versions = await db.select<WorkflowVersion[]>(
+    'SELECT * FROM workflow_versions WHERE workflow_id = ? ORDER BY version_number DESC',
+    [workflowId]
+  )
+  return versions
+}
+
+/**
+ * 获取单个版本详情
+ */
+export async function getWorkflowVersion(versionId: string): Promise<WorkflowVersion | null> {
+  const db = await getDatabase()
+  const results = await db.select<WorkflowVersion[]>(
+    'SELECT * FROM workflow_versions WHERE id = ?',
+    [versionId]
+  )
+  return results[0] || null
+}
+
+/**
+ * 创建工作流版本快照
+ */
+export async function createWorkflowVersion(
+  workflowId: string,
+  description?: string
+): Promise<WorkflowVersion> {
+  const db = await getDatabase()
+  
+  // 获取当前工作流和节点
+  const workflow = await getWorkflow(workflowId)
+  if (!workflow) {
+    throw new Error('工作流不存在')
+  }
+  
+  const nodes = await getNodes(workflowId)
+
+  // 创建快照
+  const snapshot: WorkflowSnapshot = {
+    workflow: {
+      name: workflow.name,
+      description: workflow.description,
+      loop_max_count: workflow.loop_max_count,
+      timeout_seconds: workflow.timeout_seconds,
+    },
+    nodes: nodes.map((node) => ({
+      type: node.type,
+      name: node.name,
+      config: node.config,
+      order_index: node.order_index,
+      block_id: node.block_id,
+      parent_block_id: node.parent_block_id,
+    })),
+  }
+
+  // 获取最新版本号
+  const maxResult = await db.select<[{ max_version: number | null }]>(
+    'SELECT MAX(version_number) as max_version FROM workflow_versions WHERE workflow_id = ?',
+    [workflowId]
+  )
+  const versionNumber = (maxResult[0]?.max_version ?? 0) + 1
+
+  const id = generateId()
+  const now = new Date().toISOString()
+
+  await db.execute(
+    `INSERT INTO workflow_versions (id, workflow_id, version_number, snapshot, description, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, workflowId, versionNumber, JSON.stringify(snapshot), description || null, now]
+  )
+
+  return {
+    id,
+    workflow_id: workflowId,
+    version_number: versionNumber,
+    snapshot: JSON.stringify(snapshot),
+    description,
+    created_at: now,
+  }
+}
+
+/**
+ * 从版本历史恢复工作流
+ */
+export async function restoreWorkflowVersion(versionId: string): Promise<void> {
+  const db = await getDatabase()
+  
+  const version = await getWorkflowVersion(versionId)
+  if (!version) {
+    throw new Error('版本不存在')
+  }
+
+  const snapshot: WorkflowSnapshot = JSON.parse(version.snapshot)
+  const now = new Date().toISOString()
+
+  // 更新工作流基本信息
+  await db.execute(
+    `UPDATE workflows SET name = ?, description = ?, loop_max_count = ?, timeout_seconds = ?, updated_at = ?
+     WHERE id = ?`,
+    [
+      snapshot.workflow.name,
+      snapshot.workflow.description || null,
+      snapshot.workflow.loop_max_count,
+      snapshot.workflow.timeout_seconds,
+      now,
+      version.workflow_id,
+    ]
+  )
+
+  // 删除现有节点
+  await db.execute('DELETE FROM nodes WHERE workflow_id = ?', [version.workflow_id])
+
+  // 创建 block_id 映射
+  const blockIdMap = new Map<string, string>()
+  for (const node of snapshot.nodes) {
+    if (node.block_id && !blockIdMap.has(node.block_id)) {
+      blockIdMap.set(node.block_id, generateId())
+    }
+  }
+
+  // 恢复节点
+  for (const node of snapshot.nodes) {
+    const nodeId = generateId()
+    const newBlockId = node.block_id ? blockIdMap.get(node.block_id) : null
+    const newParentBlockId = node.parent_block_id ? blockIdMap.get(node.parent_block_id) : null
+
+    await db.execute(
+      `INSERT INTO nodes (id, workflow_id, type, name, config, order_index, block_id, parent_block_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        nodeId,
+        version.workflow_id,
+        node.type,
+        node.name,
+        JSON.stringify(node.config),
+        node.order_index,
+        newBlockId,
+        newParentBlockId,
+        now,
+        now,
+      ]
+    )
+  }
+}
+
+/**
+ * 删除工作流版本
+ */
+export async function deleteWorkflowVersion(versionId: string): Promise<void> {
+  const db = await getDatabase()
+  await db.execute('DELETE FROM workflow_versions WHERE id = ?', [versionId])
+}
+
+/**
+ * 清理旧版本（保留最近 N 个版本）
+ */
+export async function cleanupOldVersions(workflowId: string, keepCount: number = 20): Promise<void> {
+  const db = await getDatabase()
+  
+  // 获取需要删除的版本 ID
+  const versionsToDelete = await db.select<Array<{ id: string }>>(
+    `SELECT id FROM workflow_versions 
+     WHERE workflow_id = ? 
+     ORDER BY version_number DESC 
+     LIMIT -1 OFFSET ?`,
+    [workflowId, keepCount]
+  )
+
+  for (const version of versionsToDelete) {
+    await db.execute('DELETE FROM workflow_versions WHERE id = ?', [version.id])
   }
 }
 

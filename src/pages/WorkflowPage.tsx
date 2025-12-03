@@ -18,6 +18,11 @@ import {
   Clock,
   History,
   Clipboard,
+  Download,
+  Upload,
+  MoreHorizontal,
+  Save,
+  RotateCcw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -43,7 +48,9 @@ import { StreamingOutput, NodeOutputPanel } from '@/components/execution/Streami
 import { useProjectStore } from '@/stores/project-store'
 import { useExecutionStore } from '@/stores/execution-store'
 import { useSettingsStore } from '@/stores/settings-store'
-import { getGlobalConfig, generateId } from '@/lib/db'
+import { getGlobalConfig, generateId, getWorkflowVersions, createWorkflowVersion, restoreWorkflowVersion } from '@/lib/db'
+import { exportWorkflowToFile, importWorkflowFromFile } from '@/lib/import-export'
+import type { WorkflowVersion } from '@/types'
 import { useHotkeys, HOTKEY_PRESETS } from '@/lib/hooks'
 import { toast } from 'sonner'
 import type { WorkflowNode, NodeType, GlobalConfig } from '@/types'
@@ -119,6 +126,13 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
   const [showInputDialog, setShowInputDialog] = useState(false)
   const [nodeToDelete, setNodeToDelete] = useState<string | null>(null)
   
+  // 版本历史状态
+  const [versions, setVersions] = useState<WorkflowVersion[]>([])
+  const [showVersionDialog, setShowVersionDialog] = useState(false)
+  const [versionDescription, setVersionDescription] = useState('')
+  const [showRestoreDialog, setShowRestoreDialog] = useState(false)
+  const [selectedVersion, setSelectedVersion] = useState<WorkflowVersion | null>(null)
+  
   // 派生状态
   const isRunning = executionStatus === 'running'
   const isPaused = executionStatus === 'paused'
@@ -149,6 +163,16 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
       // 加载项目设定
       if (projectId) {
         await loadSettings(projectId)
+      }
+      
+      // 加载版本历史
+      if (workflowId) {
+        try {
+          const versionList = await getWorkflowVersions(workflowId)
+          setVersions(versionList)
+        } catch (error) {
+          console.error('加载版本历史失败:', error)
+        }
       }
     }
 
@@ -316,6 +340,63 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     }
   }
 
+  // 导出工作流
+  const handleExportWorkflow = async () => {
+    if (!currentWorkflow) return
+    try {
+      const success = await exportWorkflowToFile(currentWorkflow.id)
+      if (success) {
+        toast.success('工作流导出成功')
+      }
+    } catch (error) {
+      toast.error('导出失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    }
+  }
+
+  // 导入工作流
+  const handleImportWorkflow = async () => {
+    try {
+      const result = await importWorkflowFromFile(projectId)
+      if (result.success && result.workflow) {
+        toast.success('工作流导入成功')
+        onNavigate(`/project/${projectId}/workflow/${result.workflow.id}`)
+      }
+    } catch (error) {
+      toast.error('导入失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    }
+  }
+
+  // 保存版本
+  const handleSaveVersion = async () => {
+    if (!currentWorkflow) return
+    try {
+      const version = await createWorkflowVersion(currentWorkflow.id, versionDescription || undefined)
+      setVersions([version, ...versions])
+      setShowVersionDialog(false)
+      setVersionDescription('')
+      toast.success(`已保存为版本 ${version.version_number}`)
+    } catch (error) {
+      toast.error('保存版本失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    }
+  }
+
+  // 恢复版本
+  const handleRestoreVersion = async () => {
+    if (!selectedVersion) return
+    try {
+      await restoreWorkflowVersion(selectedVersion.id)
+      // 重新加载节点
+      if (currentWorkflow) {
+        await loadNodes(currentWorkflow.id)
+      }
+      setShowRestoreDialog(false)
+      setSelectedVersion(null)
+      toast.success(`已恢复到版本 ${selectedVersion.version_number}`)
+    } catch (error) {
+      toast.error('恢复版本失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    }
+  }
+
   // 快捷键配置
   useHotkeys([
     // Ctrl+Enter: 运行工作流
@@ -424,6 +505,59 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
       >
         {/* 执行控制按钮 */}
         <div className="flex items-center gap-2">
+          {/* 更多操作菜单 */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="ghost">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleExportWorkflow}>
+                <Download className="mr-2 h-4 w-4" />
+                导出工作流
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleImportWorkflow}>
+                <Upload className="mr-2 h-4 w-4" />
+                导入工作流
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowVersionDialog(true)}>
+                <Save className="mr-2 h-4 w-4" />
+                保存版本
+              </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger disabled={versions.length === 0}>
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  恢复版本
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="max-h-64 overflow-y-auto">
+                  {versions.length === 0 ? (
+                    <DropdownMenuItem disabled>暂无历史版本</DropdownMenuItem>
+                  ) : (
+                    versions.slice(0, 10).map((version) => (
+                      <DropdownMenuItem
+                        key={version.id}
+                        onClick={() => {
+                          setSelectedVersion(version)
+                          setShowRestoreDialog(true)
+                        }}
+                      >
+                        <div className="flex flex-col">
+                          <span>版本 {version.version_number}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(version.created_at).toLocaleString()}
+                            {version.description && ` - ${version.description}`}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+                    ))
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {/* 执行历史按钮 */}
           <Button
             size="sm"
@@ -774,6 +908,69 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
         }}
         onSave={handleSaveNode}
       />
+
+      {/* 保存版本对话框 */}
+      <Dialog open={showVersionDialog} onOpenChange={setShowVersionDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>保存版本</DialogTitle>
+            <DialogDescription>
+              创建当前工作流的版本快照，可以在将来恢复到此状态
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <Textarea
+              value={versionDescription}
+              onChange={(e) => setVersionDescription(e.target.value)}
+              placeholder="版本描述（可选）..."
+              rows={3}
+              className="resize-none"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowVersionDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSaveVersion}>
+              <Save className="mr-2 h-4 w-4" />
+              保存版本
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 恢复版本确认对话框 */}
+      <AlertDialog open={showRestoreDialog} onOpenChange={setShowRestoreDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认恢复版本？</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedVersion && (
+                <>
+                  将恢复到版本 {selectedVersion.version_number}
+                  （创建于 {new Date(selectedVersion.created_at).toLocaleString()}）
+                  {selectedVersion.description && (
+                    <>
+                      <br />
+                      <span className="font-medium">描述：</span>{selectedVersion.description}
+                    </>
+                  )}
+                  <br /><br />
+                  <span className="text-destructive">
+                    警告：当前的工作流内容将被覆盖，建议先保存当前版本。
+                  </span>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setSelectedVersion(null)}>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRestoreVersion}>
+              确认恢复
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

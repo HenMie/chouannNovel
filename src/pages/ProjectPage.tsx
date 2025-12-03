@@ -11,6 +11,9 @@ import {
   Trash2,
   Play,
   Layout,
+  Download,
+  Upload,
+  MoreHorizontal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -41,6 +44,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useProjectStore } from '@/stores/project-store'
 import { useSettingsStore } from '@/stores/settings-store'
+import { exportProjectToFile, exportSettingsToFile, importSettingsFromFile } from '@/lib/import-export'
+import { toast } from 'sonner'
 import type { Workflow } from '@/types'
 
 interface ProjectPageProps {
@@ -94,6 +99,47 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
     }
   }
 
+  // 导出项目备份
+  const handleExportProject = async () => {
+    if (!currentProject) return
+    try {
+      const success = await exportProjectToFile(currentProject.id)
+      if (success) {
+        toast.success('项目备份导出成功')
+      }
+    } catch (error) {
+      toast.error('导出失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    }
+  }
+
+  // 导出设定库
+  const handleExportSettings = async () => {
+    if (!currentProject) return
+    try {
+      const success = await exportSettingsToFile(currentProject.id, currentProject.name)
+      if (success) {
+        toast.success('设定库导出成功')
+      }
+    } catch (error) {
+      toast.error('导出失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    }
+  }
+
+  // 导入设定库
+  const handleImportSettings = async (mode: 'merge' | 'replace') => {
+    if (!currentProject) return
+    try {
+      const success = await importSettingsFromFile(currentProject.id, mode)
+      if (success) {
+        // 重新加载设定库
+        loadSettings(currentProject.id)
+        toast.success(mode === 'merge' ? '设定库合并导入成功' : '设定库替换导入成功')
+      }
+    } catch (error) {
+      toast.error('导入失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    }
+  }
+
   if (!currentProject) {
     return (
       <div className="flex h-full flex-col bg-background">
@@ -138,6 +184,33 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
         ]}
         onNavigate={onNavigate}
       >
+        {/* 更多操作菜单 */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="ghost">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={handleExportProject}>
+              <Download className="mr-2 h-4 w-4" />
+              导出项目备份
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleExportSettings}>
+              <Download className="mr-2 h-4 w-4" />
+              导出设定库
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleImportSettings('merge')}>
+              <Upload className="mr-2 h-4 w-4" />
+              导入设定库（合并）
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleImportSettings('replace')}>
+              <Upload className="mr-2 h-4 w-4" />
+              导入设定库（替换）
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <Button
           variant="outline"
           size="sm"

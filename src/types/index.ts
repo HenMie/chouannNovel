@@ -382,3 +382,55 @@ export interface GlobalStats {
   active_projects: number
   today_word_count: number
 }
+
+// ========== 导入/导出类型 ==========
+
+// 导出的工作流数据格式
+export interface ExportedWorkflow {
+  version: string                      // 导出格式版本
+  exported_at: string                  // 导出时间
+  workflow: Omit<Workflow, 'id' | 'project_id' | 'created_at' | 'updated_at'>
+  nodes: Array<Omit<WorkflowNode, 'id' | 'workflow_id' | 'created_at' | 'updated_at'>>
+}
+
+// 导出的设定数据格式
+export interface ExportedSettings {
+  version: string
+  exported_at: string
+  settings: Array<Omit<Setting, 'id' | 'project_id' | 'created_at' | 'updated_at'>>
+  setting_prompts?: Array<Omit<SettingPrompt, 'id' | 'project_id'>>
+}
+
+// 导出的完整项目数据格式
+export interface ExportedProject {
+  version: string
+  exported_at: string
+  project: Omit<Project, 'id' | 'created_at' | 'updated_at'>
+  workflows: Array<{
+    workflow: Omit<Workflow, 'id' | 'project_id' | 'created_at' | 'updated_at'>
+    nodes: Array<Omit<WorkflowNode, 'id' | 'workflow_id' | 'created_at' | 'updated_at'>>
+  }>
+  settings: Array<Omit<Setting, 'id' | 'project_id' | 'created_at' | 'updated_at'>>
+  setting_prompts: Array<Omit<SettingPrompt, 'id' | 'project_id'>>
+}
+
+// 导出格式版本号
+export const EXPORT_VERSION = '1.0.0'
+
+// ========== 工作流版本历史类型 ==========
+
+// 工作流版本快照
+export interface WorkflowVersion {
+  id: string
+  workflow_id: string
+  version_number: number
+  snapshot: string                     // JSON 字符串，包含工作流和节点的完整数据
+  description?: string                 // 版本描述（可选）
+  created_at: string
+}
+
+// 工作流快照内容
+export interface WorkflowSnapshot {
+  workflow: Omit<Workflow, 'id' | 'project_id' | 'created_at' | 'updated_at'>
+  nodes: Array<Omit<WorkflowNode, 'id' | 'workflow_id' | 'created_at' | 'updated_at'>>
+}

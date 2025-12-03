@@ -117,11 +117,69 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
+        // 性能优化：添加高频查询字段索引
+        Migration {
+            version: 2,
+            description: "add_performance_indexes",
+            sql: r#"
+                -- 工作流表索引：按项目ID查询工作流
+                CREATE INDEX IF NOT EXISTS idx_workflows_project_id ON workflows(project_id);
+                CREATE INDEX IF NOT EXISTS idx_workflows_updated_at ON workflows(updated_at DESC);
+
+                -- 节点表索引：按工作流ID查询节点
+                CREATE INDEX IF NOT EXISTS idx_nodes_workflow_id ON nodes(workflow_id);
+                CREATE INDEX IF NOT EXISTS idx_nodes_order_index ON nodes(workflow_id, order_index);
+
+                -- 设定库表索引：按项目ID和分类查询设定
+                CREATE INDEX IF NOT EXISTS idx_settings_project_id ON settings(project_id);
+                CREATE INDEX IF NOT EXISTS idx_settings_project_category ON settings(project_id, category);
+                CREATE INDEX IF NOT EXISTS idx_settings_name ON settings(name);
+
+                -- 设定提示词表索引
+                CREATE INDEX IF NOT EXISTS idx_setting_prompts_project_id ON setting_prompts(project_id);
+                CREATE INDEX IF NOT EXISTS idx_setting_prompts_project_category ON setting_prompts(project_id, category);
+
+                -- 执行记录表索引：按工作流ID查询执行记录
+                CREATE INDEX IF NOT EXISTS idx_executions_workflow_id ON executions(workflow_id);
+                CREATE INDEX IF NOT EXISTS idx_executions_started_at ON executions(started_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_executions_workflow_started ON executions(workflow_id, started_at DESC);
+
+                -- 节点结果表索引：按执行ID查询节点结果
+                CREATE INDEX IF NOT EXISTS idx_node_results_execution_id ON node_results(execution_id);
+                CREATE INDEX IF NOT EXISTS idx_node_results_node_id ON node_results(node_id);
+                CREATE INDEX IF NOT EXISTS idx_node_results_started_at ON node_results(started_at);
+            "#,
+            kind: MigrationKind::Up,
+        },
+        // 工作流版本历史表
+        Migration {
+            version: 3,
+            description: "add_workflow_versions_table",
+            sql: r#"
+                -- 工作流版本历史表
+                CREATE TABLE IF NOT EXISTS workflow_versions (
+                    id TEXT PRIMARY KEY,
+                    workflow_id TEXT NOT NULL,
+                    version_number INTEGER NOT NULL,
+                    snapshot TEXT NOT NULL,
+                    description TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+                );
+
+                -- 版本历史索引
+                CREATE INDEX IF NOT EXISTS idx_workflow_versions_workflow_id ON workflow_versions(workflow_id);
+                CREATE INDEX IF NOT EXISTS idx_workflow_versions_number ON workflow_versions(workflow_id, version_number DESC);
+            "#,
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(
             Builder::default()
                 .add_migrations("sqlite:chouann_novel.db", migrations)

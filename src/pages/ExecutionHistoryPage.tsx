@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   History,
   Clock,
@@ -20,7 +21,6 @@ import {
   Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Badge } from '@/components/ui/badge'
@@ -94,6 +94,70 @@ function formatDuration(startedAt: string, finishedAt?: string): string {
   if (diff < 60000) return `${Math.floor(diff / 1000)}秒`
   if (diff < 3600000) return `${Math.floor(diff / 60000)}分${Math.floor((diff % 60000) / 1000)}秒`
   return `${Math.floor(diff / 3600000)}时${Math.floor((diff % 3600000) / 60000)}分`
+}
+
+// 虚拟执行列表组件
+function VirtualExecutionList({
+  executions,
+  onItemClick,
+  onExport,
+  onDelete,
+}: {
+  executions: Execution[]
+  onItemClick: (execution: Execution) => void
+  onExport: (execution: Execution, format: 'txt' | 'md') => void
+  onDelete: (execution: Execution) => void
+}) {
+  const parentRef = useRef<HTMLDivElement>(null)
+
+  const virtualizer = useVirtualizer({
+    count: executions.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 76, // 预估每项高度(包含 padding 和 gap)
+    overscan: 5,
+    getItemKey: (index) => executions[index].id,
+  })
+
+  const virtualItems = virtualizer.getVirtualItems()
+
+  return (
+    <div
+      ref={parentRef}
+      className="h-full overflow-auto"
+    >
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          width: '100%',
+          position: 'relative',
+        }}
+      >
+        {virtualItems.map((virtualItem) => {
+          const execution = executions[virtualItem.index]
+          return (
+            <div
+              key={virtualItem.key}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualItem.start}px)`,
+                paddingBottom: '8px',
+              }}
+            >
+              <ExecutionListItem
+                execution={execution}
+                onClick={() => onItemClick(execution)}
+                onExport={(format) => onExport(execution, format)}
+                onDelete={() => onDelete(execution)}
+              />
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 // 单条执行记录组件 (列表项)
@@ -523,8 +587,8 @@ export function ExecutionHistoryPage({
               <Badge variant="outline">{executions.length} 条记录</Badge>
            </div>
         </div>
-        <ScrollArea className="flex-1">
-          <div className="max-w-5xl mx-auto w-full p-4">
+        <div className="flex-1 overflow-hidden">
+          <div className="max-w-5xl mx-auto w-full h-full p-4">
             {isLoading ? (
               <div className="space-y-2">
                 {Array.from({ length: 5 }).map((_, i) => (
@@ -553,20 +617,15 @@ export function ExecutionHistoryPage({
                 description="运行工作流后，执行记录将显示在这里"
               />
             ) : (
-              <div className="space-y-2">
-                {executions.map((execution) => (
-                  <ExecutionListItem
-                    key={execution.id}
-                    execution={execution}
-                    onClick={() => setSelectedExecution(execution)}
-                    onExport={(format) => handleExport(execution, format)}
-                    onDelete={() => setExecutionToDelete(execution)}
-                  />
-                ))}
-              </div>
+              <VirtualExecutionList
+                executions={executions}
+                onItemClick={setSelectedExecution}
+                onExport={handleExport}
+                onDelete={setExecutionToDelete}
+              />
             )}
           </div>
-        </ScrollArea>
+        </div>
       </div>
 
       <ExecutionDetailDialog
