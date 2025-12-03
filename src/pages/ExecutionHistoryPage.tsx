@@ -10,7 +10,6 @@ import {
   Play,
   FileDown,
   FileText,
-  Eye,
   ChevronDown,
   ChevronRight,
   ArrowLeft,
@@ -18,9 +17,9 @@ import {
   Copy,
   Check,
   Settings2,
+  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -38,6 +37,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Header } from '@/components/layout/Header'
 import { StreamingOutput, hasResolvedConfig, ResolvedConfigDisplay } from '@/components/execution/StreamingOutput'
 import { cn } from '@/lib/utils'
@@ -90,14 +99,14 @@ function formatDuration(startedAt: string, finishedAt?: string): string {
 // 单条执行记录组件 (列表项)
 function ExecutionListItem({
   execution,
-  nodes,
   onClick,
   onExport,
+  onDelete,
 }: {
   execution: Execution
-  nodes: WorkflowNode[]
   onClick: () => void
   onExport: (format: 'txt' | 'md') => void
+  onDelete: () => void
 }) {
   const status = statusConfig[execution.status]
   const StatusIcon = status.icon
@@ -154,6 +163,14 @@ function ExecutionListItem({
               </DropdownMenuItem>
             </DropdownMenuContent>
          </DropdownMenu>
+         <Button 
+           variant="ghost" 
+           size="icon" 
+           className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive" 
+           onClick={(e) => { e.stopPropagation(); onDelete(); }}
+         >
+            <Trash2 className="h-4 w-4" />
+         </Button>
       </div>
     </div>
   )
@@ -163,12 +180,17 @@ function ExecutionListItem({
 function NodeResultItem({
   result,
   nodeName,
+  nodeType,
 }: {
   result: NodeResult
   nodeName: string
+  nodeType?: string
 }) {
   const [showConfig, setShowConfig] = useState(false)
   const hasConfig = result.resolved_config && hasResolvedConfig(result.resolved_config)
+
+  // 开始节点没有实际执行时间，不显示耗时
+  const showDuration = nodeType !== 'start'
 
   return (
     <div className="relative">
@@ -179,9 +201,11 @@ function NodeResultItem({
       )} />
       <div className="flex items-center justify-between mb-2">
         <span className="font-medium text-sm">{nodeName}</span>
-        <span className="text-xs text-muted-foreground">
-          {formatDuration(result.started_at, result.finished_at)}
-        </span>
+        {showDuration && (
+          <span className="text-xs text-muted-foreground">
+            {formatDuration(result.started_at, result.finished_at)}
+          </span>
+        )}
       </div>
       
       <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
@@ -261,6 +285,11 @@ function ExecutionDetailDialog({
     return node?.name || '未知节点'
   }
 
+  const getNodeType = (nodeId: string) => {
+    const node = nodes.find(n => n.id === nodeId)
+    return node?.type
+  }
+
   const handleCopyFinal = () => {
     if (execution.final_output) {
        navigator.clipboard.writeText(execution.final_output)
@@ -324,11 +353,12 @@ function ExecutionDetailDialog({
                  <div className="text-center py-8 text-muted-foreground">无节点记录</div>
               ) : (
                  <div className="relative border-l-2 border-muted ml-3 space-y-6 pl-6 py-2">
-                    {nodeResults.map((result, index) => (
+                    {nodeResults.map((result) => (
                        <NodeResultItem 
                          key={result.id}
                          result={result}
                          nodeName={getNodeName(result.node_id)}
+                         nodeType={getNodeType(result.node_id)}
                        />
                     ))}
                  </div>
@@ -366,6 +396,8 @@ export function ExecutionHistoryPage({
   const [nodes, setNodes] = useState<WorkflowNode[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedExecution, setSelectedExecution] = useState<Execution | null>(null)
+  const [executionToDelete, setExecutionToDelete] = useState<Execution | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   // 加载数据
   useEffect(() => {
@@ -441,6 +473,24 @@ export function ExecutionHistoryPage({
     }
   }
 
+  // 删除执行记录
+  const handleDelete = async () => {
+    if (!executionToDelete) return
+    
+    setIsDeleting(true)
+    try {
+      await db.deleteExecution(executionToDelete.id)
+      setExecutions(executions.filter(e => e.id !== executionToDelete.id))
+      toast.success('执行记录已删除')
+    } catch (error) {
+      console.error('删除执行记录失败:', error)
+      toast.error('删除失败')
+    } finally {
+      setIsDeleting(false)
+      setExecutionToDelete(null)
+    }
+  }
+
   return (
     <div className="flex h-full flex-col bg-background">
       <Header
@@ -508,9 +558,9 @@ export function ExecutionHistoryPage({
                   <ExecutionListItem
                     key={execution.id}
                     execution={execution}
-                    nodes={nodes}
                     onClick={() => setSelectedExecution(execution)}
                     onExport={(format) => handleExport(execution, format)}
+                    onDelete={() => setExecutionToDelete(execution)}
                   />
                 ))}
               </div>
@@ -525,6 +575,28 @@ export function ExecutionHistoryPage({
         open={!!selectedExecution}
         onOpenChange={(open) => !open && setSelectedExecution(null)}
       />
+
+      {/* 删除确认对话框 */}
+      <AlertDialog open={!!executionToDelete} onOpenChange={(open) => !open && setExecutionToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认删除</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除这条执行记录吗？此操作无法撤销，相关的节点执行结果也会被一并删除。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>取消</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? '删除中...' : '删除'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

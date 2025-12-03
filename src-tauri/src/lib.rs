@@ -8,11 +8,11 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 数据库迁移
+    // 数据库初始化
     let migrations = vec![
         Migration {
             version: 1,
-            description: "create_initial_tables",
+            description: "create_all_tables",
             sql: r#"
                 -- 项目表
                 CREATE TABLE IF NOT EXISTS projects (
@@ -44,6 +44,8 @@ pub fn run() {
                     name TEXT NOT NULL,
                     config TEXT NOT NULL DEFAULT '{}',
                     order_index INTEGER NOT NULL,
+                    block_id TEXT,
+                    parent_block_id TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
@@ -102,6 +104,7 @@ pub fn run() {
                     iteration INTEGER DEFAULT 1,
                     input TEXT,
                     output TEXT,
+                    resolved_config TEXT,
                     status TEXT NOT NULL,
                     started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     finished_at DATETIME,
@@ -111,27 +114,6 @@ pub fn run() {
                 -- 插入默认全局配置
                 INSERT OR IGNORE INTO global_config (id, ai_providers, theme)
                 VALUES (1, '{}', 'system');
-            "#,
-            kind: MigrationKind::Up,
-        },
-        // 迁移 2: 添加块结构支持
-        Migration {
-            version: 2,
-            description: "add_block_structure_support",
-            sql: r#"
-                -- 添加块结构字段到节点表
-                ALTER TABLE nodes ADD COLUMN block_id TEXT;
-                ALTER TABLE nodes ADD COLUMN parent_block_id TEXT;
-            "#,
-            kind: MigrationKind::Up,
-        },
-        // 迁移 3: 添加节点执行配置详情
-        Migration {
-            version: 3,
-            description: "add_resolved_config_to_node_results",
-            sql: r#"
-                -- 添加解析后的配置字段到节点结果表（用于存储执行时的实际配置）
-                ALTER TABLE node_results ADD COLUMN resolved_config TEXT;
             "#,
             kind: MigrationKind::Up,
         },

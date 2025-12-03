@@ -692,6 +692,14 @@ export async function updateExecution(
   )
 }
 
+export async function deleteExecution(id: string): Promise<void> {
+  const db = await getDatabase()
+  // 先删除关联的节点结果
+  await db.execute('DELETE FROM node_results WHERE execution_id = ?', [id])
+  // 再删除执行记录
+  await db.execute('DELETE FROM executions WHERE id = ?', [id])
+}
+
 // ========== 节点结果操作 ==========
 
 export async function getNodeResults(executionId: string): Promise<NodeResult[]> {
