@@ -114,6 +114,17 @@ pub fn run() {
             "#,
             kind: MigrationKind::Up,
         },
+        // 迁移 2: 添加块结构支持
+        Migration {
+            version: 2,
+            description: "add_block_structure_support",
+            sql: r#"
+                -- 添加块结构字段到节点表
+                ALTER TABLE nodes ADD COLUMN block_id TEXT;
+                ALTER TABLE nodes ADD COLUMN parent_block_id TEXT;
+            "#,
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

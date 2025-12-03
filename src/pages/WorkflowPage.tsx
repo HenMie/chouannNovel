@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
   Play,
   Pause,
   Square,
   Plus,
-  GripVertical,
-  Trash2,
-  Settings,
   MessageSquare,
   FileInput,
   FileOutput,
@@ -21,28 +18,10 @@ import {
   CheckCircle2,
   Clock,
   History,
-  Copy,
   Clipboard,
 } from 'lucide-react'
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from '@dnd-kit/core'
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/empty-state'
 import {
@@ -51,18 +30,21 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import { Header } from '@/components/layout/Header'
 import { NodeConfigDrawer } from '@/components/node/NodeConfigDrawer'
+import { WorkflowNodeTree, nodeTypeConfig } from '@/components/node/WorkflowNodeTree'
 import { StreamingOutput, NodeOutputPanel } from '@/components/execution/StreamingOutput'
 import { useProjectStore } from '@/stores/project-store'
 import { useExecutionStore } from '@/stores/execution-store'
 import { useSettingsStore } from '@/stores/settings-store'
-import { getGlobalConfig } from '@/lib/db'
-import { cn } from '@/lib/utils'
+import { getGlobalConfig, generateId } from '@/lib/db'
 import { useHotkeys, HOTKEY_PRESETS } from '@/lib/hooks'
 import { toast } from 'sonner'
 import type { WorkflowNode, NodeType, GlobalConfig } from '@/types'
@@ -94,163 +76,6 @@ interface WorkflowPageProps {
   projectId: string
   workflowId: string
   onNavigate: (path: string) => void
-}
-
-// 节点类型配置
-const nodeTypeConfig: Record<
-  NodeType,
-  { label: string; icon: React.ComponentType<{ className?: string }>; color: string; bgColor: string }
-> = {
-  input: { label: '输入', icon: FileInput, color: 'text-green-600 dark:text-green-400', bgColor: 'bg-green-100 dark:bg-green-900/20' },
-  output: { label: '输出', icon: FileOutput, color: 'text-red-600 dark:text-red-400', bgColor: 'bg-red-100 dark:bg-red-900/20' },
-  ai_chat: { label: 'AI 对话', icon: MessageSquare, color: 'text-violet-600 dark:text-violet-400', bgColor: 'bg-violet-100 dark:bg-violet-900/20' },
-  text_extract: { label: '内容提取', icon: Scissors, color: 'text-orange-600 dark:text-orange-400', bgColor: 'bg-orange-100 dark:bg-orange-900/20' },
-  text_concat: { label: '文本拼接', icon: Type, color: 'text-cyan-600 dark:text-cyan-400', bgColor: 'bg-cyan-100 dark:bg-cyan-900/20' },
-  condition: { label: '条件判断', icon: GitBranch, color: 'text-yellow-600 dark:text-yellow-400', bgColor: 'bg-yellow-100 dark:bg-yellow-900/20' },
-  loop: { label: '循环', icon: Repeat, color: 'text-pink-600 dark:text-pink-400', bgColor: 'bg-pink-100 dark:bg-pink-900/20' },
-  batch: { label: '批量执行', icon: Layers, color: 'text-indigo-600 dark:text-indigo-400', bgColor: 'bg-indigo-100 dark:bg-indigo-900/20' },
-  var_set: { label: '设置变量', icon: Variable, color: 'text-emerald-600 dark:text-emerald-400', bgColor: 'bg-emerald-100 dark:bg-emerald-900/20' },
-  var_get: { label: '读取变量', icon: Variable, color: 'text-teal-600 dark:text-teal-400', bgColor: 'bg-teal-100 dark:bg-teal-900/20' },
-}
-
-// 可排序的节点卡片
-function SortableNodeCard({
-  node,
-  isActive,
-  isRunning,
-  onDelete,
-  onEdit,
-  onCopy,
-}: {
-  node: WorkflowNode
-  isActive?: boolean
-  isRunning?: boolean
-  onDelete: () => void
-  onEdit: () => void
-  onCopy: () => void
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: node.id })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
-
-  const config = nodeTypeConfig[node.type]
-  const Icon = config.icon
-
-  return (
-    <motion.div
-      ref={setNodeRef}
-      style={style}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      className={cn('group relative', isDragging && 'z-50')}
-    >
-      <Card
-        className={cn(
-          'cursor-pointer transition-all duration-200',
-          isDragging ? 'shadow-xl ring-2 ring-primary scale-105' : 'hover:shadow-md hover:border-primary/50',
-          isActive && 'ring-2 ring-primary border-primary',
-          isRunning && 'ring-2 ring-yellow-500 border-yellow-500 shadow-yellow-200 dark:shadow-yellow-900/20'
-        )}
-        onClick={onEdit}
-      >
-        <CardHeader className="flex flex-row items-center gap-3 space-y-0 p-3">
-          {/* 拖拽手柄 */}
-          <button
-            {...attributes}
-            {...listeners}
-            className="cursor-grab touch-none rounded p-1 text-muted-foreground/50 opacity-0 transition-all hover:bg-muted hover:text-foreground group-hover:opacity-100"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <GripVertical className="h-4 w-4" />
-          </button>
-
-          {/* 状态指示器 */}
-          {isRunning && (
-            <div className="absolute -left-1 top-1/2 h-3 w-3 -translate-y-1/2">
-              <div className="absolute h-full w-full animate-ping rounded-full bg-yellow-500 opacity-75" />
-              <div className="relative h-full w-full rounded-full bg-yellow-500 shadow-sm" />
-            </div>
-          )}
-
-          {/* 节点图标 */}
-          <div
-            className={cn(
-              'flex h-9 w-9 items-center justify-center rounded-lg ring-1 ring-inset ring-black/5',
-              config.bgColor,
-              config.color
-            )}
-          >
-            <Icon className="h-5 w-5" />
-          </div>
-
-          {/* 节点信息 */}
-          <div className="flex-1 min-w-0">
-            <CardTitle className="truncate text-sm font-medium leading-none mb-1">{node.name}</CardTitle>
-            <p className="truncate text-xs text-muted-foreground">{config.label}</p>
-          </div>
-
-          {/* 操作按钮 */}
-          <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onCopy()
-                  }}
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>复制节点</TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onEdit()
-                  }}
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>配置节点</TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDelete()
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>删除节点</TooltipContent>
-            </Tooltip>
-          </div>
-        </CardHeader>
-      </Card>
-    </motion.div>
-  )
 }
 
 export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPageProps) {
@@ -300,13 +125,6 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
   const isPaused = executionStatus === 'paused'
   const isExecuting = isRunning || isPaused
 
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  )
-
   useEffect(() => {
     // 加载工作流和节点
     const loadData = async () => {
@@ -343,20 +161,54 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     }
   }, [workflowId, projectId, setCurrentWorkflow, loadNodes, resetExecution, loadSettings])
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-
-    if (over && active.id !== over.id) {
-      const oldIndex = nodes.findIndex((n) => n.id === active.id)
-      const newIndex = nodes.findIndex((n) => n.id === over.id)
-      const newOrder = arrayMove(nodes, oldIndex, newIndex)
-      reorderNodes(newOrder.map((n) => n.id))
-    }
-  }
-
+  // 添加单个节点
   const handleAddNode = async (type: NodeType) => {
     const config = nodeTypeConfig[type]
     await createNode(type, `${config.label} ${nodes.length + 1}`)
+  }
+
+  // 添加块结构（开始 + 结束）
+  const handleAddBlock = async (blockType: 'loop' | 'parallel' | 'condition') => {
+    const blockId = generateId()
+    
+    if (blockType === 'loop') {
+      // 创建循环开始和结束节点
+      await createNode('loop_start', `for 循环 ${nodes.length + 1}`, {
+        loop_type: 'count',
+        max_iterations: 5,
+      }, { block_id: blockId })
+      await createNode('loop_end', 'end for', {
+        loop_start_id: blockId,
+      }, { block_id: blockId })
+    } else if (blockType === 'parallel') {
+      // 创建并发开始和结束节点
+      await createNode('parallel_start', `并发执行 ${nodes.length + 1}`, {
+        concurrency: 3,
+        output_mode: 'array',
+      }, { block_id: blockId })
+      await createNode('parallel_end', 'end 并发', {
+        parallel_start_id: blockId,
+      }, { block_id: blockId })
+    } else if (blockType === 'condition') {
+      // 创建条件分支开始、else 和结束节点
+      await createNode('condition_if', `if 条件 ${nodes.length + 1}`, {
+        input_source: 'previous',
+        condition_type: 'keyword',
+        keywords: [],
+        keyword_mode: 'any',
+      }, { block_id: blockId })
+      await createNode('condition_else', 'else', {
+        condition_if_id: blockId,
+      }, { block_id: blockId })
+      await createNode('condition_end', 'end if', {
+        condition_if_id: blockId,
+      }, { block_id: blockId })
+    }
+    
+    // 重新加载节点
+    if (currentWorkflow) {
+      await loadNodes(currentWorkflow.id)
+    }
   }
 
   const handleDeleteClick = (nodeId: string) => {
@@ -613,7 +465,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
 
       <div className="flex flex-1 overflow-hidden">
         {/* 节点列表区域 */}
-        <div className="flex flex-1 flex-col min-w-0">
+        <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
           <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2">
             <span className="text-sm font-medium">节点列表</span>
             <div className="flex items-center gap-2">
@@ -641,6 +493,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
+                  {/* 基础节点 */}
                   <DropdownMenuItem onClick={() => handleAddNode('input')}>
                     <FileInput className="mr-2 h-4 w-4 text-green-500" />
                     <span>输入节点</span>
@@ -650,11 +503,15 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                     <span>输出节点</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  
+                  {/* AI 节点 */}
                   <DropdownMenuItem onClick={() => handleAddNode('ai_chat')}>
                     <MessageSquare className="mr-2 h-4 w-4 text-violet-500" />
                     <span>AI 对话</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  
+                  {/* 文本处理 */}
                   <DropdownMenuItem onClick={() => handleAddNode('text_extract')}>
                     <Scissors className="mr-2 h-4 w-4 text-orange-500" />
                     <span>内容提取</span>
@@ -664,19 +521,34 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                     <span>文本拼接</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => handleAddNode('condition')}>
-                    <GitBranch className="mr-2 h-4 w-4 text-yellow-500" />
-                    <span>条件判断</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleAddNode('loop')}>
-                    <Repeat className="mr-2 h-4 w-4 text-pink-500" />
-                    <span>循环</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleAddNode('batch')}>
-                    <Layers className="mr-2 h-4 w-4 text-indigo-500" />
-                    <span>批量执行</span>
-                  </DropdownMenuItem>
+                  
+                  {/* 控制结构 - 带开始/结束的块 */}
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <Repeat className="mr-2 h-4 w-4 text-pink-500" />
+                      <span>控制结构</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem onClick={() => handleAddBlock('loop')}>
+                        <Repeat className="mr-2 h-4 w-4 text-pink-500" />
+                        <span>for 循环</span>
+                        <span className="ml-auto text-xs text-muted-foreground">开始...结束</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddBlock('condition')}>
+                        <GitBranch className="mr-2 h-4 w-4 text-yellow-500" />
+                        <span>if 条件分支</span>
+                        <span className="ml-auto text-xs text-muted-foreground">if...else...end</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddBlock('parallel')}>
+                        <Layers className="mr-2 h-4 w-4 text-indigo-500" />
+                        <span>并发执行</span>
+                        <span className="ml-auto text-xs text-muted-foreground">开始...结束</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                   <DropdownMenuSeparator />
+                  
+                  {/* 变量 */}
                   <DropdownMenuItem onClick={() => handleAddNode('var_set')}>
                     <Variable className="mr-2 h-4 w-4 text-emerald-500" />
                     <span>设置变量</span>
@@ -690,55 +562,39 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
             </div>
           </div>
 
-          <ScrollArea className="flex-1 bg-muted/10">
+          <ScrollArea className="flex-1 bg-muted/5">
             <div className="p-4">
               {isLoadingNodes ? (
-                <div className="space-y-3 max-w-3xl mx-auto">
-                  {Array.from({ length: 3 }).map((_, i) => (
-                    <Card key={i} className="h-[72px] flex items-center p-3">
-                      <div className="flex items-center gap-3 w-full">
-                        <Skeleton className="h-9 w-9 rounded-lg" />
-                        <div className="flex-1 space-y-2">
-                           <Skeleton className="h-4 w-1/3" />
-                           <Skeleton className="h-3 w-16" />
-                        </div>
+                <div className="space-y-2 max-w-4xl mx-auto border rounded-lg bg-card overflow-hidden">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 px-4 py-3 border-b last:border-b-0">
+                      <Skeleton className="h-4 w-8" />
+                      <Skeleton className="h-5 w-5 rounded" />
+                      <div className="flex-1 space-y-1.5">
+                        <Skeleton className="h-4 w-1/4" />
+                        <Skeleton className="h-3 w-1/2" />
                       </div>
-                    </Card>
+                    </div>
                   ))}
                 </div>
-              ) : nodes.length === 0 ? (
-                <EmptyState
-                  icon={Plus}
-                  title="暂无节点"
-                  description="点击右上角'添加节点'按钮开始构建您的工作流"
-                />
               ) : (
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext items={nodes} strategy={verticalListSortingStrategy}>
-                    <div className="space-y-3 max-w-3xl mx-auto">
-                      <AnimatePresence mode="popLayout">
-                        {nodes.map((node, index) => {
-                          const nodeOutput = nodeOutputs.find(o => o.nodeId === node.id)
-                          return (
-                            <SortableNodeCard
-                              key={node.id}
-                              node={node}
-                              isActive={selectedNode?.id === node.id}
-                              isRunning={nodeOutput?.isRunning || (isExecuting && currentNodeIndex === index)}
-                              onDelete={() => handleDeleteClick(node.id)}
-                              onEdit={() => handleEditNode(node)}
-                              onCopy={() => handleCopyNode(node)}
-                            />
-                          )
-                        })}
-                      </AnimatePresence>
-                    </div>
-                  </SortableContext>
-                </DndContext>
+                <div className="max-w-4xl mx-auto">
+                  <WorkflowNodeTree
+                    nodes={nodes}
+                    selectedNodeId={selectedNode?.id}
+                    runningNodeId={
+                      nodeOutputs.find(o => o.isRunning)?.nodeId ||
+                      (isExecuting && currentNodeIndex !== null && currentNodeIndex >= 0 && currentNodeIndex < nodes.length
+                        ? nodes[currentNodeIndex]?.id
+                        : undefined)
+                    }
+                    onSelectNode={handleEditNode}
+                    onDeleteNode={handleDeleteClick}
+                    onCopyNode={handleCopyNode}
+                    onReorderNodes={reorderNodes}
+                    disabled={isExecuting}
+                  />
+                </div>
               )}
             </div>
           </ScrollArea>
@@ -746,7 +602,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
 
         {/* 输出面板 */}
         <Separator orientation="vertical" />
-        <div className="flex w-96 flex-col border-l bg-background">
+        <div className="flex w-96 flex-col border-l bg-background overflow-hidden">
           <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2">
             <span className="text-sm font-medium">执行输出</span>
             {/* 执行状态指示器 */}

@@ -51,8 +51,13 @@ interface ProjectState {
 
   // 节点操作
   loadNodes: (workflowId: string) => Promise<void>
-  createNode: (type: WorkflowNode['type'], name: string, config?: WorkflowNode['config']) => Promise<WorkflowNode | null>
-  updateNode: (id: string, data: Partial<Pick<WorkflowNode, 'name' | 'config'>>) => Promise<void>
+  createNode: (
+    type: WorkflowNode['type'], 
+    name: string, 
+    config?: WorkflowNode['config'],
+    options?: { block_id?: string; parent_block_id?: string; insert_after_index?: number }
+  ) => Promise<WorkflowNode | null>
+  updateNode: (id: string, data: Partial<Pick<WorkflowNode, 'name' | 'config' | 'block_id' | 'parent_block_id'>>) => Promise<void>
   deleteNode: (id: string) => Promise<void>
   reorderNodes: (nodeIds: string[]) => Promise<void>
 
@@ -207,11 +212,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
-  createNode: async (type, name, config) => {
+  createNode: async (type, name, config, options) => {
     const { currentWorkflow } = get()
     if (!currentWorkflow) return null
 
-    const node = await db.createNode(currentWorkflow.id, type, name, config)
+    const node = await db.createNode(currentWorkflow.id, type, name, config, options)
     set((state) => ({ nodes: [...state.nodes, node] }))
     return node
   },

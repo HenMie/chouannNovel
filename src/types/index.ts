@@ -21,16 +21,28 @@ export interface Workflow {
 
 // 节点类型枚举
 export type NodeType =
+  // 基础节点
   | 'input'
   | 'output'
   | 'ai_chat'
   | 'text_extract'
   | 'text_concat'
+  | 'var_set'
+  | 'var_get'
+  // 控制结构 - 循环
+  | 'loop_start'
+  | 'loop_end'
+  // 控制结构 - 并发
+  | 'parallel_start'
+  | 'parallel_end'
+  // 控制结构 - 条件分支
+  | 'condition_if'
+  | 'condition_else'
+  | 'condition_end'
+  // 旧类型（向后兼容）
   | 'condition'
   | 'loop'
   | 'batch'
-  | 'var_set'
-  | 'var_get'
 
 // 节点类型
 export interface WorkflowNode {
@@ -40,8 +52,72 @@ export interface WorkflowNode {
   name: string
   config: NodeConfig
   order_index: number
+  // 块结构支持
+  block_id?: string          // 块 ID（用于关联开始和结束节点）
+  parent_block_id?: string   // 父块 ID（用于嵌套结构）
   created_at: string
   updated_at: string
+}
+
+// 循环开始节点配置
+export interface LoopStartConfig {
+  loop_type: 'count' | 'condition'    // 循环类型：固定次数或条件循环
+  max_iterations: number               // 最大迭代次数
+  // 条件循环配置
+  condition_source?: 'previous' | 'variable'
+  condition_variable?: string
+  condition_type?: 'keyword' | 'length' | 'regex' | 'ai_judge'
+  keywords?: string[]
+  keyword_mode?: 'any' | 'all' | 'none'
+  length_operator?: '>' | '<' | '=' | '>=' | '<='
+  length_value?: number
+  regex_pattern?: string
+  ai_prompt?: string
+  ai_provider?: string
+  ai_model?: string
+}
+
+// 循环结束节点配置
+export interface LoopEndConfig {
+  // 引用对应的开始节点
+  loop_start_id: string
+}
+
+// 并发开始节点配置
+export interface ParallelStartConfig {
+  concurrency: number              // 并发数限制
+  output_mode: 'array' | 'concat'  // 输出模式
+  output_separator?: string        // 输出分隔符
+}
+
+// 并发结束节点配置
+export interface ParallelEndConfig {
+  parallel_start_id: string
+}
+
+// 条件分支开始配置
+export interface ConditionIfConfig {
+  input_source: 'previous' | 'variable'
+  input_variable?: string
+  condition_type: 'keyword' | 'length' | 'regex' | 'ai_judge'
+  keywords?: string[]
+  keyword_mode?: 'any' | 'all' | 'none'
+  length_operator?: '>' | '<' | '=' | '>=' | '<='
+  length_value?: number
+  regex_pattern?: string
+  ai_prompt?: string
+  ai_provider?: string
+  ai_model?: string
+}
+
+// 条件分支 else 配置
+export interface ConditionElseConfig {
+  condition_if_id: string
+}
+
+// 条件分支结束配置
+export interface ConditionEndConfig {
+  condition_if_id: string
 }
 
 // AI 提供商
@@ -158,6 +234,14 @@ export type NodeConfig =
   | VarGetConfig
   | InputConfig
   | OutputConfig
+  // 新的控制结构配置
+  | LoopStartConfig
+  | LoopEndConfig
+  | ParallelStartConfig
+  | ParallelEndConfig
+  | ConditionIfConfig
+  | ConditionElseConfig
+  | ConditionEndConfig
   | Record<string, unknown>
 
 // 设定分类

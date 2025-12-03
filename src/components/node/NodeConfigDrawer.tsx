@@ -27,6 +27,9 @@ import { TextConcatConfigForm } from './configs/TextConcatConfig'
 import { ConditionConfigForm } from './configs/ConditionConfig'
 import { LoopConfigForm } from './configs/LoopConfig'
 import { BatchConfigForm } from './configs/BatchConfig'
+import { LoopStartConfigForm } from './configs/LoopStartConfig'
+import { ParallelConfigForm } from './configs/ParallelConfig'
+import { ConditionIfConfigForm } from './configs/ConditionIfConfig'
 import { toast } from 'sonner'
 import { useHotkeys, HOTKEY_PRESETS } from '@/lib/hooks'
 import * as db from '@/lib/db'
@@ -40,6 +43,9 @@ import type {
   ConditionConfig,
   LoopConfig,
   BatchConfig,
+  LoopStartConfig,
+  ParallelStartConfig,
+  ConditionIfConfig,
 } from '@/types'
 
 interface NodeConfigDrawerProps {
@@ -63,6 +69,14 @@ const nodeTypeLabels: Record<string, string> = {
   batch: '批量执行节点',
   var_set: '设置变量节点',
   var_get: '读取变量节点',
+  // 新的块结构节点
+  loop_start: 'for 循环开始',
+  loop_end: 'for 循环结束',
+  parallel_start: '并发执行开始',
+  parallel_end: '并发执行结束',
+  condition_if: 'if 条件分支',
+  condition_else: 'else 分支',
+  condition_end: 'if 分支结束',
 }
 
 export function NodeConfigDrawer({
@@ -345,6 +359,65 @@ export function NodeConfigDrawer({
             nodes={nodes}
             currentNodeId={node.id}
           />
+        )
+
+      // 新的块结构节点配置
+      case 'loop_start':
+        return (
+          <LoopStartConfigForm
+            config={config as Partial<LoopStartConfig>}
+            globalConfig={globalConfig}
+            onChange={setConfig}
+          />
+        )
+
+      case 'loop_end':
+        return (
+          <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
+            <p>循环结束节点无需配置。</p>
+            <p className="mt-2">执行时会自动跳回对应的循环开始节点。</p>
+          </div>
+        )
+
+      case 'parallel_start':
+        return (
+          <ParallelConfigForm
+            config={config as Partial<ParallelStartConfig>}
+            onChange={setConfig}
+          />
+        )
+
+      case 'parallel_end':
+        return (
+          <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
+            <p>并发结束节点无需配置。</p>
+            <p className="mt-2">并发块内的所有任务完成后，结果会在这里汇总输出。</p>
+          </div>
+        )
+
+      case 'condition_if':
+        return (
+          <ConditionIfConfigForm
+            config={config as Partial<ConditionIfConfig>}
+            globalConfig={globalConfig}
+            onChange={setConfig}
+          />
+        )
+
+      case 'condition_else':
+        return (
+          <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
+            <p>else 节点无需配置。</p>
+            <p className="mt-2">当 if 条件为 false 时，会执行 else 之后到 end if 之间的节点。</p>
+          </div>
+        )
+
+      case 'condition_end':
+        return (
+          <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
+            <p>条件分支结束节点无需配置。</p>
+            <p className="mt-2">标记条件分支块的结束位置。</p>
+          </div>
         )
 
       // 其他节点类型的配置表单将在后续阶段实现

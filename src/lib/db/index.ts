@@ -185,7 +185,7 @@ export async function deleteWorkflow(id: string): Promise<void> {
 export async function getNodes(workflowId: string): Promise<WorkflowNode[]> {
   const db = await getDatabase()
   const nodes = await db.select<
-    Array<Omit<WorkflowNode, 'config'> & { config: string }>
+    Array<Omit<WorkflowNode, 'config'> & { config: string; block_id: string | null; parent_block_id: string | null }>
   >('SELECT * FROM nodes WHERE workflow_id = ? ORDER BY order_index ASC', [
     workflowId,
   ])
@@ -193,13 +193,15 @@ export async function getNodes(workflowId: string): Promise<WorkflowNode[]> {
   return nodes.map((node) => ({
     ...node,
     config: JSON.parse(node.config),
+    block_id: node.block_id || undefined,
+    parent_block_id: node.parent_block_id || undefined,
   }))
 }
 
 export async function getNode(id: string): Promise<WorkflowNode | null> {
   const db = await getDatabase()
   const results = await db.select<
-    Array<Omit<WorkflowNode, 'config'> & { config: string }>
+    Array<Omit<WorkflowNode, 'config'> & { config: string; block_id: string | null; parent_block_id: string | null }>
   >('SELECT * FROM nodes WHERE id = ?', [id])
 
   if (!results[0]) return null
@@ -207,6 +209,8 @@ export async function getNode(id: string): Promise<WorkflowNode | null> {
   return {
     ...results[0],
     config: JSON.parse(results[0].config),
+    block_id: results[0].block_id || undefined,
+    parent_block_id: results[0].parent_block_id || undefined,
   }
 }
 
@@ -214,23 +218,40 @@ export async function createNode(
   workflowId: string,
   type: WorkflowNode['type'],
   name: string,
-  config: WorkflowNode['config'] = {}
+  config: WorkflowNode['config'] = {},
+  options?: {
+    block_id?: string
+    parent_block_id?: string
+    insert_after_index?: number  // 在指定索引后插入
+  }
 ): Promise<WorkflowNode> {
   const db = await getDatabase()
   const id = generateId()
   const now = new Date().toISOString()
 
-  // 获取最大 order_index
-  const maxResult = await db.select<[{ max_order: number | null }]>(
-    'SELECT MAX(order_index) as max_order FROM nodes WHERE workflow_id = ?',
-    [workflowId]
-  )
-  const orderIndex = (maxResult[0]?.max_order ?? -1) + 1
+  let orderIndex: number
+
+  if (options?.insert_after_index !== undefined) {
+    // 在指定位置后插入，需要移动后面的节点
+    orderIndex = options.insert_after_index + 1
+    await db.execute(
+      `UPDATE nodes SET order_index = order_index + 1, updated_at = ? 
+       WHERE workflow_id = ? AND order_index >= ?`,
+      [now, workflowId, orderIndex]
+    )
+  } else {
+    // 获取最大 order_index，添加到末尾
+    const maxResult = await db.select<[{ max_order: number | null }]>(
+      'SELECT MAX(order_index) as max_order FROM nodes WHERE workflow_id = ?',
+      [workflowId]
+    )
+    orderIndex = (maxResult[0]?.max_order ?? -1) + 1
+  }
 
   await db.execute(
-    `INSERT INTO nodes (id, workflow_id, type, name, config, order_index, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, workflowId, type, name, JSON.stringify(config), orderIndex, now, now]
+    `INSERT INTO nodes (id, workflow_id, type, name, config, order_index, block_id, parent_block_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, workflowId, type, name, JSON.stringify(config), orderIndex, options?.block_id || null, options?.parent_block_id || null, now, now]
   )
 
   return {
@@ -240,6 +261,8 @@ export async function createNode(
     name,
     config,
     order_index: orderIndex,
+    block_id: options?.block_id,
+    parent_block_id: options?.parent_block_id,
     created_at: now,
     updated_at: now,
   }
@@ -247,7 +270,7 @@ export async function createNode(
 
 export async function updateNode(
   id: string,
-  data: Partial<Pick<WorkflowNode, 'name' | 'config'>>
+  data: Partial<Pick<WorkflowNode, 'name' | 'config' | 'block_id' | 'parent_block_id'>>
 ): Promise<void> {
   const db = await getDatabase()
   const updates: string[] = []
@@ -260,6 +283,14 @@ export async function updateNode(
   if (data.config !== undefined) {
     updates.push('config = ?')
     values.push(JSON.stringify(data.config))
+  }
+  if (data.block_id !== undefined) {
+    updates.push('block_id = ?')
+    values.push(data.block_id || null)
+  }
+  if (data.parent_block_id !== undefined) {
+    updates.push('parent_block_id = ?')
+    values.push(data.parent_block_id || null)
   }
 
   updates.push('updated_at = ?')

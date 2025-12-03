@@ -6,13 +6,15 @@ import type {
   GlobalConfig,
   AIChatConfig,
   InputConfig,
-  OutputConfig,
   VarSetConfig,
   VarGetConfig,
   TextExtractConfig,
   TextConcatConfig,
   ConditionConfig,
   LoopConfig,
+  LoopStartConfig,
+  ParallelStartConfig,
+  ConditionIfConfig,
   ExecutionStatus,
   Setting,
   SettingPrompt,
@@ -114,8 +116,8 @@ export class WorkflowExecutor {
     this.settingPrompts = options.settingPrompts || []
     this.context = new ExecutionContext({
       initialInput: options.initialInput,
-      maxLoopCount: options.workflow.loop_max_count,
-      timeoutSeconds: options.workflow.timeout_seconds,
+      maxLoopCount: this.workflow.loop_max_count,
+      timeoutSeconds: this.workflow.timeout_seconds,
     })
     
     // 初始化所有节点状态
@@ -318,6 +320,28 @@ export class WorkflowExecutor {
       case 'loop':
         output = await this.executeLoopNode(node)
         break
+      // 新的块结构节点
+      case 'loop_start':
+        output = await this.executeLoopStartNode(node)
+        break
+      case 'loop_end':
+        output = await this.executeLoopEndNode(node)
+        break
+      case 'parallel_start':
+        output = await this.executeParallelStartNode(node)
+        break
+      case 'parallel_end':
+        output = await this.executeParallelEndNode(node)
+        break
+      case 'condition_if':
+        output = await this.executeConditionIfNode(node)
+        break
+      case 'condition_else':
+        output = await this.executeConditionElseNode(node)
+        break
+      case 'condition_end':
+        output = await this.executeConditionEndNode(node)
+        break
       default:
         // 未实现的节点类型，跳过
         this.context.updateNodeState(node.id, {
@@ -370,7 +394,7 @@ export class WorkflowExecutor {
   /**
    * 执行输出节点
    */
-  private async executeOutputNode(node: WorkflowNode): Promise<string> {
+  private async executeOutputNode(_node: WorkflowNode): Promise<string> {
     // 输出节点直接返回上一个节点的输出
     return this.context.getPreviousOutput()
   }
@@ -400,14 +424,6 @@ export class WorkflowExecutor {
       }
       settingsByCategory[s.category].push(s)
     })
-
-    // 分类名称映射
-    const categoryNames: Record<string, string> = {
-      character: '角色设定',
-      worldview: '世界观设定',
-      style: '笔触风格',
-      outline: '故事大纲',
-    }
 
     // 默认模板
     const defaultTemplates: Record<string, string> = {
@@ -928,6 +944,319 @@ ${input}`
       this.context.resetLoopCount(node.id)
       return `循环结束（条件不满足，共执行 ${loopCount} 次）`
     }
+  }
+
+  // ========== 新的块结构节点执行 ==========
+
+  /**
+   * 执行循环开始节点（新块结构）
+   */
+  private async executeLoopStartNode(node: WorkflowNode): Promise<string> {
+    const config = node.config as LoopStartConfig
+    const blockId = node.block_id
+    
+    if (!blockId) {
+      throw new Error('循环节点缺少 block_id')
+    }
+    
+    // 获取当前循环次数
+    const loopCount = this.context.getLoopCount(blockId)
+    
+    // 检查是否达到最大迭代次数
+    if (loopCount >= config.max_iterations) {
+      // 跳过整个循环块，直接跳到对应的 loop_end 之后
+      const endNodeIndex = this.nodes.findIndex(
+        n => n.type === 'loop_end' && n.block_id === blockId
+      )
+      if (endNodeIndex !== -1) {
+        this.jumpTarget = this.nodes[endNodeIndex + 1]?.id ?? null
+        if (!this.jumpTarget) {
+          // 没有下一个节点，结束执行
+          this.shouldEnd = true
+        }
+      }
+      this.context.resetLoopCount(blockId)
+      return `循环结束（已达到最大迭代次数 ${config.max_iterations}）`
+    }
+    
+    // 判断是否继续循环
+    let shouldContinue = false
+    
+    if (config.loop_type === 'count') {
+      // 固定次数循环
+      shouldContinue = loopCount < config.max_iterations
+    } else if (loopCount > 0) {
+      // 条件循环（第一次无条件执行）
+      let input: string
+      if (config.condition_source === 'variable' && config.condition_variable) {
+        input = this.context.getVariable(config.condition_variable) ?? ''
+      } else {
+        input = this.context.getPreviousOutput()
+      }
+      
+      // 使用条件配置进行判断
+      const conditionConfig: ConditionConfig = {
+        input_source: config.condition_source || 'previous',
+        input_variable: config.condition_variable,
+        condition_type: config.condition_type || 'keyword',
+        keywords: config.keywords,
+        keyword_mode: config.keyword_mode,
+        length_operator: config.length_operator,
+        length_value: config.length_value,
+        regex_pattern: config.regex_pattern,
+        ai_prompt: config.ai_prompt,
+        ai_provider: config.ai_provider,
+        ai_model: config.ai_model,
+        true_action: 'next',
+        false_action: 'next',
+      }
+      
+      shouldContinue = await this.evaluateCondition(conditionConfig, input)
+    } else {
+      // 第一次执行
+      shouldContinue = true
+    }
+    
+    if (shouldContinue) {
+      // 增加循环计数
+      this.context.incrementLoopCount(blockId)
+      
+      // 记录循环开始位置
+      this.loopStartNode = node.id
+      this.loopStartIndex = this.currentNodeIndex
+      
+      return `开始第 ${loopCount + 1} 次循环`
+    } else {
+      // 跳过整个循环块
+      const endNodeIndex = this.nodes.findIndex(
+        n => n.type === 'loop_end' && n.block_id === blockId
+      )
+      if (endNodeIndex !== -1) {
+        this.jumpTarget = this.nodes[endNodeIndex + 1]?.id ?? null
+        if (!this.jumpTarget) {
+          this.shouldEnd = true
+        }
+      }
+      this.context.resetLoopCount(blockId)
+      return `循环结束（条件不满足，共执行 ${loopCount} 次）`
+    }
+  }
+
+  /**
+   * 执行循环结束节点
+   */
+  private async executeLoopEndNode(node: WorkflowNode): Promise<string> {
+    const blockId = node.block_id
+    
+    if (!blockId) {
+      throw new Error('循环结束节点缺少 block_id')
+    }
+    
+    // 找到对应的循环开始节点
+    const startNodeIndex = this.nodes.findIndex(
+      n => n.type === 'loop_start' && n.block_id === blockId
+    )
+    
+    if (startNodeIndex === -1) {
+      throw new Error('找不到对应的循环开始节点')
+    }
+    
+    // 跳回循环开始节点，让它判断是否继续
+    this.jumpTarget = this.nodes[startNodeIndex].id
+    
+    return '循环迭代完成'
+  }
+
+  /**
+   * 执行并发开始节点
+   */
+  private async executeParallelStartNode(node: WorkflowNode): Promise<string> {
+    const config = node.config as ParallelStartConfig
+    const blockId = node.block_id
+    
+    if (!blockId) {
+      throw new Error('并发节点缺少 block_id')
+    }
+    
+    // 找到并发块内的所有节点（从 parallel_start 到 parallel_end 之间）
+    const startIndex = this.currentNodeIndex
+    const endIndex = this.nodes.findIndex(
+      n => n.type === 'parallel_end' && n.block_id === blockId
+    )
+    
+    if (endIndex === -1) {
+      throw new Error('找不到对应的并发结束节点')
+    }
+    
+    // 获取并发执行的节点（开始和结束之间的节点）
+    const parallelNodes = this.nodes.slice(startIndex + 1, endIndex)
+    
+    if (parallelNodes.length === 0) {
+      return '并发块为空'
+    }
+    
+    // 保存当前输入，供所有并发节点使用
+    const parallelInput = this.context.getPreviousOutput()
+    this.context.setVariable(`_parallel_${blockId}_input`, parallelInput)
+    
+    // 并发执行所有节点
+    const concurrency = config.concurrency || 3
+    const results: string[] = []
+    
+    // 按批次并发执行
+    for (let i = 0; i < parallelNodes.length; i += concurrency) {
+      const batch = parallelNodes.slice(i, i + concurrency)
+      
+      const batchResults = await Promise.all(
+        batch.map(async (parallelNode) => {
+          // 临时设置输入为并发输入
+          const originalPrevOutput = this.context.getPreviousOutput()
+          this.context.setPreviousOutput(parallelInput)
+          
+          try {
+            await this.executeNode(parallelNode)
+            const nodeState = this.context.getNodeState(parallelNode.id)
+            return nodeState?.output || ''
+          } finally {
+            // 恢复原始输出，避免并发执行污染上下文
+            this.context.setPreviousOutput(originalPrevOutput)
+          }
+        })
+      )
+      
+      results.push(...batchResults)
+    }
+    
+    // 保存并发结果
+    if (config.output_mode === 'array') {
+      this.context.setVariable(`_parallel_${blockId}_results`, JSON.stringify(results))
+    } else {
+      const separator = config.output_separator || '\n'
+      this.context.setVariable(`_parallel_${blockId}_results`, results.join(separator))
+    }
+    
+    // 跳过并发块内的节点（已经执行过了），直接跳到 parallel_end
+    this.jumpTarget = this.nodes[endIndex].id
+    
+    return `并发执行 ${parallelNodes.length} 个任务完成`
+  }
+
+  /**
+   * 执行并发结束节点
+   */
+  private async executeParallelEndNode(node: WorkflowNode): Promise<string> {
+    const blockId = node.block_id
+    
+    if (!blockId) {
+      throw new Error('并发结束节点缺少 block_id')
+    }
+    
+    // 获取并发结果
+    const results = this.context.getVariable(`_parallel_${blockId}_results`) || ''
+    
+    // 将结果设置为下一个节点的输入
+    this.context.setPreviousOutput(results)
+    
+    return results
+  }
+
+  /**
+   * 执行条件分支开始节点
+   */
+  private async executeConditionIfNode(node: WorkflowNode): Promise<string> {
+    const config = node.config as ConditionIfConfig
+    const blockId = node.block_id
+    
+    if (!blockId) {
+      throw new Error('条件节点缺少 block_id')
+    }
+    
+    // 获取输入
+    let input: string
+    if (config.input_source === 'variable' && config.input_variable) {
+      input = this.context.getVariable(config.input_variable) ?? ''
+    } else {
+      input = this.context.getPreviousOutput()
+    }
+    
+    // 评估条件
+    const conditionConfig: ConditionConfig = {
+      input_source: config.input_source,
+      input_variable: config.input_variable,
+      condition_type: config.condition_type,
+      keywords: config.keywords,
+      keyword_mode: config.keyword_mode,
+      length_operator: config.length_operator,
+      length_value: config.length_value,
+      regex_pattern: config.regex_pattern,
+      ai_prompt: config.ai_prompt,
+      ai_provider: config.ai_provider,
+      ai_model: config.ai_model,
+      true_action: 'next',
+      false_action: 'next',
+    }
+    
+    const result = await this.evaluateCondition(conditionConfig, input)
+    
+    // 保存条件结果
+    this.context.setVariable(`_condition_${blockId}_result`, result ? 'true' : 'false')
+    
+    if (!result) {
+      // 条件为 false，跳到 else 或 end_if
+      const elseNodeIndex = this.nodes.findIndex(
+        n => n.type === 'condition_else' && n.block_id === blockId
+      )
+      
+      if (elseNodeIndex !== -1) {
+        // 有 else 分支，跳到 else
+        this.jumpTarget = this.nodes[elseNodeIndex].id
+      } else {
+        // 没有 else，跳到 end_if
+        const endNodeIndex = this.nodes.findIndex(
+          n => n.type === 'condition_end' && n.block_id === blockId
+        )
+        if (endNodeIndex !== -1) {
+          this.jumpTarget = this.nodes[endNodeIndex].id
+        }
+      }
+    }
+    
+    return result ? 'true' : 'false'
+  }
+
+  /**
+   * 执行条件分支 else 节点
+   */
+  private async executeConditionElseNode(node: WorkflowNode): Promise<string> {
+    const blockId = node.block_id
+    
+    if (!blockId) {
+      throw new Error('else 节点缺少 block_id')
+    }
+    
+    // 检查条件结果
+    const conditionResult = this.context.getVariable(`_condition_${blockId}_result`)
+    
+    if (conditionResult === 'true') {
+      // 如果 if 条件为 true，跳过 else 分支，跳到 end_if
+      const endNodeIndex = this.nodes.findIndex(
+        n => n.type === 'condition_end' && n.block_id === blockId
+      )
+      if (endNodeIndex !== -1) {
+        this.jumpTarget = this.nodes[endNodeIndex].id
+      }
+    }
+    // 否则继续执行 else 分支的内容
+    
+    return 'else 分支'
+  }
+
+  /**
+   * 执行条件分支结束节点
+   */
+  private async executeConditionEndNode(_node: WorkflowNode): Promise<string> {
+    // 条件块结束，不需要特殊处理
+    return '条件分支结束'
   }
 
   /**
