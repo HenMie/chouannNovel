@@ -51,7 +51,7 @@ import {
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useNodeSelection } from '@/lib/hooks'
-import type { WorkflowNode, NodeType, AIChatConfig, LoopStartConfig, ConditionIfConfig, VarSetConfig, VarGetConfig, TextExtractConfig, TextConcatConfig, ParallelStartConfig, StartConfig } from '@/types'
+import type { WorkflowNode, NodeType, AIChatConfig, LoopStartConfig, ConditionIfConfig, VarUpdateConfig, TextExtractConfig, TextConcatConfig, ParallelStartConfig, StartConfig } from '@/types'
 
 // 节点类型配置
 const nodeTypeConfig: Record<
@@ -72,8 +72,7 @@ const nodeTypeConfig: Record<
   ai_chat: { label: 'AI 对话', icon: MessageSquare, color: 'text-violet-600', bgColor: 'bg-violet-500', textColor: 'text-violet-700' },
   text_extract: { label: '内容提取', icon: Scissors, color: 'text-orange-600', bgColor: 'bg-orange-500', textColor: 'text-orange-700' },
   text_concat: { label: '文本拼接', icon: Type, color: 'text-cyan-600', bgColor: 'bg-cyan-500', textColor: 'text-cyan-700' },
-  var_set: { label: '设置变量', icon: Variable, color: 'text-emerald-600', bgColor: 'bg-emerald-500', textColor: 'text-emerald-700' },
-  var_get: { label: '读取变量', icon: Variable, color: 'text-teal-600', bgColor: 'bg-teal-500', textColor: 'text-teal-700' },
+  var_update: { label: '更新变量', icon: Variable, color: 'text-emerald-600', bgColor: 'bg-emerald-500', textColor: 'text-emerald-700' },
   // 循环块
   loop_start: { 
     label: 'For 循环', 
@@ -191,11 +190,15 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
   switch (node.type) {
     case 'start': {
       const startConfig = config as StartConfig
+      const customVarsCount = startConfig?.custom_variables?.length || 0
       return (
         <span className="text-muted-foreground">
           将用户输入保存到变量 <Tag color="green">用户问题</Tag>
           {startConfig?.default_value && (
             <>，默认值为 <Tag color="blue">{startConfig.default_value}</Tag></>
+          )}
+          {customVarsCount > 0 && (
+            <>，定义了 <Tag color="purple">{customVarsCount}</Tag> 个自定义变量</>
           )}
         </span>
       )
@@ -229,24 +232,15 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
       )
     }
     
-    case 'var_set': {
-      const varConfig = config as VarSetConfig
-      const valueDesc = varConfig?.custom_value 
-        ? <Tag color="blue">{varConfig.custom_value.slice(0, 30)}{varConfig.custom_value.length > 30 ? '...' : ''}</Tag>
+    case 'var_update': {
+      const varConfig = config as VarUpdateConfig
+      const valueDesc = varConfig?.value_template 
+        ? <Tag color="blue">{varConfig.value_template.slice(0, 30)}{varConfig.value_template.length > 30 ? '...' : ''}</Tag>
         : <Tag color="gray">空值</Tag>
       
       return (
         <span className="text-muted-foreground">
-          设置字符串变量 <Tag color="green">{varConfig?.variable_name || '未命名'}</Tag> = {valueDesc}
-        </span>
-      )
-    }
-    
-    case 'var_get': {
-      const varConfig = config as VarGetConfig
-      return (
-        <span className="text-muted-foreground">
-          读取变量 <Tag color="green">{varConfig?.variable_name || '未命名'}</Tag> 的值作为当前输出
+          更新变量 <Tag color="green">{varConfig?.variable_name || '未选择'}</Tag> = {valueDesc}
         </span>
       )
     }
@@ -394,6 +388,9 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
           break
         case 'json_path':
           modeDesc = <>使用 <Tag color="yellow">JSON路径</Tag> <Tag color="orange">{extractConfig?.json_path || '...'}</Tag></>
+          break
+        case 'md_to_text':
+          modeDesc = <><Tag color="yellow">提取纯文本</Tag></>
           break
         default:
           modeDesc = <Tag color="gray">未配置</Tag>
@@ -566,6 +563,8 @@ function NodeCard({
     <div
       ref={wrapperRef}
       style={{ ...style, ...overlayStyle }}
+      data-testid="workflow-node-item"
+      data-node-type={node.type}
       className={cn(
         'group relative flex items-stretch bg-card',
         isDragging && !isOverlay && 'opacity-30', // 原位置变淡

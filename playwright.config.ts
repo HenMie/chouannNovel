@@ -9,24 +9,25 @@ export default defineConfig({
   testDir: './e2e',
   
   // 每个测试的超时时间
-  timeout: 30 * 1000,
+  timeout: 60 * 1000,
   
   // 断言超时
   expect: {
-    timeout: 5000
+    timeout: 10000
   },
   
-  // 完整的测试运行报告
-  fullyParallel: true,
+  // 禁用并行执行以避免数据库并发问题
+  // Tauri SQLite 数据库在并发写入时可能产生冲突
+  fullyParallel: false,
   
   // CI 环境下失败时不重试
   forbidOnly: !!process.env.CI,
   
   // 重试次数
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI ? 2 : 1,
   
-  // 并发工作线程数
-  workers: process.env.CI ? 1 : undefined,
+  // 串行执行测试（单线程）
+  workers: 1,
   
   // 报告器配置
   reporter: [
@@ -49,10 +50,10 @@ export default defineConfig({
     video: 'on-first-retry',
     
     // 动作超时
-    actionTimeout: 10000,
+    actionTimeout: 15000,
     
     // 导航超时
-    navigationTimeout: 15000,
+    navigationTimeout: 30000,
   },
 
   // 项目配置（不同浏览器）
@@ -73,10 +74,12 @@ export default defineConfig({
   ],
 
   // 开发服务器配置
+  // 注意：E2E 测试需要 Tauri 环境，请先启动 `npm run tauri dev`
+  // 如果服务器已在运行，Playwright 会复用现有服务器
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:1420',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true,
     timeout: 120 * 1000,
   },
 })

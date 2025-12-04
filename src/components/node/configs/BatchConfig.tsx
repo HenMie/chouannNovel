@@ -46,8 +46,6 @@ const nodeTypeLabels: Record<string, string> = {
   condition: '条件判断',
   loop: '循环',
   batch: '批量执行',
-  var_set: '设置变量',
-  var_get: '读取变量',
 }
 
 export function BatchConfigForm({ config, onChange, nodes, currentNodeId }: BatchConfigProps) {

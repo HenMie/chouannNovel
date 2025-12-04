@@ -6,8 +6,7 @@ import type {
   GlobalConfig,
   AIChatConfig,
   StartConfig,
-  VarSetConfig,
-  VarGetConfig,
+  VarUpdateConfig,
   TextExtractConfig,
   TextConcatConfig,
   ConditionConfig,
@@ -308,14 +307,8 @@ export class WorkflowExecutor {
         resolvedConfig = result.resolvedConfig
         break
       }
-      case 'var_set': {
-        const result = await this.executeVarSetNode(node)
-        output = result.output
-        resolvedConfig = result.resolvedConfig
-        break
-      }
-      case 'var_get': {
-        const result = await this.executeVarGetNode(node)
+      case 'var_update': {
+        const result = await this.executeVarUpdateNode(node)
         output = result.output
         resolvedConfig = result.resolvedConfig
         break
@@ -394,8 +387,8 @@ export class WorkflowExecutor {
       finishedAt: new Date(),
     })
 
-    // 更新节点输出（同时保存节点名称用于 {{节点名称}} 引用）
-    this.context.setNodeOutput(output, node.name)
+    // 更新节点输出（使用节点ID，支持 {{@nodeId}} 引用）
+    this.context.setNodeOutput(output, node.id)
 
     this.emit({
       type: 'node_completed',
@@ -412,7 +405,8 @@ export class WorkflowExecutor {
    */
   /**
    * 执行开始流程节点
-   * 将用户输入保存到指定变量中
+   * 1. 将用户输入保存到"用户问题"变量
+   * 2. 初始化自定义全局变量
    */
   private async executeStartNode(node: WorkflowNode): Promise<string> {
     const config = node.config as StartConfig
@@ -423,6 +417,15 @@ export class WorkflowExecutor {
     
     // 将用户输入保存到固定变量"用户问题"中
     this.context.setVariable('用户问题', value)
+    
+    // 初始化自定义全局变量（使用默认值）
+    if (config.custom_variables) {
+      for (const variable of config.custom_variables) {
+        // 默认值支持变量插值
+        const defaultValue = this.context.interpolate(variable.default_value)
+        this.context.setVariable(variable.name, defaultValue)
+      }
+    }
     
     return value
   }
@@ -530,9 +533,8 @@ export class WorkflowExecutor {
       systemPrompt = settingsInjection + (systemPrompt ? '\n\n' + systemPrompt : '')
     }
 
-    // 构建用户问题（变量插值），默认使用 {{上一节点}}
-    const userPromptTemplate = config.user_prompt || '{{上一节点}}'
-    const userPrompt = this.context.interpolate(userPromptTemplate)
+    // 构建用户问题（变量插值）
+    const userPrompt = config.user_prompt ? this.context.interpolate(config.user_prompt) : ''
     
     // 更新节点输入（显示用户问题）
     this.context.updateNodeState(node.id, { input: userPrompt })
@@ -573,6 +575,12 @@ export class WorkflowExecutor {
           temperature: config.temperature,
           maxTokens: config.max_tokens,
           topP: config.top_p,
+          // 传递 thinking/reasoning 配置
+          thinkingConfig: {
+            thinkingLevel: config.thinking_level,
+            thinkingBudget: config.thinking_budget,
+            effort: config.effort,
+          },
         },
         this.globalConfig,
         (chunk) => {
@@ -634,42 +642,29 @@ export class WorkflowExecutor {
   }
 
   /**
-   * 执行变量设置节点
+   * 执行更新变量节点
+   * 更新已定义的全局变量的值
    */
-  private async executeVarSetNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
-    const config = node.config as VarSetConfig
+  private async executeVarUpdateNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
+    const config = node.config as VarUpdateConfig
     
-    // 使用变量插值处理自定义值
-    const value = config.custom_value ? this.context.interpolate(config.custom_value) : ''
-    
-    this.context.setVariable(config.variable_name, value)
-    
-    return {
-      output: value,
-      resolvedConfig: {
-        variableName: config.variable_name,
-        variableValue: value,
-      },
-    }
-  }
-
-  /**
-   * 执行变量读取节点
-   */
-  private async executeVarGetNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
-    const config = node.config as VarGetConfig
-    
-    const value = this.context.getVariable(config.variable_name)
-    
-    if (value === undefined) {
-      throw new Error(`变量 "${config.variable_name}" 不存在`)
+    // 检查变量是否存在
+    const existingValue = this.context.getVariable(config.variable_name)
+    if (existingValue === undefined) {
+      throw new Error(`变量 "${config.variable_name}" 未定义。请先在开始节点中定义此变量。`)
     }
     
+    // 使用变量插值处理新值
+    const newValue = this.context.interpolate(config.value_template)
+    
+    // 更新变量
+    this.context.setVariable(config.variable_name, newValue)
+    
     return {
-      output: value,
+      output: newValue,
       resolvedConfig: {
         variableName: config.variable_name,
-        variableValue: value,
+        variableValue: newValue,
       },
     }
   }
@@ -722,8 +717,8 @@ export class WorkflowExecutor {
       }
       
       case 'start_end': {
-        if (!config.start_marker || !config.end_marker) {
-          throw new Error('起始标记和结束标记不能为空')
+        if (!config.start_marker) {
+          throw new Error('起始标记不能为空')
         }
         
         const startIndex = input.indexOf(config.start_marker)
@@ -733,13 +728,18 @@ export class WorkflowExecutor {
         }
         
         const contentStart = startIndex + config.start_marker.length
-        const endIndex = input.indexOf(config.end_marker, contentStart)
         
-        if (endIndex === -1) {
-          // 如果没有结束标记，提取到末尾
+        // 如果没有结束标记，提取到末尾
+        if (!config.end_marker) {
           result = input.slice(contentStart)
         } else {
-          result = input.slice(contentStart, endIndex)
+          const endIndex = input.indexOf(config.end_marker, contentStart)
+          if (endIndex === -1) {
+            // 结束标记不存在，提取到末尾
+            result = input.slice(contentStart)
+          } else {
+            result = input.slice(contentStart, endIndex)
+          }
         }
         break
       }
@@ -763,6 +763,11 @@ export class WorkflowExecutor {
         } catch (e) {
           throw new Error(`JSON 解析失败: ${e instanceof Error ? e.message : String(e)}`)
         }
+        break
+      }
+      
+      case 'md_to_text': {
+        result = this.convertMarkdownToPlainText(input)
         break
       }
       
@@ -809,6 +814,67 @@ export class WorkflowExecutor {
     }
     
     return current
+  }
+
+  /**
+   * 将 Markdown 文本转换为纯文本
+   * 移除所有 Markdown 格式标记，保留纯文本内容
+   */
+  private convertMarkdownToPlainText(markdown: string): string {
+    let text = markdown
+
+    // 移除代码块（包括语言标识）
+    text = text.replace(/```[\s\S]*?```/g, (match) => {
+      // 提取代码块内的内容（去掉 ``` 和语言标识）
+      const content = match.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '')
+      return content
+    })
+
+    // 移除行内代码的反引号，保留内容
+    text = text.replace(/`([^`]+)`/g, '$1')
+
+    // 移除图片，保留 alt 文本
+    text = text.replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+
+    // 移除链接，保留链接文本
+    text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+
+    // 移除标题标记
+    text = text.replace(/^#{1,6}\s+/gm, '')
+
+    // 移除加粗标记
+    text = text.replace(/\*\*([^*]+)\*\*/g, '$1')
+    text = text.replace(/__([^_]+)__/g, '$1')
+
+    // 移除斜体标记
+    text = text.replace(/\*([^*]+)\*/g, '$1')
+    text = text.replace(/_([^_]+)_/g, '$1')
+
+    // 移除删除线标记
+    text = text.replace(/~~([^~]+)~~/g, '$1')
+
+    // 移除引用标记
+    text = text.replace(/^>\s*/gm, '')
+
+    // 移除无序列表标记
+    text = text.replace(/^[\s]*[-*+]\s+/gm, '')
+
+    // 移除有序列表标记
+    text = text.replace(/^[\s]*\d+\.\s+/gm, '')
+
+    // 移除水平线
+    text = text.replace(/^[-*_]{3,}\s*$/gm, '')
+
+    // 移除 HTML 标签
+    text = text.replace(/<[^>]+>/g, '')
+
+    // 移除转义字符的反斜杠
+    text = text.replace(/\\([\\`*_{}[\]()#+\-.!])/g, '$1')
+
+    // 将多个连续空行合并为一个
+    text = text.replace(/\n{3,}/g, '\n\n')
+
+    return text
   }
 
   /**
@@ -1454,9 +1520,9 @@ ${input}`
     // 更新节点输出
     this.context.updateNodeState(nodeId, { output: newOutput })
     
-    // 同时更新节点输出映射
-    if (nodeState.nodeName) {
-      this.context.setNodeOutput(newOutput, nodeState.nodeName)
+    // 同时更新节点输出映射（使用节点ID）
+    if (nodeState.nodeId) {
+      this.context.setNodeOutput(newOutput, nodeState.nodeId)
     }
     
     // 如果是最后一个完成的节点，更新 lastOutput

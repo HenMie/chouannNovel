@@ -1,6 +1,7 @@
 /**
  * E2E 测试数据和 fixtures
  */
+import type { Locator } from '@playwright/test'
 
 // 测试项目数据
 export const testProject = {
@@ -58,6 +59,7 @@ export const selectors = {
     projectCard: '[data-testid="project-card"]',
     projectTitle: '[data-testid="project-title"]',
     sortSelect: '[data-testid="sort-select"]',
+    projectMoreBtn: '[data-testid="project-card-menu"]',
   },
   
   // 项目页面
@@ -71,14 +73,14 @@ export const selectors = {
   
   // 工作流页面
   workflow: {
-    addNodeBtn: 'button:has-text("添加节点")',
-    runBtn: 'button:has-text("运行")',
+    addNodeBtn: '[data-testid="workflow-add-node-button"]',
+    runBtn: '[data-testid="workflow-run-button"]',
     pauseBtn: 'button:has-text("暂停")',
     resumeBtn: 'button:has-text("继续")',
     stopBtn: 'button:has-text("停止")',
     historyBtn: 'button:has-text("执行历史")',
     nodeList: '[data-testid="node-list"]',
-    nodeItem: '[data-testid="node-item"]',
+    nodeItem: '[data-testid="workflow-node-item"]',
     outputPanel: '[data-testid="output-panel"]',
   },
   
@@ -108,5 +110,31 @@ export function generateUniqueName(prefix: string): string {
 
 export function wait(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/**
+ * 创建 toast 定位器（支持多个 toast 同时存在的情况）
+ */
+export function toastLocator(page: import('@playwright/test').Page, text: string) {
+  return page.locator('[data-sonner-toast]').filter({ hasText: text }).first()
+}
+
+/**
+ * 等待任意一个定位器可见（避免严格模式冲突）
+ */
+export async function waitForAnyVisible(
+  locators: Locator[],
+  timeout = 10000
+): Promise<Locator> {
+  let lastError: unknown
+  for (const locator of locators) {
+    try {
+      await locator.waitFor({ state: 'visible', timeout })
+      return locator
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError ?? new Error('未找到可见的定位器')
 }
 

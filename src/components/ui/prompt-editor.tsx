@@ -9,8 +9,16 @@ import { cn } from '@/lib/utils'
 import { VariablePicker } from './variable-picker'
 import type { WorkflowNode } from '@/types'
 
+import { getDisplayTextByNodeId } from './variable-picker-shared'
+
 // 变量匹配正则表达式
 const VARIABLE_PATTERN = /\{\{([^}]+)\}\}/g
+
+// 节点ID引用格式匹配
+// 新格式: {{@nodeId}}
+// 旧格式: {{@nodeId > 描述}}
+const NODE_REF_SIMPLE_PATTERN = /^\s*@([^}>]+)\s*$/
+const NODE_REF_OLD_PATTERN = /^\s*@(.+?)\s*>\s*(.+?)\s*$/
 
 // 系统内置变量列表（显示为蓝色标签）
 // - 用户问题/input/输入: 初始用户输入
@@ -39,8 +47,31 @@ const escapeHtml = (str: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
 
+// 将 @nodeId 格式转换为显示格式（节点名 > 描述）
+function formatVariableForDisplay(varContent: string, nodes: WorkflowNode[]): string {
+  // 检查是否是新格式 @nodeId（不带描述）
+  const simpleMatch = varContent.match(NODE_REF_SIMPLE_PATTERN)
+  if (simpleMatch) {
+    const nodeId = simpleMatch[1].trim()
+    // 使用共享函数动态获取完整显示文本
+    return getDisplayTextByNodeId(nodes, nodeId)
+  }
+  
+  // 兼容旧格式 @nodeId > 描述
+  const oldMatch = varContent.match(NODE_REF_OLD_PATTERN)
+  if (oldMatch) {
+    const nodeId = oldMatch[1]
+    // 使用共享函数动态获取完整显示文本（忽略旧的描述）
+    return getDisplayTextByNodeId(nodes, nodeId)
+  }
+  
+  // 普通变量，直接返回
+  return varContent
+}
+
 // 将文本中的变量转换为不可编辑的标签 HTML
-function renderToHtml(text: string): string {
+// nodes 参数用于将 @nodeId 转换为节点名称显示
+function renderToHtml(text: string, nodes: WorkflowNode[] = []): string {
   if (!text) return ''
   
   const parts: string[] = []
@@ -56,15 +87,22 @@ function renderToHtml(text: string): string {
     }
 
     // 添加不可编辑的变量标签
-    const varName = match[1].trim()
-    const fullVar = `{{${varName}}}`
-    const isBuiltin = SYSTEM_VARIABLES.includes(varName)
+    const varContent = match[1].trim()
+    const fullVar = `{{${varContent}}}`
+    
+    // 判断是否是节点引用（@nodeId 或 @nodeId > 描述）
+    const isNodeRef = NODE_REF_SIMPLE_PATTERN.test(varContent) || NODE_REF_OLD_PATTERN.test(varContent)
+    // 内置变量（非节点引用的简单变量）显示为蓝色
+    const isBuiltin = !isNodeRef && SYSTEM_VARIABLES.includes(varContent)
     const colorClass = isBuiltin ? 'prompt-var-builtin' : 'prompt-var-custom'
     
+    // 显示文本：将 @nodeId 转换为节点名称
+    const displayText = formatVariableForDisplay(varContent, nodes)
+    
     // contenteditable="false" 使标签不可编辑
-    // data-var 存储完整变量文本用于提取
+    // data-var 存储完整变量文本用于提取（保持原始 ID 格式）
     parts.push(
-      `<span class="prompt-var ${colorClass}" contenteditable="false" data-var="${escapeHtml(fullVar)}">${escapeHtml(fullVar)}</span>`
+      `<span class="prompt-var ${colorClass}" contenteditable="false" data-var="${escapeHtml(fullVar)}">${escapeHtml(`{{${displayText}}}`)}</span>`
     )
 
     lastIndex = match.index + match[0].length
@@ -157,7 +195,9 @@ function removeSlashBeforeCaret(): void {
 }
 
 // 在光标位置插入变量
-function insertVariableAtCursor(editor: HTMLElement, variable: string): void {
+// variable: 原始变量文本 {{@nodeId}}
+// displayText: 显示文本 {{节点名 > 描述}}（可选，不传则使用原始文本）
+function insertVariableAtCursor(editor: HTMLElement, variable: string, displayText?: string): void {
   const selection = window.getSelection()
   if (!selection) return
   
@@ -167,15 +207,16 @@ function insertVariableAtCursor(editor: HTMLElement, variable: string): void {
   const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : document.createRange()
   
   // 创建变量标签
-  const varName = variable.replace(/^\{\{|\}\}$/g, '')
-  const isBuiltin = SYSTEM_VARIABLES.includes(varName)
+  const varContent = variable.replace(/^\{\{|\}\}$/g, '')
+  const isNodeRef = NODE_REF_SIMPLE_PATTERN.test(varContent) || NODE_REF_OLD_PATTERN.test(varContent)
+  const isBuiltin = !isNodeRef && SYSTEM_VARIABLES.includes(varContent)
   const colorClass = isBuiltin ? 'prompt-var-builtin' : 'prompt-var-custom'
   
   const span = document.createElement('span')
   span.className = `prompt-var ${colorClass}`
   span.contentEditable = 'false'
-  span.setAttribute('data-var', variable)
-  span.textContent = variable
+  span.setAttribute('data-var', variable)  // 存储原始格式（含 @nodeId）
+  span.textContent = displayText ?? variable  // 显示友好格式
   
   // 删除选中内容并插入
   range.deleteContents()
@@ -221,14 +262,14 @@ export function PromptEditor({
     // 外部 value 变化时更新编辑器
     if (value !== lastValue.current) {
       lastValue.current = value
-      editorRef.current.innerHTML = renderToHtml(value)
+      editorRef.current.innerHTML = renderToHtml(value, nodes)
     }
-  }, [value])
+  }, [value, nodes])
 
   // 初始化
   useEffect(() => {
     if (editorRef.current) {
-      editorRef.current.innerHTML = renderToHtml(value)
+      editorRef.current.innerHTML = renderToHtml(value, nodes)
     }
   }, [])
 
@@ -396,13 +437,21 @@ export function PromptEditor({
     }, 150)
   }, [])
 
+  // 将变量转换为显示文本（@nodeId -> 节点名称）
+  const getDisplayText = useCallback((variable: string): string => {
+    const varContent = variable.replace(/^\{\{|\}\}$/g, '')
+    const displayContent = formatVariableForDisplay(varContent, nodes)
+    return `{{${displayContent}}}`
+  }, [nodes])
+
   // 暴露插入变量的方法
   const insertVariable = useCallback((variable: string) => {
     if (editorRef.current) {
-      insertVariableAtCursor(editorRef.current, variable)
+      const displayText = getDisplayText(variable)
+      insertVariableAtCursor(editorRef.current, variable, displayText)
       emitChange()
     }
-  }, [emitChange])
+  }, [emitChange, getDisplayText])
 
   // 将 insertVariable 挂载到 DOM 元素上供外部调用
   useEffect(() => {
@@ -416,10 +465,11 @@ export function PromptEditor({
     setShowPicker(false)
     if (editorRef.current) {
       editorRef.current.focus()
-      insertVariableAtCursor(editorRef.current, variable)
+      const displayText = getDisplayText(variable)
+      insertVariableAtCursor(editorRef.current, variable, displayText)
       emitChange()
     }
-  }, [emitChange])
+  }, [emitChange, getDisplayText])
 
   return (
     <div className="relative">

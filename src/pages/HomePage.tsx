@@ -266,6 +266,8 @@ export function HomePage({ onNavigate }: HomePageProps) {
                     transition={{ delay: 0.05 * index }}
                   >
                     <Card
+                      data-testid="project-card"
+                      data-project-id={project.id}
                       className="group relative h-full overflow-hidden transition-all hover:shadow-md hover:border-primary/50"
                       onClick={() => onNavigate(`/project/${project.id}`)}
                     >
@@ -294,6 +296,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
                               size="icon"
                               className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
                               onClick={(e) => e.stopPropagation()}
+                              data-testid="project-card-menu"
                             >
                               <MoreVertical className="h-4 w-4" />
                             </Button>

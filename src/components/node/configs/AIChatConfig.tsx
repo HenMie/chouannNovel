@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react'
 import { Users, Globe, Palette, FileText, Check, Settings2, ChevronDown, ChevronRight } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { PromptEditor } from '@/components/ui/prompt-editor'
+import { PromptInputField, type PromptInputMode } from '@/components/ui/prompt-input-field'
 import {
   Select,
   SelectContent,
@@ -48,25 +48,59 @@ const defaultConfig: AIChatConfigType = {
   provider: 'gemini',
   model: 'gemini-2.5-flash',
   system_prompt: '',
-  user_prompt: '{{上一节点}}',
-  temperature: 0.7,
-  max_tokens: 4096,
+  user_prompt: '{{用户问题}}',  // 使用系统内置变量，引用初始用户输入
+  system_prompt_mode: 'manual',
+  system_prompt_manual: '',
+  system_prompt_variable: '',
+  user_prompt_mode: 'manual',
+  user_prompt_manual: '{{用户问题}}',
+  user_prompt_variable: '',
+  temperature: 1,
+  top_p: 0.95,
+  // max_tokens 默认不启用，用户在高级设置中手动开启
   enable_history: false,
   history_count: 5,
   setting_ids: [],
 }
 
+const normalizeMode = (mode?: PromptInputMode): PromptInputMode =>
+  mode === 'variable' ? 'variable' : 'manual'
+
 export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], currentNodeId, onChange }: AIChatConfigProps) {
   // 合并默认配置，兼容旧版 prompt 字段
   const legacyConfig = config as any
+  const fallbackSystemPrompt = config.system_prompt ?? legacyConfig.prompt ?? ''
+  const fallbackUserPrompt = config.user_prompt ?? '{{用户问题}}'
   const migratedConfig: Partial<AIChatConfigType> = {
     ...config,
     // 如果有旧的 prompt 字段，迁移到 system_prompt
-    system_prompt: config.system_prompt ?? legacyConfig.prompt ?? '',
-    user_prompt: config.user_prompt ?? '{{上一节点}}',
+    system_prompt: fallbackSystemPrompt,
+    user_prompt: fallbackUserPrompt,
+    system_prompt_manual: config.system_prompt_manual ?? fallbackSystemPrompt,
+    user_prompt_manual: config.user_prompt_manual ?? fallbackUserPrompt,
+    system_prompt_variable:
+      config.system_prompt_variable ??
+      (config.system_prompt_mode === 'variable' ? fallbackSystemPrompt : ''),
+    user_prompt_variable:
+      config.user_prompt_variable ??
+      (config.user_prompt_mode === 'variable' ? fallbackUserPrompt : ''),
   }
   const currentConfig: AIChatConfigType = { ...defaultConfig, ...migratedConfig }
   const [showAdvanced, setShowAdvanced] = useState(false)
+
+  const systemPromptMode = normalizeMode(currentConfig.system_prompt_mode)
+  const systemPromptManualValue =
+    currentConfig.system_prompt_manual ?? currentConfig.system_prompt ?? ''
+  const systemPromptVariableValue =
+    currentConfig.system_prompt_variable ??
+    (systemPromptMode === 'variable' ? currentConfig.system_prompt ?? '' : '')
+
+  const userPromptMode = normalizeMode(currentConfig.user_prompt_mode)
+  const userPromptManualValue =
+    currentConfig.user_prompt_manual ?? currentConfig.user_prompt ?? ''
+  const userPromptVariableValue =
+    currentConfig.user_prompt_variable ??
+    (userPromptMode === 'variable' ? currentConfig.user_prompt ?? '' : '')
 
   // 获取设定库
   const { settings, loadSettings, getSettingsByCategory } = useSettingsStore()
@@ -104,6 +138,67 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
   // 更新配置
   const updateConfig = (updates: Partial<AIChatConfigType>) => {
     onChange({ ...currentConfig, ...updates })
+  }
+
+  // === 提示词输入模式相关处理 ===
+  const handleSystemModeChange = (mode: PromptInputMode) => {
+    if (mode === 'manual') {
+      updateConfig({
+        system_prompt_mode: 'manual',
+        system_prompt: systemPromptManualValue,
+      })
+    } else {
+      updateConfig({
+        system_prompt_mode: 'variable',
+        system_prompt: systemPromptVariableValue,
+      })
+    }
+  }
+
+  const handleSystemManualChange = (value: string) => {
+    updateConfig({
+      system_prompt_mode: 'manual',
+      system_prompt: value,
+      system_prompt_manual: value,
+    })
+  }
+
+  const handleSystemVariableChange = (value: string) => {
+    updateConfig({
+      system_prompt_mode: 'variable',
+      system_prompt: value,
+      system_prompt_variable: value,
+    })
+  }
+
+  const handleUserModeChange = (mode: PromptInputMode) => {
+    if (mode === 'manual') {
+      updateConfig({
+        user_prompt_mode: 'manual',
+        user_prompt: userPromptManualValue,
+      })
+    } else {
+      updateConfig({
+        user_prompt_mode: 'variable',
+        user_prompt: userPromptVariableValue,
+      })
+    }
+  }
+
+  const handleUserManualChange = (value: string) => {
+    updateConfig({
+      user_prompt_mode: 'manual',
+      user_prompt: value,
+      user_prompt_manual: value,
+    })
+  }
+
+  const handleUserVariableChange = (value: string) => {
+    updateConfig({
+      user_prompt_mode: 'variable',
+      user_prompt: value,
+      user_prompt_variable: value,
+    })
   }
 
   // 当模型变化时，自动更新提供商
@@ -163,42 +258,36 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
         </Select>
       </div>
 
-      {/* 系统提示词 */}
-      <div className="space-y-3">
-        <div className="space-y-1">
-          <Label htmlFor="system_prompt">系统提示词</Label>
-          <p className="text-xs text-muted-foreground">
-            作为 System Message 发送，用于设定 AI 的角色和行为
-          </p>
-        </div>
-        <PromptEditor
-          id="system_prompt"
-          placeholder="输入系统提示词，输入 / 选择变量..."
-          value={currentConfig.system_prompt}
-          onChange={(value) => updateConfig({ system_prompt: value })}
-          nodes={nodes}
-          currentNodeId={currentNodeId}
-        />
-      </div>
+      <PromptInputField
+        id="system_prompt"
+        label="系统提示词"
+        description="作为 System Message 发送，用于设定 AI 的角色和行为"
+        mode={systemPromptMode}
+        manualValue={systemPromptManualValue}
+        variableValue={systemPromptVariableValue}
+        onModeChange={handleSystemModeChange}
+        onManualChange={handleSystemManualChange}
+        onVariableChange={handleSystemVariableChange}
+        nodes={nodes}
+        currentNodeId={currentNodeId}
+        placeholder="输入系统提示词，输入 / 选择变量..."
+      />
 
-      {/* 用户问题 */}
-      <div className="space-y-3">
-        <div className="space-y-1">
-          <Label htmlFor="user_prompt">用户问题</Label>
-          <p className="text-xs text-muted-foreground">
-            作为 User Message 发送给 AI
-          </p>
-        </div>
-        <PromptEditor
-          id="user_prompt"
-          placeholder="输入用户问题，输入 / 选择变量..."
-          value={currentConfig.user_prompt}
-          onChange={(value) => updateConfig({ user_prompt: value })}
-          minHeight="80px"
-          nodes={nodes}
-          currentNodeId={currentNodeId}
-        />
-      </div>
+      <PromptInputField
+        id="user_prompt"
+        label="用户问题"
+        description="作为 User Message 发送给 AI"
+        mode={userPromptMode}
+        manualValue={userPromptManualValue}
+        variableValue={userPromptVariableValue}
+        onModeChange={handleUserModeChange}
+        onManualChange={handleUserManualChange}
+        onVariableChange={handleUserVariableChange}
+        nodes={nodes}
+        currentNodeId={currentNodeId}
+        placeholder="输入用户问题，输入 / 选择变量..."
+        minHeight="80px"
+      />
 
       {/* 设定引用 */}
       {projectId && settings.length > 0 && (
@@ -323,7 +412,7 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
                       随机性 (Temperature)
                     </Label>
                     <span className="text-xs text-muted-foreground">
-                      {currentConfig.temperature?.toFixed(1) ?? '0.7'}
+                      {currentConfig.temperature?.toFixed(1) ?? '1.0'}
                     </span>
                   </div>
                   <Slider
@@ -331,24 +420,8 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
                     min={0}
                     max={2}
                     step={0.1}
-                    value={[currentConfig.temperature ?? 0.7]}
+                    value={[currentConfig.temperature ?? 1]}
                     onValueChange={([value]) => updateConfig({ temperature: value })}
-                  />
-                </div>
-              )}
-
-              {/* Max Tokens */}
-              {currentModelConfig?.supportsMaxTokens && (
-                <div className="space-y-2">
-                  <Label htmlFor="max_tokens" className="text-xs">最大长度 (Tokens)</Label>
-                  <Input
-                    id="max_tokens"
-                    type="number"
-                    min={1}
-                    max={32000}
-                    className="bg-background"
-                    value={currentConfig.max_tokens || currentModelConfig.defaultMaxTokens || 4096}
-                    onChange={(e) => updateConfig({ max_tokens: parseInt(e.target.value) || 4096 })}
                   />
                 </div>
               )}
@@ -361,7 +434,7 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
                       Top P
                     </Label>
                     <span className="text-xs text-muted-foreground">
-                      {currentConfig.top_p?.toFixed(2) ?? '1.00'}
+                      {currentConfig.top_p?.toFixed(2) ?? '0.95'}
                     </span>
                   </div>
                   <Slider
@@ -369,18 +442,51 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
                     min={0}
                     max={1}
                     step={0.01}
-                    value={[currentConfig.top_p ?? 1]}
+                    value={[currentConfig.top_p ?? 0.95]}
                     onValueChange={([value]) => updateConfig({ top_p: value })}
                   />
                 </div>
               )}
 
-              {/* Thinking Level (Gemini) */}
-              {currentModelConfig?.supportsThinkingLevel && (
+              {/* Max Tokens (可选) */}
+              {currentModelConfig?.supportsMaxTokens && (
                 <div className="space-y-2">
-                  <Label className="text-xs">思考深度</Label>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="enable_max_tokens" className="text-xs">
+                      限制输出长度
+                    </Label>
+                    <Switch
+                      id="enable_max_tokens"
+                      checked={currentConfig.max_tokens !== undefined}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          updateConfig({ max_tokens: currentModelConfig.defaultMaxTokens || 4096 })
+                        } else {
+                          updateConfig({ max_tokens: undefined })
+                        }
+                      }}
+                    />
+                  </div>
+                  {currentConfig.max_tokens !== undefined && (
+                    <Input
+                      id="max_tokens"
+                      type="number"
+                      min={1}
+                      max={32000}
+                      className="bg-background"
+                      value={currentConfig.max_tokens}
+                      onChange={(e) => updateConfig({ max_tokens: parseInt(e.target.value) || 4096 })}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Thinking Level (Gemini 3 Pro) */}
+              {currentModelConfig?.thinkingMode === 'thinkingLevel' && (
+                <div className="space-y-2">
+                  <Label className="text-xs">思考深度 (Gemini 3)</Label>
                   <Select
-                    value={currentConfig.thinking_level || 'low'}
+                    value={currentConfig.thinking_level || 'high'}
                     onValueChange={(value: 'low' | 'high') =>
                       updateConfig({ thinking_level: value })
                     }
@@ -393,6 +499,81 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
                       <SelectItem value="high">深度思考 (慢)</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+              )}
+
+              {/* Thinking Budget (Gemini 2.5 系列) */}
+              {currentModelConfig?.thinkingMode === 'thinkingBudget' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="thinking_budget" className="text-xs">
+                      思考预算 (Gemini 2.5)
+                    </Label>
+                    <span className="text-xs text-muted-foreground">
+                      {currentConfig.thinking_budget === -1 
+                        ? '动态' 
+                        : currentConfig.thinking_budget === 0 
+                          ? '禁用' 
+                          : `${currentConfig.thinking_budget ?? -1} tokens`}
+                    </span>
+                  </div>
+                  <Select
+                    value={String(currentConfig.thinking_budget ?? -1)}
+                    onValueChange={(value) => {
+                      const numValue = parseInt(value)
+                      updateConfig({ thinking_budget: numValue })
+                    }}
+                  >
+                    <SelectTrigger className="bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="-1">动态思考 (推荐)</SelectItem>
+                      {currentModelConfig?.canDisableThinking && (
+                        <SelectItem value="0">禁用思考 (最快)</SelectItem>
+                      )}
+                      <SelectItem value="1024">1K tokens (轻度)</SelectItem>
+                      <SelectItem value="4096">4K tokens (中度)</SelectItem>
+                      <SelectItem value="8192">8K tokens (深度)</SelectItem>
+                      <SelectItem value="16384">16K tokens (极深)</SelectItem>
+                      {(currentModelConfig?.thinkingBudgetRange?.[1] ?? 0) >= 24576 && (
+                        <SelectItem value="24576">24K tokens (最大)</SelectItem>
+                      )}
+                      {(currentModelConfig?.thinkingBudgetRange?.[1] ?? 0) >= 32768 && (
+                        <SelectItem value="32768">32K tokens (最大)</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {currentModelConfig?.canDisableThinking 
+                      ? '控制模型思考的 token 数量，动态模式让模型自动决定'
+                      : '此模型不支持禁用思考，动态模式让模型自动决定'}
+                  </p>
+                </div>
+              )}
+
+              {/* Effort (Claude) */}
+              {currentModelConfig?.thinkingMode === 'effort' && (
+                <div className="space-y-2">
+                  <Label className="text-xs">推理努力 (Claude)</Label>
+                  <Select
+                    value={currentConfig.effort || 'high'}
+                    onValueChange={(value: 'low' | 'medium' | 'high') =>
+                      updateConfig({ effort: value })
+                    }
+                  >
+                    <SelectTrigger className="bg-background">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">低 (快速响应)</SelectItem>
+                      <SelectItem value="medium">中等</SelectItem>
+                      <SelectItem value="high">高 (深入推理)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    控制模型的推理深度，影响响应质量和速度
+                  </p>
                 </div>
               )}
             </div>

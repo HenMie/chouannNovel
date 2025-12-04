@@ -536,3 +536,507 @@ describe("ExecutionStore - 边界情况", () => {
   })
 })
 
+// ========== 执行事件处理测试 ==========
+
+describe("ExecutionStore - 执行事件处理", () => {
+  // 存储 onEvent 回调
+  let capturedOnEvent: ((event: any) => void) | null = null
+
+  beforeEach(() => {
+    useExecutionStore.getState().reset()
+    vi.clearAllMocks()
+    capturedOnEvent = null
+
+    // 重新配置 mock 以捕获 onEvent 回调
+    vi.mocked(WorkflowExecutor).mockImplementation(function (this: any, config: any) {
+      capturedOnEvent = config.onEvent
+      Object.assign(this, mockExecutorInstance)
+      return this
+    })
+  })
+
+  async function setupExecution() {
+    const workflow = createMockWorkflow({ id: "workflow-1" })
+    const nodes = [createMockNode()]
+    const globalConfig = createMockGlobalConfig()
+    const execution = { id: "execution-1", workflow_id: "workflow-1", status: "running", started_at: new Date().toISOString() }
+
+    vi.mocked(db.createExecution).mockResolvedValue(execution as any)
+    vi.mocked(db.createNodeResult).mockResolvedValue({ id: "result-1" } as any)
+    vi.mocked(db.updateNodeResult).mockResolvedValue()
+    mockExecutorInstance.execute.mockImplementation(() => new Promise(() => {})) // 永不 resolve
+
+    // 启动执行（不等待完成）
+    useExecutionStore.getState().startExecution(workflow, nodes, globalConfig)
+
+    // 等待 onEvent 被设置
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+
+  describe("node_started 事件", () => {
+    it("应该添加新的节点输出并设置当前节点索引", async () => {
+      await setupExecution()
+
+      capturedOnEvent?.({
+        type: "node_started",
+        nodeId: "node-1",
+        nodeName: "AI 节点",
+        nodeType: "ai_chat",
+      })
+
+      // 等待异步事件处理
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      const state = useExecutionStore.getState()
+      expect(state.currentNodeIndex).toBe(0)
+      expect(state.streamingNodeId).toBe("node-1")
+      expect(state.nodeOutputs).toHaveLength(1)
+      expect(state.nodeOutputs[0]).toMatchObject({
+        nodeId: "node-1",
+        nodeName: "AI 节点",
+        nodeType: "ai_chat",
+        output: "",
+        isRunning: true,
+        isStreaming: false,
+      })
+    })
+
+    it("应该创建节点结果记录", async () => {
+      await setupExecution()
+
+      capturedOnEvent?.({
+        type: "node_started",
+        nodeId: "node-1",
+        nodeName: "AI 节点",
+        nodeType: "ai_chat",
+      })
+
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      expect(db.createNodeResult).toHaveBeenCalledWith("execution-1", "node-1")
+    })
+  })
+
+  describe("node_streaming 事件", () => {
+    it("应该更新流式输出内容", async () => {
+      await setupExecution()
+
+      // 先触发 node_started
+      capturedOnEvent?.({
+        type: "node_started",
+        nodeId: "node-1",
+        nodeName: "AI 节点",
+        nodeType: "ai_chat",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      // 触发流式输出
+      capturedOnEvent?.({
+        type: "node_streaming",
+        nodeId: "node-1",
+        content: "正在生成内容...",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      const state = useExecutionStore.getState()
+      expect(state.streamingContent).toBe("正在生成内容...")
+      expect(state.nodeOutputs[0].output).toBe("正在生成内容...")
+      expect(state.nodeOutputs[0].isStreaming).toBe(true)
+    })
+  })
+
+  describe("node_completed 事件", () => {
+    it("应该更新节点输出并标记完成", async () => {
+      await setupExecution()
+
+      // 先触发 node_started
+      capturedOnEvent?.({
+        type: "node_started",
+        nodeId: "node-1",
+        nodeName: "AI 节点",
+        nodeType: "ai_chat",
+      })
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      // 触发完成
+      capturedOnEvent?.({
+        type: "node_completed",
+        nodeId: "node-1",
+        content: "最终输出内容",
+        resolvedConfig: { provider: "openai", model: "gpt-4" },
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      const state = useExecutionStore.getState()
+      expect(state.streamingContent).toBe("")
+      expect(state.streamingNodeId).toBeNull()
+      expect(state.nodeOutputs[0]).toMatchObject({
+        output: "最终输出内容",
+        isRunning: false,
+        isStreaming: false,
+        resolvedConfig: { provider: "openai", model: "gpt-4" },
+      })
+    })
+
+    it("应该更新数据库中的节点结果", async () => {
+      await setupExecution()
+
+      capturedOnEvent?.({
+        type: "node_started",
+        nodeId: "node-1",
+        nodeName: "AI 节点",
+        nodeType: "ai_chat",
+      })
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      capturedOnEvent?.({
+        type: "node_completed",
+        nodeId: "node-1",
+        content: "输出内容",
+        resolvedConfig: { model: "gpt-4" },
+      })
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      expect(db.updateNodeResult).toHaveBeenCalledWith(
+        "result-1",
+        expect.objectContaining({
+          output: "输出内容",
+          status: "completed",
+          resolved_config: { model: "gpt-4" },
+        })
+      )
+    })
+  })
+
+  describe("node_failed 事件", () => {
+    it("应该设置错误状态", async () => {
+      await setupExecution()
+
+      capturedOnEvent?.({
+        type: "node_started",
+        nodeId: "node-1",
+        nodeName: "AI 节点",
+        nodeType: "ai_chat",
+      })
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      capturedOnEvent?.({
+        type: "node_failed",
+        nodeId: "node-1",
+        error: "API 调用失败",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      const state = useExecutionStore.getState()
+      expect(state.error).toBe("API 调用失败")
+      expect(state.nodeOutputs[0].output).toBe("错误: API 调用失败")
+      expect(state.nodeOutputs[0].isRunning).toBe(false)
+    })
+
+    it("应该更新数据库中的节点结果为失败状态", async () => {
+      await setupExecution()
+
+      capturedOnEvent?.({
+        type: "node_started",
+        nodeId: "node-1",
+        nodeName: "AI 节点",
+        nodeType: "ai_chat",
+      })
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      capturedOnEvent?.({
+        type: "node_failed",
+        nodeId: "node-1",
+        error: "执行失败",
+      })
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      expect(db.updateNodeResult).toHaveBeenCalledWith(
+        "result-1",
+        expect.objectContaining({
+          status: "failed",
+        })
+      )
+    })
+  })
+
+  describe("node_skipped 事件", () => {
+    it("应该标记节点为已跳过", async () => {
+      await setupExecution()
+
+      // 先添加一个节点输出
+      capturedOnEvent?.({
+        type: "node_started",
+        nodeId: "node-1",
+        nodeName: "AI 节点",
+        nodeType: "ai_chat",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      capturedOnEvent?.({
+        type: "node_skipped",
+        nodeId: "node-1",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      const state = useExecutionStore.getState()
+      expect(state.nodeOutputs[0].output).toBe("(已跳过)")
+      expect(state.nodeOutputs[0].isRunning).toBe(false)
+    })
+  })
+
+  describe("execution_paused 事件", () => {
+    it("应该将状态设置为暂停", async () => {
+      await setupExecution()
+
+      capturedOnEvent?.({
+        type: "execution_paused",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      expect(useExecutionStore.getState().status).toBe("paused")
+    })
+  })
+
+  describe("execution_resumed 事件", () => {
+    it("应该将状态设置为运行中", async () => {
+      await setupExecution()
+      useExecutionStore.setState({ status: "paused" })
+
+      capturedOnEvent?.({
+        type: "execution_resumed",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      expect(useExecutionStore.getState().status).toBe("running")
+    })
+  })
+
+  describe("execution_completed 事件", () => {
+    it("应该将状态设置为完成并清理流式状态", async () => {
+      await setupExecution()
+      useExecutionStore.setState({
+        streamingContent: "some content",
+        streamingNodeId: "node-1",
+        currentNodeIndex: 0,
+      })
+
+      capturedOnEvent?.({
+        type: "execution_completed",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      const state = useExecutionStore.getState()
+      expect(state.status).toBe("completed")
+      expect(state.currentNodeIndex).toBeNull()
+      expect(state.streamingContent).toBe("")
+      expect(state.streamingNodeId).toBeNull()
+    })
+  })
+
+  describe("execution_failed 事件", () => {
+    it("应该将状态设置为失败并记录错误", async () => {
+      await setupExecution()
+
+      capturedOnEvent?.({
+        type: "execution_failed",
+        error: "工作流执行失败",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      const state = useExecutionStore.getState()
+      expect(state.status).toBe("failed")
+      expect(state.error).toBe("工作流执行失败")
+    })
+
+    it("应该使用默认错误信息当没有提供错误时", async () => {
+      await setupExecution()
+
+      capturedOnEvent?.({
+        type: "execution_failed",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      expect(useExecutionStore.getState().error).toBe("执行失败")
+    })
+  })
+
+  describe("execution_cancelled 事件", () => {
+    it("应该将状态设置为已取消", async () => {
+      await setupExecution()
+
+      capturedOnEvent?.({
+        type: "execution_cancelled",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      expect(useExecutionStore.getState().status).toBe("cancelled")
+    })
+  })
+
+  describe("execution_timeout 事件", () => {
+    it("应该将状态设置为超时并记录错误", async () => {
+      await setupExecution()
+
+      capturedOnEvent?.({
+        type: "execution_timeout",
+      })
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      const state = useExecutionStore.getState()
+      expect(state.status).toBe("timeout")
+      expect(state.error).toBe("执行超时")
+    })
+  })
+})
+
+// ========== 数据库操作错误处理测试 ==========
+
+describe("ExecutionStore - 数据库操作错误处理", () => {
+  let capturedOnEvent: ((event: any) => void) | null = null
+
+  beforeEach(() => {
+    useExecutionStore.getState().reset()
+    vi.clearAllMocks()
+    capturedOnEvent = null
+
+    vi.mocked(WorkflowExecutor).mockImplementation(function (this: any, config: any) {
+      capturedOnEvent = config.onEvent
+      Object.assign(this, mockExecutorInstance)
+      return this
+    })
+  })
+
+  async function setupExecution() {
+    const workflow = createMockWorkflow({ id: "workflow-1" })
+    const nodes = [createMockNode()]
+    const globalConfig = createMockGlobalConfig()
+    const execution = { id: "execution-1", workflow_id: "workflow-1", status: "running", started_at: new Date().toISOString() }
+
+    vi.mocked(db.createExecution).mockResolvedValue(execution as any)
+    mockExecutorInstance.execute.mockImplementation(() => new Promise(() => {}))
+
+    useExecutionStore.getState().startExecution(workflow, nodes, globalConfig)
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+
+  it("应该在创建节点结果失败时记录错误但继续执行", async () => {
+    await setupExecution()
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.mocked(db.createNodeResult).mockRejectedValue(new Error("创建节点结果失败"))
+
+    capturedOnEvent?.({
+      type: "node_started",
+      nodeId: "node-1",
+      nodeName: "AI 节点",
+      nodeType: "ai_chat",
+    })
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(consoleSpy).toHaveBeenCalled()
+    // 节点输出仍应被添加
+    expect(useExecutionStore.getState().nodeOutputs).toHaveLength(1)
+    consoleSpy.mockRestore()
+  })
+
+  it("应该在更新节点结果失败时记录错误但继续执行", async () => {
+    await setupExecution()
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.mocked(db.createNodeResult).mockResolvedValue({ id: "result-1" } as any)
+    vi.mocked(db.updateNodeResult).mockRejectedValue(new Error("更新节点结果失败"))
+
+    capturedOnEvent?.({
+      type: "node_started",
+      nodeId: "node-1",
+      nodeName: "AI 节点",
+      nodeType: "ai_chat",
+    })
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    capturedOnEvent?.({
+      type: "node_completed",
+      nodeId: "node-1",
+      content: "输出内容",
+    })
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(consoleSpy).toHaveBeenCalled()
+    // 节点输出仍应被更新
+    expect(useExecutionStore.getState().nodeOutputs[0].output).toBe("输出内容")
+    consoleSpy.mockRestore()
+  })
+})
+
+// ========== 执行完成后更新数据库测试 ==========
+
+describe("ExecutionStore - 执行完成后数据库更新", () => {
+  beforeEach(() => {
+    useExecutionStore.getState().reset()
+    vi.clearAllMocks()
+  })
+
+  it("应该在执行完成后更新数据库记录", async () => {
+    const workflow = createMockWorkflow({ id: "workflow-1" })
+    const nodes = [createMockNode()]
+    const globalConfig = createMockGlobalConfig()
+    const execution = { id: "execution-1", workflow_id: "workflow-1", status: "running", started_at: new Date().toISOString() }
+
+    vi.mocked(db.createExecution).mockResolvedValue(execution as any)
+    vi.mocked(db.updateExecution).mockResolvedValue()
+    mockExecutorInstance.execute.mockResolvedValue({
+      status: "completed",
+      output: "最终输出",
+      nodeStates: [],
+      elapsedSeconds: 10,
+    })
+
+    await useExecutionStore.getState().startExecution(workflow, nodes, globalConfig)
+
+    expect(db.updateExecution).toHaveBeenCalledWith(
+      "execution-1",
+      expect.objectContaining({
+        status: "completed",
+        final_output: "最终输出",
+      })
+    )
+  })
+
+  it("应该在执行失败后更新数据库记录为失败状态", async () => {
+    const workflow = createMockWorkflow({ id: "workflow-1" })
+    const nodes = [createMockNode()]
+    const globalConfig = createMockGlobalConfig()
+    const execution = { id: "execution-1", workflow_id: "workflow-1", status: "running", started_at: new Date().toISOString() }
+
+    vi.mocked(db.createExecution).mockResolvedValue(execution as any)
+    vi.mocked(db.updateExecution).mockResolvedValue()
+    mockExecutorInstance.execute.mockRejectedValue(new Error("执行错误"))
+
+    await useExecutionStore.getState().startExecution(workflow, nodes, globalConfig)
+
+    expect(db.updateExecution).toHaveBeenCalledWith(
+      "execution-1",
+      expect.objectContaining({
+        status: "failed",
+      })
+    )
+  })
+
+  it("应该在取消执行时更新数据库记录", () => {
+    useExecutionStore.setState({
+      executor: mockExecutorInstance as any,
+      executionId: "execution-1",
+      status: "running",
+    })
+    vi.mocked(db.updateExecution).mockResolvedValue()
+
+    useExecutionStore.getState().cancelExecution()
+
+    expect(db.updateExecution).toHaveBeenCalledWith(
+      "execution-1",
+      expect.objectContaining({
+        status: "cancelled",
+      })
+    )
+  })
+})
+

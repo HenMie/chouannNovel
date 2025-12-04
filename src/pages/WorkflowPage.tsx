@@ -10,9 +10,9 @@ import {
   GitBranch,
   Repeat,
   Layers,
-  Variable,
   Type,
   Scissors,
+  Variable,
   AlertCircle,
   CheckCircle2,
   Clock,
@@ -95,16 +95,11 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     setCurrentWorkflow,
     createNode,
     deleteNode,
-    deleteNodes,
     reorderNodes,
     updateNode,
     copyNode,
     copyNodes,
-    pasteNode,
-    pasteNodes,
     hasCopiedNode,
-    getCopiedCount,
-    restoreNodes,
   } = useProjectStore()
 
   // 执行状态
@@ -140,13 +135,91 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
   const [showRestoreDialog, setShowRestoreDialog] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState<WorkflowVersion | null>(null)
   
-  // 撤销/重做历史
-  const history = useWorkflowHistory({ maxSize: 50 })
+  // 撤销/重做命令栈
+  const {
+    execute: executeCommand,
+    undo: undoCommand,
+    redo: redoCommand,
+    canUndo,
+    canRedo,
+  } = useWorkflowHistory({ maxSize: 50 })
   
   // 多选状态
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set())
   const [nodesToDelete, setNodesToDelete] = useState<string[] | null>(null) // 批量删除确认
   
+  const cloneNodeSnapshot = (node: WorkflowNode): WorkflowNode => ({
+    ...node,
+    config: JSON.parse(JSON.stringify(node.config)),
+  })
+
+  const collectNodesForDeletion = (targetIds: string[]): WorkflowNode[] => {
+    const allNodes = useProjectStore.getState().nodes
+    const idsToRemove = new Set<string>()
+
+    for (const id of targetIds) {
+      const node = allNodes.find(n => n.id === id)
+      if (!node) continue
+      idsToRemove.add(node.id)
+      if (node.block_id) {
+        allNodes.forEach(n => {
+          if (n.block_id === node.block_id) {
+            idsToRemove.add(n.id)
+          }
+        })
+      }
+    }
+
+    return allNodes
+      .filter(n => idsToRemove.has(n.id))
+      .map(cloneNodeSnapshot)
+  }
+
+  const preparePasteSnapshots = (): WorkflowNode[] | null => {
+    const { copiedNodes, copiedNode } = useProjectStore.getState()
+    const blockIdMap = new Map<string, string>()
+
+    const remapBlockId = (original?: string): string | undefined => {
+      if (!original) return undefined
+      if (!blockIdMap.has(original)) {
+        blockIdMap.set(original, generateId())
+      }
+      return blockIdMap.get(original)
+    }
+
+    if (copiedNodes && copiedNodes.nodes.length > 0) {
+      return copiedNodes.nodes.map((node) => ({
+        id: generateId(),
+        workflow_id: currentWorkflow?.id || '',
+        type: node.type,
+        name: `${node.name} (副本)`,
+        config: JSON.parse(JSON.stringify(node.config)),
+        order_index: 0,
+        block_id: remapBlockId(node.block_id),
+        parent_block_id: remapBlockId(node.parent_block_id),
+        created_at: '',
+        updated_at: '',
+      }))
+    }
+
+    if (copiedNode) {
+      return [{
+        id: generateId(),
+        workflow_id: currentWorkflow?.id || '',
+        type: copiedNode.type,
+        name: `${copiedNode.name} (副本)`,
+        config: JSON.parse(JSON.stringify(copiedNode.config)),
+        order_index: 0,
+        block_id: remapBlockId(copiedNode.block_id),
+        parent_block_id: remapBlockId(copiedNode.parent_block_id),
+        created_at: '',
+        updated_at: '',
+      }]
+    }
+
+    return null
+  }
+
   // 派生状态
   const isRunning = executionStatus === 'running'
   const isPaused = executionStatus === 'paused'
@@ -198,61 +271,131 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     }
   }, [workflowId, projectId, setCurrentWorkflow, loadNodes, resetExecution, loadSettings])
 
-  // 添加单个节点（带历史记录）
+  // 添加单个节点（命令）
   const handleAddNode = async (type: NodeType) => {
-    const beforeNodes = [...nodes]
+    if (!currentWorkflow) return
     const config = nodeTypeConfig[type]
-    await createNode(type, `${config.label} ${nodes.length + 1}`)
-    // 等待状态更新后记录历史
-    const afterNodes = useProjectStore.getState().nodes
-    history.pushHistory('add', beforeNodes, afterNodes, `添加节点: ${config.label}`)
+    const currentNodes = useProjectStore.getState().nodes
+    const nodeName = `${config.label} ${currentNodes.length + 1}`
+    const nodeId = generateId()
+
+    await executeCommand({
+      description: `添加节点 ${nodeName}`,
+      redo: () => createNode(type, nodeName, undefined, { id: nodeId }),
+      undo: () => deleteNode(nodeId),
+    })
   }
 
-  // 添加块结构（开始 + 结束）（带历史记录）
+  // 添加块结构（开始 + 结束）（命令）
   const handleAddBlock = async (blockType: 'loop' | 'parallel' | 'condition') => {
-    const beforeNodes = [...nodes]
+    if (!currentWorkflow) return
     const blockId = generateId()
-    
+    const baseIndex = useProjectStore.getState().nodes.length + 1
+
+    const nodesToCreate: Array<{
+      id: string
+      type: NodeType
+      name: string
+      config: WorkflowNode['config']
+      block_id?: string
+      parent_block_id?: string
+    }> = []
+
     if (blockType === 'loop') {
-      // 创建循环开始和结束节点
-      await createNode('loop_start', `for 循环 ${nodes.length + 1}`, {
-        loop_type: 'count',
-        max_iterations: 5,
-      }, { block_id: blockId })
-      await createNode('loop_end', 'end for', {
-        loop_start_id: blockId,
-      }, { block_id: blockId })
+      nodesToCreate.push(
+        {
+          id: generateId(),
+          type: 'loop_start',
+          name: `for 循环 ${baseIndex}`,
+          config: {
+            loop_type: 'count',
+            max_iterations: 5,
+          },
+          block_id: blockId,
+        },
+        {
+          id: generateId(),
+          type: 'loop_end',
+          name: 'end for',
+          config: {
+            loop_start_id: blockId,
+          },
+          block_id: blockId,
+        },
+      )
     } else if (blockType === 'parallel') {
-      // 创建并发开始和结束节点
-      await createNode('parallel_start', `并发执行 ${nodes.length + 1}`, {
-        concurrency: 3,
-        output_mode: 'array',
-      }, { block_id: blockId })
-      await createNode('parallel_end', 'end 并发', {
-        parallel_start_id: blockId,
-      }, { block_id: blockId })
+      nodesToCreate.push(
+        {
+          id: generateId(),
+          type: 'parallel_start',
+          name: `并发执行 ${baseIndex}`,
+          config: {
+            concurrency: 3,
+            output_mode: 'array',
+          },
+          block_id: blockId,
+        },
+        {
+          id: generateId(),
+          type: 'parallel_end',
+          name: 'end 并发',
+          config: {
+            parallel_start_id: blockId,
+          },
+          block_id: blockId,
+        },
+      )
     } else if (blockType === 'condition') {
-      // 创建条件分支开始、else 和结束节点
-      await createNode('condition_if', `if 条件 ${nodes.length + 1}`, {
-        condition_type: 'keyword',
-        keywords: [],
-        keyword_mode: 'any',
-      }, { block_id: blockId })
-      await createNode('condition_else', 'else', {
-        condition_if_id: blockId,
-      }, { block_id: blockId })
-      await createNode('condition_end', 'end if', {
-        condition_if_id: blockId,
-      }, { block_id: blockId })
+      nodesToCreate.push(
+        {
+          id: generateId(),
+          type: 'condition_if',
+          name: `if 条件 ${baseIndex}`,
+          config: {
+            condition_type: 'keyword',
+            keywords: [],
+            keyword_mode: 'any',
+          },
+          block_id: blockId,
+        },
+        {
+          id: generateId(),
+          type: 'condition_else',
+          name: 'else',
+          config: {
+            condition_if_id: blockId,
+          },
+          block_id: blockId,
+        },
+        {
+          id: generateId(),
+          type: 'condition_end',
+          name: 'end if',
+          config: {
+            condition_if_id: blockId,
+          },
+          block_id: blockId,
+        },
+      )
     }
-    
-    // 重新加载节点
-    if (currentWorkflow) {
-      await loadNodes(currentWorkflow.id)
-      // 记录历史
-      const afterNodes = useProjectStore.getState().nodes
-      history.pushHistory('add', beforeNodes, afterNodes, `添加块结构: ${blockType}`)
-    }
+
+    await executeCommand({
+      description: `添加块结构 ${blockType}`,
+      redo: async () => {
+        for (const nodeDef of nodesToCreate) {
+          await createNode(nodeDef.type, nodeDef.name, nodeDef.config, {
+            id: nodeDef.id,
+            block_id: nodeDef.block_id,
+            parent_block_id: nodeDef.parent_block_id,
+          })
+        }
+      },
+      undo: async () => {
+        for (const nodeDef of nodesToCreate.slice().reverse()) {
+          await deleteNode(nodeDef.id)
+        }
+      },
+    })
   }
 
   const handleDeleteClick = (nodeId: string) => {
@@ -265,25 +408,64 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
   }
 
   const confirmDeleteNode = async () => {
-    if (nodeToDelete) {
-      const beforeNodes = [...nodes]
-      await deleteNode(nodeToDelete)
-      const afterNodes = useProjectStore.getState().nodes
-      history.pushHistory('delete', beforeNodes, afterNodes, `删除节点`)
+    if (!nodeToDelete) return
+    const snapshots = collectNodesForDeletion([nodeToDelete])
+    if (snapshots.length === 0) {
       setNodeToDelete(null)
+      return
     }
+    const orderBefore = useProjectStore.getState().nodes.map(n => n.id)
+
+    await executeCommand({
+      description: '删除节点',
+      redo: () => deleteNode(nodeToDelete),
+      undo: async () => {
+        for (const snapshot of snapshots) {
+          await createNode(snapshot.type, snapshot.name, snapshot.config, {
+            id: snapshot.id,
+            block_id: snapshot.block_id,
+            parent_block_id: snapshot.parent_block_id,
+          })
+        }
+        await reorderNodes(orderBefore)
+      },
+    })
+
+    setNodeToDelete(null)
   }
 
   // 确认批量删除
   const confirmDeleteNodes = async () => {
-    if (nodesToDelete && nodesToDelete.length > 0) {
-      const beforeNodes = [...nodes]
-      await deleteNodes(nodesToDelete)
-      const afterNodes = useProjectStore.getState().nodes
-      history.pushHistory('batch_delete', beforeNodes, afterNodes, `批量删除 ${nodesToDelete.length} 个节点`)
+    if (!nodesToDelete || nodesToDelete.length === 0) return
+    const snapshots = collectNodesForDeletion(nodesToDelete)
+    if (snapshots.length === 0) {
       setNodesToDelete(null)
       setSelectedNodeIds(new Set())
+      return
     }
+    const orderBefore = useProjectStore.getState().nodes.map(n => n.id)
+
+    await executeCommand({
+      description: `批量删除 ${nodesToDelete.length} 个节点`,
+      redo: async () => {
+        for (const id of nodesToDelete) {
+          await deleteNode(id)
+        }
+      },
+      undo: async () => {
+        for (const snapshot of snapshots) {
+          await createNode(snapshot.type, snapshot.name, snapshot.config, {
+            id: snapshot.id,
+            block_id: snapshot.block_id,
+            parent_block_id: snapshot.parent_block_id,
+          })
+        }
+        await reorderNodes(orderBefore)
+      },
+    })
+
+    setNodesToDelete(null)
+    setSelectedNodeIds(new Set())
   }
 
   const handleEditNode = (node: WorkflowNode) => {
@@ -292,16 +474,30 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
   }
 
   const handleSaveNode = async (updatedNode: WorkflowNode) => {
-    await updateNode(updatedNode.id, {
-      name: updatedNode.name,
-      config: updatedNode.config,
+    const previous = useProjectStore.getState().nodes.find(n => n.id === updatedNode.id)
+    if (!previous) return
+
+    const prevSnapshot = cloneNodeSnapshot(previous)
+    const nextSnapshot = cloneNodeSnapshot(updatedNode)
+
+    await executeCommand({
+      description: `更新节点 ${updatedNode.name}`,
+      redo: () => updateNode(updatedNode.id, {
+        name: nextSnapshot.name,
+        config: nextSnapshot.config,
+      }),
+      undo: () => updateNode(prevSnapshot.id, {
+        name: prevSnapshot.name,
+        config: prevSnapshot.config,
+      }),
     })
-    // 更新本地状态中的选中节点
-    setSelectedNode(updatedNode)
+
+    setSelectedNode(nextSnapshot)
   }
 
   // 检查是否有开始流程节点
   const hasStartNode = nodes.some(n => n.type === 'start')
+  const hasExecutableNode = nodes.some(n => n.type !== 'start')
 
   const handleRun = async () => {
     // 检查全局配置
@@ -382,60 +578,60 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
       toast.error('剪贴板为空')
       return
     }
-    const beforeNodes = [...nodes]
-    const copiedCount = getCopiedCount()
-    const { copiedNodes } = useProjectStore.getState()
-    const isBatchCopy = copiedNodes !== null && copiedNodes.nodes.length > 0
-    
-    if (isBatchCopy) {
-      // 批量粘贴（即便只有 1 个节点，也使用批量逻辑，保持数据来源一致）
-      const newNodes = await pasteNodes()
-      if (newNodes.length > 0) {
-        const afterNodes = useProjectStore.getState().nodes
-        history.pushHistory('add', beforeNodes, afterNodes, `粘贴 ${newNodes.length} 个节点`)
-        toast.success(`已粘贴 ${newNodes.length} 个节点`)
-      }
-    } else {
-      // 单个粘贴
-      const newNode = await pasteNode()
-      if (newNode) {
-        const afterNodes = useProjectStore.getState().nodes
-        history.pushHistory('add', beforeNodes, afterNodes, `粘贴节点: ${newNode.name}`)
-        toast.success('节点已粘贴')
-      }
+    const snapshots = preparePasteSnapshots()
+    if (!snapshots || snapshots.length === 0) {
+      toast.error('剪贴板为空')
+      return
     }
+
+    const existingOrder = useProjectStore.getState().nodes.map(n => n.id)
+    const orderAfter = [...existingOrder, ...snapshots.map(n => n.id)]
+    const description = snapshots.length > 1 ? `粘贴 ${snapshots.length} 个节点` : '粘贴节点'
+
+    await executeCommand({
+      description,
+      redo: async () => {
+        for (const snapshot of snapshots) {
+          await createNode(snapshot.type, snapshot.name, snapshot.config, {
+            id: snapshot.id,
+            block_id: snapshot.block_id,
+            parent_block_id: snapshot.parent_block_id,
+          })
+        }
+        await reorderNodes(orderAfter)
+      },
+      undo: async () => {
+        for (const snapshot of snapshots) {
+          await deleteNode(snapshot.id)
+        }
+      },
+    })
+
+    toast.success(description)
   }
 
   // 撤销操作
   const handleUndo = async () => {
-    if (!history.canUndo) return
-    
-    const previousNodes = history.undo()
-    if (previousNodes && currentWorkflow) {
-      // 恢复节点状态到数据库
-      await restoreNodes(previousNodes)
-      toast.info('已撤销')
-    }
+    if (!canUndo) return
+    await undoCommand()
+    toast.info('已撤销')
   }
 
   // 重做操作
   const handleRedo = async () => {
-    if (!history.canRedo) return
-    
-    const nextNodes = history.redo()
-    if (nextNodes && currentWorkflow) {
-      // 恢复节点状态到数据库
-      await restoreNodes(nextNodes)
-      toast.info('已重做')
-    }
+    if (!canRedo) return
+    await redoCommand()
+    toast.info('已重做')
   }
 
-  // 节点重排序（带历史记录）
+  // 节点重排序命令
   const handleReorderNodes = async (nodeIds: string[]) => {
-    const beforeNodes = [...nodes]
-    await reorderNodes(nodeIds)
-    const afterNodes = useProjectStore.getState().nodes
-    history.pushHistory('reorder', beforeNodes, afterNodes, '重新排序节点')
+    const previousOrder = useProjectStore.getState().nodes.map(n => n.id)
+    await executeCommand({
+      description: '调整节点顺序',
+      redo: () => reorderNodes(nodeIds),
+      undo: () => reorderNodes(previousOrder),
+    })
   }
 
   // 导出工作流
@@ -545,7 +741,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
       ctrl: true,
       shift: false,
       handler: () => {
-        if (!isExecuting && history.canUndo) {
+        if (!isExecuting && canUndo) {
           handleUndo()
         }
       },
@@ -558,7 +754,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
       ctrl: true,
       shift: true,
       handler: () => {
-        if (!isExecuting && history.canRedo) {
+        if (!isExecuting && canRedo) {
           handleRedo()
         }
       },
@@ -568,7 +764,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
       key: 'y',
       ctrl: true,
       handler: () => {
-        if (!isExecuting && history.canRedo) {
+        if (!isExecuting && canRedo) {
           handleRedo()
         }
       },
@@ -751,7 +947,12 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
           </Button>
           
           {!isExecuting ? (
-            <Button size="sm" onClick={handleRun} disabled={nodes.length === 0}>
+            <Button
+              size="sm"
+              data-testid="workflow-run-button"
+              onClick={handleRun}
+              disabled={!hasExecutableNode}
+            >
               <Play className="mr-2 h-4 w-4" />
               运行
             </Button>
@@ -788,10 +989,10 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleUndo}
-                      disabled={!history.canUndo || isExecuting}
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleUndo}
+                    disabled={!canUndo || isExecuting}
                       className="h-8 w-8 p-0"
                     >
                       <Undo2 className="h-4 w-4" />
@@ -802,10 +1003,10 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleRedo}
-                      disabled={!history.canRedo || isExecuting}
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleRedo}
+                    disabled={!canRedo || isExecuting}
                       className="h-8 w-8 p-0"
                     >
                       <Redo2 className="h-4 w-4" />
@@ -825,7 +1026,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                     disabled={!hasCopiedNode()}
                   >
                     <Clipboard className="mr-2 h-4 w-4" />
-                    粘贴{getCopiedCount() > 1 ? ` (${getCopiedCount()})` : ''}
+                    粘贴
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>粘贴节点 (Ctrl+V)</TooltipContent>
@@ -833,7 +1034,11 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="outline">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-testid="workflow-add-node-button"
+                  >
                     <Plus className="mr-2 h-4 w-4" />
                     添加节点
                   </Button>
@@ -862,6 +1067,10 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                     <Type className="mr-2 h-4 w-4 text-cyan-500" />
                     <span>文本拼接</span>
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleAddNode('var_update')}>
+                    <Variable className="mr-2 h-4 w-4 text-emerald-500" />
+                    <span>更新变量</span>
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   
                   {/* 控制结构 - 带开始/结束的块 */}
@@ -888,17 +1097,6 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                       </DropdownMenuItem>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
-                  <DropdownMenuSeparator />
-                  
-                  {/* 变量 */}
-                  <DropdownMenuItem onClick={() => handleAddNode('var_set')}>
-                    <Variable className="mr-2 h-4 w-4 text-emerald-500" />
-                    <span>设置变量</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleAddNode('var_get')}>
-                    <Variable className="mr-2 h-4 w-4 text-teal-500" />
-                    <span>读取变量</span>
-                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

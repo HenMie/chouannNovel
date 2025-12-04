@@ -352,6 +352,8 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
                     transition={{ delay: 0.05 * index }}
                   >
                     <Card
+                      data-testid="workflow-card"
+                      data-workflow-id={workflow.id}
                       className="group relative h-full cursor-pointer transition-all hover:shadow-md hover:border-primary/50"
                       onClick={() => {
                         setCurrentWorkflow(workflow)
@@ -373,6 +375,7 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
                                 size="icon"
                                 className="h-8 w-8 opacity-0 group-hover:opacity-100 -mr-2 -mt-2"
                                 onClick={(e) => e.stopPropagation()}
+                                data-testid="workflow-card-menu"
                               >
                                 <MoreVertical className="h-4 w-4" />
                               </Button>

@@ -66,7 +66,12 @@ interface ProjectState {
     type: WorkflowNode['type'], 
     name: string, 
     config?: WorkflowNode['config'],
-    options?: { block_id?: string; parent_block_id?: string; insert_after_index?: number }
+    options?: { 
+      block_id?: string
+      parent_block_id?: string
+      insert_after_index?: number
+      id?: string
+    }
   ) => Promise<WorkflowNode | null>
   updateNode: (id: string, data: Partial<Pick<WorkflowNode, 'name' | 'config' | 'block_id' | 'parent_block_id'>>) => Promise<void>
   deleteNode: (id: string) => Promise<void>

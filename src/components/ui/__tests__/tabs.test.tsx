@@ -227,56 +227,46 @@ describe('Tabs 组件', () => {
       const user = userEvent.setup()
       render(<BasicTabs />)
       
-      const tab1 = screen.getByRole('tab', { name: '标签一' })
-      tab1.focus()
-      
+      // 使用 userEvent.click 来聚焦元素，它会正确处理 act 包裹
+      await user.click(screen.getByRole('tab', { name: '标签一' }))
       await user.keyboard('{ArrowRight}')
       
-      await waitFor(() => {
-        expect(screen.getByRole('tab', { name: '标签二' })).toHaveFocus()
-      })
+      // 使用 findByRole 自动等待异步更新完成
+      const tab2 = await screen.findByRole('tab', { name: '标签二' })
+      expect(tab2).toHaveFocus()
     })
 
     it('左箭头键应切换到上一个标签', async () => {
       const user = userEvent.setup()
       render(<BasicTabs defaultValue="tab2" />)
       
-      const tab2 = screen.getByRole('tab', { name: '标签二' })
-      tab2.focus()
-      
+      await user.click(screen.getByRole('tab', { name: '标签二' }))
       await user.keyboard('{ArrowLeft}')
       
-      await waitFor(() => {
-        expect(screen.getByRole('tab', { name: '标签一' })).toHaveFocus()
-      })
+      const tab1 = await screen.findByRole('tab', { name: '标签一' })
+      expect(tab1).toHaveFocus()
     })
 
     it('Home 键应跳转到第一个标签', async () => {
       const user = userEvent.setup()
       render(<BasicTabs defaultValue="tab3" />)
       
-      const tab3 = screen.getByRole('tab', { name: '标签三' })
-      tab3.focus()
-      
+      await user.click(screen.getByRole('tab', { name: '标签三' }))
       await user.keyboard('{Home}')
       
-      await waitFor(() => {
-        expect(screen.getByRole('tab', { name: '标签一' })).toHaveFocus()
-      })
+      const tab1 = await screen.findByRole('tab', { name: '标签一' })
+      expect(tab1).toHaveFocus()
     })
 
     it('End 键应跳转到最后一个标签', async () => {
       const user = userEvent.setup()
       render(<BasicTabs />)
       
-      const tab1 = screen.getByRole('tab', { name: '标签一' })
-      tab1.focus()
-      
+      await user.click(screen.getByRole('tab', { name: '标签一' }))
       await user.keyboard('{End}')
       
-      await waitFor(() => {
-        expect(screen.getByRole('tab', { name: '标签三' })).toHaveFocus()
-      })
+      const tab3 = await screen.findByRole('tab', { name: '标签三' })
+      expect(tab3).toHaveFocus()
     })
   })
 

@@ -1,5 +1,6 @@
 // 文本提取节点配置表单
 
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { VariableSelect } from '@/components/ui/variable-select'
@@ -59,7 +60,7 @@ export function TextExtractConfigForm({ config, onChange, nodes = [], currentNod
         <Label>提取模式</Label>
         <Select
           value={currentConfig.extract_mode}
-          onValueChange={(value: 'regex' | 'start_end' | 'json_path') =>
+          onValueChange={(value: 'regex' | 'start_end' | 'json_path' | 'md_to_text') =>
             updateConfig({ extract_mode: value })
           }
         >
@@ -70,6 +71,7 @@ export function TextExtractConfigForm({ config, onChange, nodes = [], currentNod
             <SelectItem value="regex">正则表达式</SelectItem>
             <SelectItem value="start_end">起止标记</SelectItem>
             <SelectItem value="json_path">JSON 路径</SelectItem>
+            <SelectItem value="md_to_text">Markdown 转纯文本</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -136,6 +138,15 @@ export function TextExtractConfigForm({ config, onChange, nodes = [], currentNod
               支持点号访问和数组索引，例如：data.list[0].name
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Markdown 转纯文本说明 */}
+      {currentConfig.extract_mode === 'md_to_text' && (
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            将 Markdown 格式文本转换为纯文本，移除所有格式标记（如标题、加粗、斜体、链接、代码块等）
+          </p>
         </div>
       )}
     </div>

@@ -4,12 +4,19 @@ import { generateText, streamText, type CoreMessage } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createAnthropic } from '@ai-sdk/anthropic'
-import type { AIRequestOptions, AIResponse, StreamChunk, Message } from './types'
+import type { AIRequestOptions, AIResponse, StreamChunk, Message, ThinkingConfig } from './types'
 import type { AIProvider, GlobalConfig } from '@/types'
 
 // 导出类型
-export type { AIRequestOptions, AIResponse, StreamChunk, Message }
+export type { AIRequestOptions, AIResponse, StreamChunk, Message, ThinkingConfig }
 export type { MessageRole } from './types'
+
+// Thinking/Reasoning 配置模式
+export type ThinkingMode = 
+  | 'thinkingLevel'    // Gemini 3 Pro: 'low' | 'high'
+  | 'thinkingBudget'   // Gemini 2.5: 数值 token 预算
+  | 'effort'           // Claude: 'low' | 'medium' | 'high'
+  | 'none'             // 不支持
 
 // 模型配置：每个模型支持的参数
 export interface ModelConfig {
@@ -19,7 +26,27 @@ export interface ModelConfig {
   supportsTemperature: boolean
   supportsMaxTokens: boolean
   supportsTopP: boolean
-  supportsThinkingLevel?: boolean
+  /**
+   * Thinking/Reasoning 支持模式:
+   * - 'thinkingLevel': Gemini 3 Pro 使用，支持 'low' 和 'high'
+   * - 'thinkingBudget': Gemini 2.5 系列使用，支持数值 token 预算
+   * - 'effort': Claude 使用，支持 'low' | 'medium' | 'high'
+   * - 'none': 不支持
+   */
+  thinkingMode?: ThinkingMode
+  /**
+   * thinkingBudget 的有效范围 [min, max]
+   * 仅当 thinkingMode === 'thinkingBudget' 时有效
+   */
+  thinkingBudgetRange?: [number, number]
+  /**
+   * 是否可以禁用 thinking（设置 thinkingBudget = 0）
+   * 仅当 thinkingMode === 'thinkingBudget' 时有效
+   */
+  canDisableThinking?: boolean
+  /**
+   * 默认最大输出 token 数（仅当用户启用 maxTokens 时使用）
+   */
   defaultMaxTokens?: number
 }
 
@@ -30,10 +57,12 @@ export const BUILTIN_MODELS: ModelConfig[] = [
     id: 'gemini-3-pro-preview',
     name: 'Gemini 3 Pro Preview',
     provider: 'gemini',
-    supportsTemperature: true,
+    // Gemini 3 Pro 官方建议保持 temperature=1.0 和 top_p=0.95 的默认值
+    // 因为模型内置思维链推理机制，调整这些参数可能导致推理能力下降
+    supportsTemperature: false,
     supportsMaxTokens: true,
-    supportsTopP: true,
-    supportsThinkingLevel: true,
+    supportsTopP: false,
+    thinkingMode: 'thinkingLevel',
     defaultMaxTokens: 8192,
   },
   {
@@ -43,7 +72,9 @@ export const BUILTIN_MODELS: ModelConfig[] = [
     supportsTemperature: true,
     supportsMaxTokens: true,
     supportsTopP: true,
-    supportsThinkingLevel: true,
+    thinkingMode: 'thinkingBudget',
+    thinkingBudgetRange: [128, 32768],
+    canDisableThinking: false,
     defaultMaxTokens: 8192,
   },
   {
@@ -53,7 +84,9 @@ export const BUILTIN_MODELS: ModelConfig[] = [
     supportsTemperature: true,
     supportsMaxTokens: true,
     supportsTopP: true,
-    supportsThinkingLevel: true,
+    thinkingMode: 'thinkingBudget',
+    thinkingBudgetRange: [0, 24576],
+    canDisableThinking: true,
     defaultMaxTokens: 8192,
   },
 
@@ -94,7 +127,9 @@ export const BUILTIN_MODELS: ModelConfig[] = [
     supportsTemperature: true,
     supportsMaxTokens: true,
     supportsTopP: true,
-    defaultMaxTokens: 4096,
+    // Claude Opus 4.5 支持 effort 参数控制推理深度
+    thinkingMode: 'effort',
+    defaultMaxTokens: 8192,
   },
   {
     id: 'claude-sonnet-4-5-20250929',
@@ -103,7 +138,9 @@ export const BUILTIN_MODELS: ModelConfig[] = [
     supportsTemperature: true,
     supportsMaxTokens: true,
     supportsTopP: true,
-    defaultMaxTokens: 4096,
+    // Claude Sonnet 4.5 支持 effort 参数控制推理深度
+    thinkingMode: 'effort',
+    defaultMaxTokens: 8192,
   },
   {
     id: 'claude-haiku-4-5-20251001',
@@ -112,6 +149,7 @@ export const BUILTIN_MODELS: ModelConfig[] = [
     supportsTemperature: true,
     supportsMaxTokens: true,
     supportsTopP: true,
+    // Haiku 不支持 effort 参数
     defaultMaxTokens: 4096,
   },
 ]
@@ -252,6 +290,67 @@ function convertMessages(messages: Message[]): CoreMessage[] {
 }
 
 /**
+ * 构建提供商特定的 providerOptions
+ * 根据模型类型返回相应的配置
+ */
+function buildProviderOptions(
+  thinkingConfig: ThinkingConfig | undefined,
+  modelConfig: ModelConfig | undefined
+) {
+  if (!thinkingConfig || !modelConfig) {
+    return undefined
+  }
+
+  const thinkingMode = modelConfig.thinkingMode
+
+  // 不支持 thinking 的模型
+  if (!thinkingMode || thinkingMode === 'none') {
+    return undefined
+  }
+
+  // Gemini 模型
+  if (modelConfig.provider === 'gemini') {
+    // Gemini 3 Pro 使用 thinkingLevel
+    if (thinkingMode === 'thinkingLevel' && thinkingConfig.thinkingLevel) {
+      return {
+        google: {
+          thinkingConfig: {
+            thinkingLevel: thinkingConfig.thinkingLevel,
+            includeThoughts: thinkingConfig.includeThoughts ?? false,
+          },
+        },
+      }
+    }
+
+    // Gemini 2.5 系列使用 thinkingBudget
+    if (thinkingMode === 'thinkingBudget' && thinkingConfig.thinkingBudget !== undefined) {
+      return {
+        google: {
+          thinkingConfig: {
+            thinkingBudget: thinkingConfig.thinkingBudget,
+            includeThoughts: thinkingConfig.includeThoughts ?? false,
+          },
+        },
+      }
+    }
+  }
+
+  // Claude 模型
+  if (modelConfig.provider === 'claude') {
+    // Claude Opus/Sonnet 使用 effort 参数
+    if (thinkingMode === 'effort' && thinkingConfig.effort) {
+      return {
+        anthropic: {
+          effort: thinkingConfig.effort,
+        },
+      }
+    }
+  }
+
+  return undefined
+}
+
+/**
  * 发送 AI 聊天请求（非流式）
  */
 export async function chat(
@@ -261,12 +360,17 @@ export async function chat(
   const model = createModel(options.provider, options.model, globalConfig)
   const modelConfig = getModelConfig(options.model)
 
+  // 构建提供商特定选项
+  const providerOptions = buildProviderOptions(options.thinkingConfig, modelConfig)
+
   const result = await generateText({
     model,
     messages: convertMessages(options.messages),
     temperature: modelConfig?.supportsTemperature ? options.temperature : undefined,
     maxOutputTokens: modelConfig?.supportsMaxTokens ? options.maxTokens : undefined,
     topP: modelConfig?.supportsTopP ? options.topP : undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    providerOptions: providerOptions as any,
   })
 
   return {
@@ -292,12 +396,17 @@ export async function chatStream(
   const model = createModel(options.provider, options.model, globalConfig)
   const modelConfig = getModelConfig(options.model)
 
+  // 构建提供商特定选项
+  const providerOptions = buildProviderOptions(options.thinkingConfig, modelConfig)
+
   const result = streamText({
     model,
     messages: convertMessages(options.messages),
     temperature: modelConfig?.supportsTemperature ? options.temperature : undefined,
     maxOutputTokens: modelConfig?.supportsMaxTokens ? options.maxTokens : undefined,
     topP: modelConfig?.supportsTopP ? options.topP : undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    providerOptions: providerOptions as any,
   })
 
   // 处理流式响应
@@ -319,12 +428,17 @@ export async function* chatStreamIterable(
   const model = createModel(options.provider, options.model, globalConfig)
   const modelConfig = getModelConfig(options.model)
 
+  // 构建提供商特定选项
+  const providerOptions = buildProviderOptions(options.thinkingConfig, modelConfig)
+
   const result = streamText({
     model,
     messages: convertMessages(options.messages),
     temperature: modelConfig?.supportsTemperature ? options.temperature : undefined,
     maxOutputTokens: modelConfig?.supportsMaxTokens ? options.maxTokens : undefined,
     topP: modelConfig?.supportsTopP ? options.topP : undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    providerOptions: providerOptions as any,
   })
 
   for await (const textPart of result.textStream) {

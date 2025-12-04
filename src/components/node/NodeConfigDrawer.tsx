@@ -1,7 +1,7 @@
 // 节点配置抽屉组件
 
 import { useEffect, useState, useCallback } from 'react'
-import { Save, HelpCircle, AlertCircle } from 'lucide-react'
+import { Save, HelpCircle, AlertCircle, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -45,6 +45,9 @@ import type {
   LoopStartConfig,
   ParallelStartConfig,
   ConditionIfConfig,
+  StartConfig,
+  CustomVariable,
+  VarUpdateConfig,
 } from '@/types'
 
 interface NodeConfigDrawerProps {
@@ -63,11 +66,10 @@ const nodeTypeLabels: Record<string, string> = {
   ai_chat: 'AI 对话节点',
   text_extract: '内容提取节点',
   text_concat: '文本拼接节点',
+  var_update: '更新变量节点',
   condition: '条件判断节点',
   loop: '循环节点',
   batch: '批量执行节点',
-  var_set: '设置变量节点',
-  var_get: '读取变量节点',
   // 新的块结构节点
   loop_start: 'for 循环开始',
   loop_end: 'for 循环结束',
@@ -171,12 +173,40 @@ export function NodeConfigDrawer({
           />
         )
 
-      case 'start':
+      case 'start': {
+        const startConfig = config as Partial<StartConfig>
+        const customVars = startConfig.custom_variables || []
+        
+        // 添加新变量
+        const addCustomVariable = () => {
+          const newVar: CustomVariable = { name: '', default_value: '' }
+          setConfig({ 
+            ...config, 
+            custom_variables: [...customVars, newVar] 
+          })
+        }
+        
+        // 更新变量
+        const updateCustomVariable = (index: number, field: keyof CustomVariable, value: string) => {
+          const updated = [...customVars]
+          updated[index] = { ...updated[index], [field]: value }
+          setConfig({ ...config, custom_variables: updated })
+        }
+        
+        // 删除变量
+        const removeCustomVariable = (index: number) => {
+          const updated = customVars.filter((_, i) => i !== index)
+          setConfig({ ...config, custom_variables: updated })
+        }
+        
         return (
-          <div className="space-y-4">
+          <div className="space-y-6">
+            {/* 系统变量说明 */}
             <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
-              <p>用户输入将自动保存到变量 <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs">用户问题</code> 中。</p>
+              <p>用户输入将自动保存到全局变量 <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs">用户问题</code> 中。</p>
             </div>
+            
+            {/* 默认值 */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Label htmlFor="default_value">默认值</Label>
@@ -192,14 +222,75 @@ export function NodeConfigDrawer({
               <Input
                 id="default_value"
                 placeholder="默认输入内容"
-                value={(config as any).default_value || ''}
+                value={startConfig.default_value || ''}
                 onChange={(e) =>
                   setConfig({ ...config, default_value: e.target.value })
                 }
               />
             </div>
+            
+            {/* 自定义全局变量 */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Label>自定义全局变量</Label>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      在此定义的变量可在整个工作流中使用，通过「更新变量」节点修改值
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addCustomVariable}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  添加变量
+                </Button>
+              </div>
+              
+              {customVars.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+                  暂无自定义变量
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {customVars.map((variable, index) => (
+                    <div key={index} className="flex items-center gap-2 rounded-lg border p-3">
+                      <div className="flex-1 space-y-2">
+                        <Input
+                          placeholder="变量名"
+                          value={variable.name}
+                          onChange={(e) => updateCustomVariable(index, 'name', e.target.value)}
+                        />
+                        <Input
+                          placeholder="默认值（可选）"
+                          value={variable.default_value}
+                          onChange={(e) => updateCustomVariable(index, 'default_value', e.target.value)}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        onClick={() => removeCustomVariable(index)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )
+      }
 
       case 'output':
         return (
@@ -224,32 +315,51 @@ export function NodeConfigDrawer({
           </div>
         )
 
-      case 'var_set':
+      case 'var_update': {
+        const varUpdateConfig = config as Partial<VarUpdateConfig>
+        // 获取开始节点中定义的全局变量
+        const startNode = nodes?.find(n => n.type === 'start')
+        const startConfig = startNode?.config as StartConfig | undefined
+        const availableVars = [
+          { name: '用户问题', description: '系统变量' },
+          ...(startConfig?.custom_variables?.map(v => ({ name: v.name, description: '自定义变量' })) || [])
+        ]
+        
         return (
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="variable_name">变量名</Label>
-              <Input
-                id="variable_name"
-                placeholder="输入变量名（例如：user_name）"
-                value={(config as any).variable_name || ''}
-                onChange={(e) =>
-                  setConfig({ ...config, variable_name: e.target.value })
+              <Label htmlFor="variable_name">选择变量</Label>
+              <Select
+                value={varUpdateConfig.variable_name || ''}
+                onValueChange={(value) =>
+                  setConfig({ ...config, variable_name: value })
                 }
-              />
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择要更新的变量" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableVars.map((v) => (
+                    <SelectItem key={v.name} value={v.name}>
+                      {v.name}
+                      <span className="ml-2 text-xs text-muted-foreground">({v.description})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <p className="text-xs text-muted-foreground">
-                后续节点可通过此名称访问该变量
+                只能更新在开始节点中定义的全局变量
               </p>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="custom_value">变量值</Label>
+              <Label htmlFor="value_template">新值</Label>
               <Input
-                id="custom_value"
-                placeholder="输入变量值，支持 {{变量名}} 引用"
-                value={(config as any).custom_value || ''}
+                id="value_template"
+                placeholder="输入新值，支持 {{变量名}} 引用"
+                value={varUpdateConfig.value_template || ''}
                 onChange={(e) =>
-                  setConfig({ ...config, custom_value: e.target.value })
+                  setConfig({ ...config, value_template: e.target.value })
                 }
               />
               <p className="text-xs text-muted-foreground">
@@ -258,26 +368,7 @@ export function NodeConfigDrawer({
             </div>
           </div>
         )
-
-      case 'var_get':
-        return (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="variable_name">变量名</Label>
-              <Input
-                id="variable_name"
-                placeholder="输入变量名（如：用户问题）"
-                value={(config as any).variable_name || ''}
-                onChange={(e) =>
-                  setConfig({ ...config, variable_name: e.target.value })
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                读取此前已设置的变量值作为当前节点的输出
-              </p>
-            </div>
-          </div>
-        )
+      }
 
       case 'text_extract':
         return (

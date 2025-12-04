@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
-import { generateUniqueName } from './fixtures/test-data'
+import type { Page } from '@playwright/test'
+import { generateUniqueName, toastLocator, selectors } from './fixtures/test-data'
 
 /**
  * 工作流编辑流程 E2E 测试
@@ -11,6 +12,64 @@ import { generateUniqueName } from './fixtures/test-data'
  * - 节点排序
  * - 删除节点
  */
+
+async function addNode(page: Page, menuLabel: string, openSubmenu = false) {
+  // 点击添加节点按钮打开下拉菜单
+  const addBtn = page.locator(selectors.workflow.addNodeBtn)
+  await addBtn.click()
+  
+  // 如果需要打开子菜单（控制结构）
+  if (openSubmenu) {
+    const submenuTrigger = page.locator('[role="menuitem"]').filter({ hasText: '控制结构' })
+    await expect(submenuTrigger).toBeVisible({ timeout: 5000 })
+    await submenuTrigger.hover()
+    // 等待子菜单出现
+    await page.waitForTimeout(300)
+  }
+  
+  // 等待菜单项出现并点击
+  const menuItem = page.getByRole('menuitem', { name: menuLabel }).first()
+  await expect(menuItem).toBeVisible({ timeout: 5000 })
+  await menuItem.click()
+}
+
+// 节点类型到菜单标签和搜索标签的映射
+// submenu 为 true 表示需要先打开控制结构子菜单
+const nodeTypeMapping: Record<string, { menu: string; search: string; submenu?: boolean }> = {
+  '输出节点': { menu: '输出节点', search: '输出' },
+  '输出': { menu: '输出节点', search: '输出' },
+  'AI 对话': { menu: 'AI 对话', search: 'AI 对话' },
+  '文本拼接': { menu: '文本拼接', search: '文本拼接' },
+  '内容提取': { menu: '内容提取', search: '内容提取' },
+  '设置变量': { menu: '更新变量', search: '更新变量' },
+  '更新变量': { menu: '更新变量', search: '更新变量' },
+  'for 循环': { menu: 'for 循环', search: 'For 循环', submenu: true },
+  'end for': { menu: 'for 循环', search: 'end for', submenu: true },
+  'if 条件分支': { menu: 'if 条件分支', search: 'IF 条件', submenu: true },
+  'if 条件': { menu: 'if 条件分支', search: 'IF 条件', submenu: true },
+  'else': { menu: 'if 条件分支', search: 'Else', submenu: true },
+  'end if': { menu: 'if 条件分支', search: 'End IF', submenu: true },
+}
+
+function nodeLocator(page: Page, keyword: string) {
+  const mapping = nodeTypeMapping[keyword]
+  const searchKeyword = mapping?.search ?? keyword
+  return page.locator(selectors.workflow.nodeItem).filter({ hasText: searchKeyword }).first()
+}
+
+async function ensureNode(page: Page, keyword: string) {
+  const mapping = nodeTypeMapping[keyword]
+  const searchKeyword = mapping?.search ?? keyword
+  const menuLabel = mapping?.menu ?? keyword
+  const needsSubmenu = mapping?.submenu ?? false
+  
+  const locator = page.locator(selectors.workflow.nodeItem).filter({ hasText: searchKeyword }).first()
+  if (!(await locator.isVisible().catch(() => false))) {
+    await addNode(page, menuLabel, needsSubmenu)
+    await expect(locator).toBeVisible()
+  }
+  return locator
+}
 
 test.describe('工作流编辑流程', () => {
   let projectName: string
@@ -28,7 +87,7 @@ test.describe('工作流编辑流程', () => {
     await page.click('button[type="submit"]')
     
     // 等待项目创建成功并进入项目页面
-    await expect(page.locator('[data-sonner-toast]')).toContainText('项目创建成功')
+    await expect(toastLocator(page, '项目创建成功')).toBeVisible()
     await expect(page.locator('text=工作流列表')).toBeVisible()
   })
 
@@ -53,7 +112,7 @@ test.describe('工作流编辑流程', () => {
       await page.click('button[type="submit"]')
 
       // 验证成功提示
-      await expect(page.locator('[data-sonner-toast]')).toContainText('工作流创建成功')
+      await expect(toastLocator(page, '工作流创建成功')).toBeVisible()
 
       // 验证跳转到工作流页面
       await expect(page.locator('text=' + workflowName).first()).toBeVisible()
@@ -97,93 +156,38 @@ test.describe('工作流编辑流程', () => {
       await page.click('button[type="submit"]')
       
       // 等待工作流创建成功
-      await expect(page.locator('[data-sonner-toast]')).toContainText('工作流创建成功')
+      await expect(toastLocator(page, '工作流创建成功')).toBeVisible()
     })
 
     test('应该成功添加输出节点', async ({ page }) => {
-      // 点击添加节点按钮
-      await page.click('button:has-text("添加节点")')
-      
-      // 选择输出节点
-      await page.click('text=输出节点')
-      
-      // 验证节点已添加（查找节点列表中的节点）
-      await expect(page.locator('text=输出节点').first()).toBeVisible()
+      await ensureNode(page, '输出节点')
     })
 
     test('应该成功添加 AI 对话节点', async ({ page }) => {
-      // 点击添加节点按钮
-      await page.click('button:has-text("添加节点")')
-      
-      // 选择 AI 对话节点
-      await page.click('[role="menuitem"]:has-text("AI 对话")')
-      
-      // 验证节点已添加
-      await expect(page.locator('text=AI 对话').first()).toBeVisible()
+      await ensureNode(page, 'AI 对话')
     })
 
     test('应该成功添加文本拼接节点', async ({ page }) => {
-      // 点击添加节点按钮
-      await page.click('button:has-text("添加节点")')
-      
-      // 选择文本拼接节点
-      await page.click('[role="menuitem"]:has-text("文本拼接")')
-      
-      // 验证节点已添加
-      await expect(page.locator('text=文本拼接').first()).toBeVisible()
+      await ensureNode(page, '文本拼接')
     })
 
     test('应该成功添加内容提取节点', async ({ page }) => {
-      // 点击添加节点按钮
-      await page.click('button:has-text("添加节点")')
-      
-      // 选择内容提取节点
-      await page.click('[role="menuitem"]:has-text("内容提取")')
-      
-      // 验证节点已添加
-      await expect(page.locator('text=内容提取').first()).toBeVisible()
+      await ensureNode(page, '内容提取')
     })
 
     test('应该成功添加变量节点', async ({ page }) => {
-      // 点击添加节点按钮
-      await page.click('button:has-text("添加节点")')
-      
-      // 选择设置变量节点
-      await page.click('[role="menuitem"]:has-text("设置变量")')
-      
-      // 验证节点已添加
-      await expect(page.locator('text=设置变量').first()).toBeVisible()
+      await ensureNode(page, '设置变量')
     })
 
     test('应该成功添加控制结构（循环）', async ({ page }) => {
-      // 点击添加节点按钮
-      await page.click('button:has-text("添加节点")')
-      
-      // 打开控制结构子菜单
-      await page.hover('[role="menuitem"]:has-text("控制结构")')
-      
-      // 等待子菜单出现并选择循环
-      await page.click('[role="menuitem"]:has-text("for 循环")')
-      
-      // 验证循环开始和结束节点都已添加
-      await expect(page.locator('text=for 循环').first()).toBeVisible()
-      await expect(page.locator('text=end for').first()).toBeVisible()
+      await ensureNode(page, 'for 循环')
+      await ensureNode(page, 'end for')
     })
 
     test('应该成功添加控制结构（条件分支）', async ({ page }) => {
-      // 点击添加节点按钮
-      await page.click('button:has-text("添加节点")')
-      
-      // 打开控制结构子菜单
-      await page.hover('[role="menuitem"]:has-text("控制结构")')
-      
-      // 等待子菜单出现并选择条件分支
-      await page.click('[role="menuitem"]:has-text("if 条件分支")')
-      
-      // 验证条件分支节点都已添加
-      await expect(page.locator('text=if 条件').first()).toBeVisible()
-      await expect(page.locator('text=else').first()).toBeVisible()
-      await expect(page.locator('text=end if').first()).toBeVisible()
+      await ensureNode(page, 'if 条件')
+      await ensureNode(page, 'else')
+      await ensureNode(page, 'end if')
     })
   })
 
@@ -198,16 +202,16 @@ test.describe('工作流编辑流程', () => {
       await page.fill('input#name', workflowName)
       await page.click('button[type="submit"]')
       
-      await expect(page.locator('[data-sonner-toast]')).toContainText('工作流创建成功')
+      await expect(toastLocator(page, '工作流创建成功')).toBeVisible()
       
       // 添加一个 AI 对话节点
-      await page.click('button:has-text("添加节点")')
-      await page.click('[role="menuitem"]:has-text("AI 对话")')
+      await addNode(page, 'AI 对话')
     })
 
     test('应该能打开节点配置面板', async ({ page }) => {
       // 点击节点打开配置
-      await page.locator('text=AI 对话').first().click()
+      const node = await ensureNode(page, 'AI 对话')
+      await node.click()
       
       // 验证配置面板打开
       await expect(page.locator('[role="dialog"], [data-state="open"]').first()).toBeVisible()
@@ -217,7 +221,8 @@ test.describe('工作流编辑流程', () => {
       const newNodeName = '自定义 AI 节点'
       
       // 点击节点打开配置
-      await page.locator('text=AI 对话').first().click()
+      const node = await ensureNode(page, 'AI 对话')
+      await node.click()
       
       // 等待配置面板打开
       await expect(page.locator('[role="dialog"], [data-state="open"]').first()).toBeVisible()
@@ -230,7 +235,7 @@ test.describe('工作流编辑流程', () => {
       await page.keyboard.press('Escape')
       
       // 验证节点名称已更新
-      await expect(page.locator(`text=${newNodeName}`).first()).toBeVisible()
+      await expect(nodeLocator(page, newNodeName)).toBeVisible()
     })
   })
 
@@ -245,19 +250,15 @@ test.describe('工作流编辑流程', () => {
       await page.fill('input#name', workflowName)
       await page.click('button[type="submit"]')
       
-      await expect(page.locator('[data-sonner-toast]')).toContainText('工作流创建成功')
+      await expect(toastLocator(page, '工作流创建成功')).toBeVisible()
       
       // 添加一个输出节点
-      await page.click('button:has-text("添加节点")')
-      await page.click('[role="menuitem"]:has-text("输出节点")')
-      
-      // 等待节点出现
-      await expect(page.locator('text=输出节点').first()).toBeVisible()
+      await ensureNode(page, '输出节点')
     })
 
     test('应该成功删除节点', async ({ page }) => {
       // 右键点击节点或找到删除按钮
-      const nodeItem = page.locator('text=输出节点').first()
+      const nodeItem = await ensureNode(page, '输出节点')
       await nodeItem.click({ button: 'right' })
       
       // 或者通过 hover 显示操作按钮
@@ -278,7 +279,9 @@ test.describe('工作流编辑流程', () => {
       }
       
       // 验证节点已被删除
-      await expect(page.locator('text=暂无输出').or(page.locator('text=输出节点'))).toBeVisible()
+      await expect(
+        page.locator(selectors.workflow.nodeItem).filter({ hasText: '输出节点' })
+      ).toHaveCount(0)
     })
   })
 
@@ -293,7 +296,7 @@ test.describe('工作流编辑流程', () => {
       await page.fill('input#name', workflowName)
       await page.click('button[type="submit"]')
       
-      await expect(page.locator('[data-sonner-toast]')).toContainText('工作流创建成功')
+      await expect(toastLocator(page, '工作流创建成功')).toBeVisible()
       
       // 返回项目页面
       await page.click('text=项目')
@@ -302,7 +305,10 @@ test.describe('工作流编辑流程', () => {
 
     test('应该成功删除工作流', async ({ page }) => {
       // 找到工作流卡片
-      const workflowCard = page.locator('.group').filter({ hasText: workflowName }).first()
+      const workflowCard = page
+        .locator(selectors.project.workflowCard)
+        .filter({ hasText: workflowName })
+        .first()
       await workflowCard.hover()
       
       // 点击更多菜单按钮
@@ -320,7 +326,9 @@ test.describe('工作流编辑流程', () => {
       await page.locator('[role="alertdialog"] button').filter({ hasText: '删除' }).click()
       
       // 验证工作流已被删除
-      await expect(page.locator('.group').filter({ hasText: workflowName })).toHaveCount(0)
+      await expect(
+        page.locator(selectors.project.workflowCard).filter({ hasText: workflowName })
+      ).toHaveCount(0)
     })
   })
 })

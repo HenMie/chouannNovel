@@ -2,6 +2,96 @@
 import "@testing-library/jest-dom"
 import { afterEach, beforeAll, afterAll, vi } from "vitest"
 
+// ========== Mock @/lib/db ==========
+// 全局 mock 数据库模块，确保所有测试文件（包括 zustand store）都使用 mock
+vi.mock("@/lib/db", () => ({
+  // 项目操作
+  getProjects: vi.fn().mockResolvedValue([]),
+  getProject: vi.fn().mockResolvedValue(null),
+  createProject: vi.fn().mockResolvedValue({ id: "mock-id", name: "Mock Project" }),
+  updateProject: vi.fn().mockResolvedValue(undefined),
+  deleteProject: vi.fn().mockResolvedValue(undefined),
+  
+  // 工作流操作
+  getWorkflows: vi.fn().mockResolvedValue([]),
+  getWorkflow: vi.fn().mockResolvedValue(null),
+  createWorkflow: vi.fn().mockResolvedValue({ id: "mock-id", name: "Mock Workflow" }),
+  updateWorkflow: vi.fn().mockResolvedValue(undefined),
+  deleteWorkflow: vi.fn().mockResolvedValue(undefined),
+  
+  // 节点操作
+  getNodes: vi.fn().mockResolvedValue([]),
+  getNode: vi.fn().mockResolvedValue(null),
+  createNode: vi.fn().mockResolvedValue({ id: "mock-id", name: "Mock Node" }),
+  updateNode: vi.fn().mockResolvedValue(undefined),
+  deleteNode: vi.fn().mockResolvedValue(undefined),
+  reorderNodes: vi.fn().mockResolvedValue(undefined),
+  restoreNodes: vi.fn().mockResolvedValue([]),
+  
+  // 设定库操作
+  getSettings: vi.fn().mockResolvedValue([]),
+  createSetting: vi.fn().mockResolvedValue({ id: "mock-id" }),
+  updateSetting: vi.fn().mockResolvedValue(undefined),
+  deleteSetting: vi.fn().mockResolvedValue(undefined),
+  
+  // 设定提示词操作
+  getSettingPrompts: vi.fn().mockResolvedValue([]),
+  getSettingPrompt: vi.fn().mockResolvedValue(null),
+  createSettingPrompt: vi.fn().mockResolvedValue({ id: "mock-id" }),
+  updateSettingPrompt: vi.fn().mockResolvedValue(undefined),
+  deleteSettingPrompt: vi.fn().mockResolvedValue(undefined),
+  upsertSettingPrompt: vi.fn().mockResolvedValue({ id: "mock-id" }),
+  
+  // 全局配置
+  getGlobalConfig: vi.fn().mockResolvedValue({
+    id: 1,
+    ai_providers: {
+      openai: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+      gemini: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+      claude: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+    },
+    theme: "system",
+    default_loop_max: 10,
+    default_timeout: 300,
+  }),
+  updateGlobalConfig: vi.fn().mockResolvedValue(undefined),
+  
+  // 执行记录
+  getExecutions: vi.fn().mockResolvedValue([]),
+  createExecution: vi.fn().mockResolvedValue({ id: "mock-id", status: "running" }),
+  updateExecution: vi.fn().mockResolvedValue(undefined),
+  deleteExecution: vi.fn().mockResolvedValue(undefined),
+  
+  // 节点结果
+  getNodeResults: vi.fn().mockResolvedValue([]),
+  createNodeResult: vi.fn().mockResolvedValue({ id: "mock-id", status: "running" }),
+  updateNodeResult: vi.fn().mockResolvedValue(undefined),
+  
+  // 统计
+  getGlobalStats: vi.fn().mockResolvedValue({ active_projects: 0, today_word_count: 0 }),
+  getProjectStats: vi.fn().mockResolvedValue({ character_count: 0, worldview_count: 0, workflow_count: 0, total_word_count: 0 }),
+  
+  // 导入导出
+  exportWorkflow: vi.fn().mockResolvedValue(null),
+  importWorkflow: vi.fn().mockResolvedValue({ id: "mock-id" }),
+  exportSettings: vi.fn().mockResolvedValue({ settings: [], setting_prompts: [] }),
+  importSettings: vi.fn().mockResolvedValue(undefined),
+  exportProject: vi.fn().mockResolvedValue(null),
+  importProject: vi.fn().mockResolvedValue({ id: "mock-id" }),
+  
+  // 版本历史
+  getWorkflowVersions: vi.fn().mockResolvedValue([]),
+  getWorkflowVersion: vi.fn().mockResolvedValue(null),
+  createWorkflowVersion: vi.fn().mockResolvedValue({ id: "mock-id" }),
+  restoreWorkflowVersion: vi.fn().mockResolvedValue(undefined),
+  deleteWorkflowVersion: vi.fn().mockResolvedValue(undefined),
+  cleanupOldVersions: vi.fn().mockResolvedValue(undefined),
+  
+  // 工具函数
+  generateId: vi.fn(() => "mock-uuid-" + Math.random().toString(36).substr(2, 9)),
+  getDatabase: vi.fn().mockResolvedValue({ select: vi.fn(), execute: vi.fn() }),
+}))
+
 // ========== Mock Tauri API ==========
 vi.mock("@tauri-apps/api", () => ({
   invoke: vi.fn(),

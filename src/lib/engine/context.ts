@@ -24,7 +24,7 @@ export class ExecutionContext {
   // 对话历史（每个节点的对话历史）
   private conversationHistory: Map<string, Message[]> = new Map()
   
-  // 节点输出存储（按节点名称索引）
+  // 节点输出存储（按节点ID索引）
   private nodeOutputs: Map<string, string> = new Map()
   
   // 最后一个节点的输出（用于工作流最终结果）
@@ -96,26 +96,32 @@ export class ExecutionContext {
   /**
    * 变量插值 - 替换 {{变量名}} 格式
    * 支持以下变量类型（按优先级）：
-   * 1. {{节点名称}} 或 {{节点名称 > 输出描述}} - 引用指定节点的输出（最高优先级）
-   * 2. {{变量名}} - 通过 var_set 设置的变量，或系统变量如 {{用户问题}}
+   * 1. {{@node_id > 输出描述}} - 使用节点ID引用节点输出（推荐，改名不影响）
+   * 2. {{变量名}} - 系统变量如 {{用户问题}}、全局变量等
    */
   interpolate(template: string): string {
     return template.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
       let trimmedName = varName.trim()
       
-      // 解析 "节点名称 > 输出描述" 格式，提取节点名称
-      if (trimmedName.includes('>')) {
-        trimmedName = trimmedName.split('>')[0].trim()
+      // 检查是否是 @nodeId 格式的节点引用
+      if (trimmedName.startsWith('@')) {
+        // 解析 "@nodeId > 输出描述" 格式，提取节点ID
+        let nodeId = trimmedName.slice(1) // 去掉 @
+        if (nodeId.includes('>')) {
+          nodeId = nodeId.split('>')[0].trim()
+        }
+        
+        // 从节点输出中查找（按节点ID）
+        const nodeOutput = this.nodeOutputs.get(nodeId)
+        if (nodeOutput !== undefined) {
+          return nodeOutput
+        }
+        
+        // 未找到匹配，返回原始占位符
+        return match
       }
       
-      // 1. 优先从节点输出中查找（按节点名称）
-      // 这确保引用节点时获取的是执行后的实际输出（包括默认值处理等）
-      const nodeOutput = this.nodeOutputs.get(trimmedName)
-      if (nodeOutput !== undefined) {
-        return nodeOutput
-      }
-      
-      // 2. 尝试从变量中查找（包括系统变量和用户设置的变量）
+      // 普通变量格式：尝试从变量中查找（包括系统变量和用户设置的变量）
       const variable = this.variables.get(trimmedName)
       if (variable !== undefined) {
         return variable
@@ -160,18 +166,19 @@ export class ExecutionContext {
   /**
    * 设置节点输出
    * @param output 输出内容
-   * @param nodeName 节点名称（用于通过 {{节点名称}} 引用）
+   * @param nodeId 节点ID（用于通过 {{@nodeId}} 引用）
    */
-  setNodeOutput(output: string, nodeName: string): void {
+  setNodeOutput(output: string, nodeId: string): void {
     this.lastOutput = output
-    this.nodeOutputs.set(nodeName, output)
+    this.nodeOutputs.set(nodeId, output)
   }
 
   /**
    * 获取指定节点的输出
+   * @param nodeId 节点ID
    */
-  getNodeOutput(nodeName: string): string | undefined {
-    return this.nodeOutputs.get(nodeName)
+  getNodeOutput(nodeId: string): string | undefined {
+    return this.nodeOutputs.get(nodeId)
   }
 
   /**
@@ -303,7 +310,7 @@ export class ExecutionContext {
   getNodeInput(node: WorkflowNode): string {
     // 通用的输入配置接口
     interface NodeInputConfig {
-      input_variable?: string
+      input_variable?: string  // 节点ID（以 @ 开头）或变量名
       custom_input?: string
     }
     
@@ -311,12 +318,15 @@ export class ExecutionContext {
 
     // 优先使用指定的变量
     if (config.input_variable) {
-      // 先尝试从节点输出中获取
-      const nodeOutput = this.nodeOutputs.get(config.input_variable)
-      if (nodeOutput !== undefined) {
-        return nodeOutput
+      // 检查是否是节点ID引用（以 @ 开头）
+      if (config.input_variable.startsWith('@')) {
+        const nodeId = config.input_variable.slice(1)
+        const nodeOutput = this.nodeOutputs.get(nodeId)
+        if (nodeOutput !== undefined) {
+          return nodeOutput
+        }
       }
-      // 再尝试从变量中获取
+      // 尝试从变量中获取
       return this.getVariable(config.input_variable) ?? ''
     }
     

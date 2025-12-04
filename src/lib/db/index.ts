@@ -17,16 +17,55 @@ import type {
   WorkflowSnapshot,
 } from '@/types'
 import { EXPORT_VERSION } from '@/types'
+import type { SqlClient, SqlExecuteResult } from './types'
+import { createWebSqlClient } from './web-sqlite'
 
-// 数据库单例
-let db: Database | null = null
+const DB_PATH = 'sqlite:chouann_novel.db'
+
+let dbPromise: Promise<SqlClient> | null = null
 
 // 获取数据库连接
-export async function getDatabase(): Promise<Database> {
-  if (!db) {
-    db = await Database.load('sqlite:chouann_novel.db')
+export async function getDatabase(): Promise<SqlClient> {
+  if (!dbPromise) {
+    dbPromise = createDatabaseClient()
   }
-  return db
+  return dbPromise
+}
+
+function isTauriEnvironment(): boolean {
+  if (typeof window === 'undefined') return false
+  return Boolean(window.__TAURI_INTERNALS__)
+}
+
+async function createDatabaseClient(): Promise<SqlClient> {
+  const baseClient = isTauriEnvironment() ? await createTauriClient() : await createWebSqlClient()
+  return wrapWithWriteQueue(baseClient)
+}
+
+async function createTauriClient(): Promise<SqlClient> {
+  const rawDb = await Database.load(DB_PATH)
+  await rawDb.execute('PRAGMA journal_mode = WAL')
+  await rawDb.execute('PRAGMA synchronous = NORMAL')
+  await rawDb.execute('PRAGMA foreign_keys = ON')
+  await rawDb.execute('PRAGMA busy_timeout = 5000')
+  return {
+    select: rawDb.select.bind(rawDb),
+    execute: rawDb.execute.bind(rawDb),
+  }
+}
+
+function wrapWithWriteQueue(client: SqlClient): SqlClient {
+  let writeChain: Promise<SqlExecuteResult> = Promise.resolve({ rowsAffected: 0, lastInsertId: null })
+
+  return {
+    select: client.select.bind(client),
+    execute: (query, params) => {
+      writeChain = writeChain
+        .catch(() => ({ rowsAffected: 0, lastInsertId: null }))
+        .then(() => client.execute(query, params))
+      return writeChain
+    },
+  }
 }
 
 // 生成 UUID
@@ -237,10 +276,11 @@ export async function createNode(
     block_id?: string
     parent_block_id?: string
     insert_after_index?: number  // 在指定索引后插入
+    id?: string                  // 自定义节点 ID（用于撤销/重做）
   }
 ): Promise<WorkflowNode> {
   const db = await getDatabase()
-  const id = generateId()
+  const id = options?.id ?? generateId()
   const now = new Date().toISOString()
 
   let orderIndex: number

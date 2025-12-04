@@ -40,9 +40,9 @@ const mockNodes: WorkflowNode[] = [
   {
     id: 'node-4',
     workflow_id: 'workflow-1',
-    type: 'var_set',
-    name: '设置变量',
-    config: { variable_name: 'myVar' },
+    type: 'text_concat',
+    name: '文本拼接',
+    config: { sources: [], separator: '' },
     order_index: 3,
     created_at: '2024-01-01',
     updated_at: '2024-01-01',
@@ -106,7 +106,7 @@ describe('VariablePicker 组件', () => {
       expect(screen.getByText('开始')).toBeInTheDocument()
       expect(screen.getByText('AI对话')).toBeInTheDocument()
       expect(screen.getByText('内容提取')).toBeInTheDocument()
-      expect(screen.getByText('设置变量')).toBeInTheDocument()
+      expect(screen.getByText('文本拼接')).toBeInTheDocument()
     })
 
     it('不应显示当前节点', () => {
@@ -117,8 +117,8 @@ describe('VariablePicker 组件', () => {
 
     it('应显示节点的输出变量描述', () => {
       render(<VariablePicker {...defaultProps} />)
-      // 开始节点的用户输入变量（描述文本）
-      expect(screen.getByText('用户输入')).toBeInTheDocument()
+      // 开始节点的全局变量 "用户问题"
+      expect(screen.getByText('用户问题')).toBeInTheDocument()
     })
   })
 
@@ -130,10 +130,11 @@ describe('VariablePicker 组件', () => {
       
       render(<VariablePicker {...defaultProps} onSelect={handleSelect} />)
       
-      // 点击用户输入变量
-      await user.click(screen.getByText('用户输入'))
+      // 点击用户问题变量（开始节点的全局变量）
+      await user.click(screen.getByText('用户问题'))
       
-      expect(handleSelect).toHaveBeenCalledWith('{{开始 > 用户输入}}')
+      // 开始节点生成全局变量格式: {{用户问题}}
+      expect(handleSelect).toHaveBeenCalledWith('{{用户问题}}')
     })
 
     it('选择 AI 节点变量应传递正确的格式', async () => {
@@ -147,7 +148,8 @@ describe('VariablePicker 组件', () => {
       // 点击 AI 回答内容
       await user.click(screen.getByText('AI 回答内容'))
       
-      expect(handleSelect).toHaveBeenCalledWith('{{AI对话 > AI 回答内容}}')
+      // 普通变量使用节点ID格式: {{@nodeId}}
+      expect(handleSelect).toHaveBeenCalledWith('{{@node-2}}')
     })
   })
 

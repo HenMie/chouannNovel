@@ -27,8 +27,7 @@ export type NodeType =
   | 'ai_chat'
   | 'text_extract'
   | 'text_concat'
-  | 'var_set'
-  | 'var_get'
+  | 'var_update'  // 更新全局变量
   // 控制结构 - 循环
   | 'loop_start'
   | 'loop_end'
@@ -126,11 +125,36 @@ export interface AIChatConfig {
   provider: AIProvider
   model: string
   system_prompt: string      // 系统提示词 (system message)
-  user_prompt: string        // 用户问题 (user message)，默认 {{上一节点}}
+  user_prompt: string        // 用户问题 (user message)
+  system_prompt_mode?: 'manual' | 'variable'  // 系统提示词输入模式
+  system_prompt_manual?: string               // 手动输入内容
+  system_prompt_variable?: string             // 变量引用内容
+  user_prompt_mode?: 'manual' | 'variable'    // 用户提示词输入模式
+  user_prompt_manual?: string                 // 手动输入内容
+  user_prompt_variable?: string               // 变量引用内容
   temperature?: number
   max_tokens?: number
   top_p?: number
+  /**
+   * Gemini 3 Pro 使用的思考深度参数
+   * - 'low': 浅层思考（快速响应）
+   * - 'high': 深度思考（更深入推理）
+   */
   thinking_level?: 'low' | 'high'
+  /**
+   * Gemini 2.5 系列使用的思考预算参数
+   * - 0: 禁用思考（仅 2.5 Flash 支持）
+   * - -1: 动态思考（模型自动决定）
+   * - 正数: 指定 token 预算
+   */
+  thinking_budget?: number
+  /**
+   * Claude 的推理努力程度
+   * - 'low': 低努力（快速响应）
+   * - 'medium': 中等努力
+   * - 'high': 高努力（深入推理，默认）
+   */
+  effort?: 'low' | 'medium' | 'high'
   enable_history: boolean
   history_count: number
   setting_ids: string[]
@@ -175,7 +199,7 @@ export interface BatchConfig {
 // 文本提取节点配置
 export interface TextExtractConfig {
   input_variable?: string
-  extract_mode: 'regex' | 'start_end' | 'json_path'
+  extract_mode: 'regex' | 'start_end' | 'json_path' | 'md_to_text'
   regex_pattern?: string
   start_marker?: string
   end_marker?: string
@@ -192,21 +216,24 @@ export interface TextConcatConfig {
   separator: string
 }
 
-// 变量设置节点配置
-export interface VarSetConfig {
-  variable_name: string
-  custom_value?: string
-}
-
-// 变量读取节点配置
-export interface VarGetConfig {
-  variable_name: string
+// 自定义全局变量定义
+export interface CustomVariable {
+  name: string           // 变量名
+  default_value: string  // 默认值
 }
 
 // 开始流程节点配置
 export interface StartConfig {
-  default_value?: string  // 默认值（用于测试）
+  default_value?: string           // 用户输入默认值（用于测试）
+  custom_variables?: CustomVariable[]  // 自定义全局变量
 }
+
+// 更新变量节点配置
+export interface VarUpdateConfig {
+  variable_name: string   // 要更新的变量名（必须是已定义的全局变量）
+  value_template: string  // 新值模板，支持 {{变量}} 插值
+}
+
 
 // 输出节点配置
 export interface OutputConfig {
@@ -221,8 +248,7 @@ export type NodeConfig =
   | BatchConfig
   | TextExtractConfig
   | TextConcatConfig
-  | VarSetConfig
-  | VarGetConfig
+  | VarUpdateConfig
   | StartConfig
   | OutputConfig
   // 新的控制结构配置

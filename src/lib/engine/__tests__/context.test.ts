@@ -73,18 +73,23 @@ describe("ExecutionContext - 执行上下文", () => {
       expect(result).toBe("张三 今年 25 岁")
     })
 
-    it("应该优先使用节点输出而非变量", () => {
-      ctx.setVariable("节点1", "变量值")
-      ctx.setNodeOutput("节点输出值", "节点1")
+    it("应该使用 @nodeId 格式引用节点输出", () => {
+      ctx.setNodeOutput("节点输出值", "node-123")
       
-      const result = ctx.interpolate("结果：{{节点1}}")
+      const result = ctx.interpolate("结果：{{@node-123 > 输出描述}}")
       expect(result).toBe("结果：节点输出值")
     })
 
-    it("应该处理 '节点名称 > 输出描述' 格式", () => {
-      ctx.setNodeOutput("AI 回复内容", "AI对话")
-      const result = ctx.interpolate("{{AI对话 > 回复}}")
+    it("应该处理 '@nodeId > 输出描述' 格式", () => {
+      ctx.setNodeOutput("AI 回复内容", "ai-node-456")
+      const result = ctx.interpolate("{{@ai-node-456 > AI回复}}")
       expect(result).toBe("AI 回复内容")
+    })
+    
+    it("@nodeId 格式应该忽略 > 后面的描述部分", () => {
+      ctx.setNodeOutput("实际输出", "my-node")
+      const result = ctx.interpolate("{{@my-node > 任意描述}}")
+      expect(result).toBe("实际输出")
     })
 
     it("未定义的变量应该保留原始占位符", () => {
@@ -148,14 +153,14 @@ describe("ExecutionContext - 执行上下文", () => {
   // ========== 节点输出测试 ==========
 
   describe("节点输出", () => {
-    it("应该能设置和获取节点输出", () => {
-      ctx.setNodeOutput("输出内容", "节点1")
-      expect(ctx.getNodeOutput("节点1")).toBe("输出内容")
+    it("应该能设置和获取节点输出（使用节点ID）", () => {
+      ctx.setNodeOutput("输出内容", "node-1")
+      expect(ctx.getNodeOutput("node-1")).toBe("输出内容")
     })
 
     it("应该更新最后输出", () => {
-      ctx.setNodeOutput("第一个输出", "节点1")
-      ctx.setNodeOutput("第二个输出", "节点2")
+      ctx.setNodeOutput("第一个输出", "node-1")
+      ctx.setNodeOutput("第二个输出", "node-2")
       
       expect(ctx.getLastOutput()).toBe("第二个输出")
     })
@@ -166,13 +171,13 @@ describe("ExecutionContext - 执行上下文", () => {
     })
 
     it("应该能获取所有节点输出", () => {
-      ctx.setNodeOutput("输出1", "节点1")
-      ctx.setNodeOutput("输出2", "节点2")
+      ctx.setNodeOutput("输出1", "node-1")
+      ctx.setNodeOutput("输出2", "node-2")
       
       const outputs = ctx.getAllNodeOutputs()
       expect(outputs).toEqual({
-        "节点1": "输出1",
-        "节点2": "输出2",
+        "node-1": "输出1",
+        "node-2": "输出2",
       })
     })
   })
@@ -330,16 +335,15 @@ describe("ExecutionContext - 执行上下文", () => {
       expect(ctx.getNodeInput(node)).toBe("变量值")
     })
 
-    it("应该优先从节点输出获取输入", () => {
-      ctx.setVariable("myNode", "变量值")
-      ctx.setNodeOutput("节点输出值", "myNode")
+    it("应该使用 @nodeId 格式从节点输出获取输入", () => {
+      ctx.setNodeOutput("节点输出值", "source-node-id")
       
       const node: WorkflowNode = {
         id: "node1",
         workflow_id: "w1",
         type: "text_extract",
         name: "提取节点",
-        config: { input_variable: "myNode" },
+        config: { input_variable: "@source-node-id" },  // 使用 @nodeId 格式
         order_index: 0,
         created_at: "",
         updated_at: "",
@@ -354,8 +358,8 @@ describe("ExecutionContext - 执行上下文", () => {
       const node: WorkflowNode = {
         id: "node1",
         workflow_id: "w1",
-        type: "var_set",
-        name: "设置变量",
+        type: "output",
+        name: "输出节点",
         config: { custom_input: "你好，{{name}}！" },
         order_index: 0,
         created_at: "",
@@ -386,14 +390,14 @@ describe("ExecutionContext - 执行上下文", () => {
   describe("快照和恢复", () => {
     it("应该能创建快照", () => {
       ctx.setVariable("name", "张三")
-      ctx.setNodeOutput("输出内容", "节点1")
+      ctx.setNodeOutput("输出内容", "node-1")
       ctx.setLastOutput("最终输出")
       ctx.incrementLoopCount("loop1")
       
       const snapshot = ctx.createSnapshot()
       
       expect(snapshot.variables).toEqual({ name: "张三" })
-      expect(snapshot.nodeOutputs).toEqual({ "节点1": "输出内容" })
+      expect(snapshot.nodeOutputs).toEqual({ "node-1": "输出内容" })
       expect(snapshot.lastOutput).toBe("最终输出")
       expect(snapshot.loopCounters).toEqual({ loop1: 1 })
     })
@@ -401,7 +405,7 @@ describe("ExecutionContext - 执行上下文", () => {
     it("应该能从快照恢复", () => {
       const snapshot = {
         variables: { name: "李四", age: "30" },
-        nodeOutputs: { "节点1": "恢复的输出" },
+        nodeOutputs: { "node-1": "恢复的输出" },
         lastOutput: "恢复的最终输出",
         initialInput: "初始输入",
         loopCounters: { loop1: 2 },
@@ -411,7 +415,7 @@ describe("ExecutionContext - 执行上下文", () => {
       
       expect(restoredCtx.getVariable("name")).toBe("李四")
       expect(restoredCtx.getVariable("age")).toBe("30")
-      expect(restoredCtx.getNodeOutput("节点1")).toBe("恢复的输出")
+      expect(restoredCtx.getNodeOutput("node-1")).toBe("恢复的输出")
       expect(restoredCtx.getLastOutput()).toBe("恢复的最终输出")
       expect(restoredCtx.getInitialInput()).toBe("初始输入")
       expect(restoredCtx.getLoopCount("loop1")).toBe(2)
