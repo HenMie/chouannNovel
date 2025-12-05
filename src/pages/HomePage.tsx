@@ -55,6 +55,7 @@ import { cn } from '@/lib/utils'
 import { getErrorMessage, handleAppError } from '@/lib/errors'
 import { Tour } from '@/components/help/Tour'
 import { HOME_TOUR_STEPS } from '@/tours'
+import { CreateProjectDialog } from '@/components/dialogs'
 
 interface HomePageProps {
   onNavigate: (path: string) => void
@@ -103,6 +104,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
   const { projects, loadProjects, isLoadingProjects, deleteProject, globalStats, loadGlobalStats } = useProjectStore()
   const [sortOrder, setSortOrder] = useState<'updated' | 'name'>('updated')
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null)
+  const [showCreateProjectDialog, setShowCreateProjectDialog] = useState(false)
 
   useEffect(() => {
     loadProjects()
@@ -211,7 +213,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
                <Button
                   size="sm"
                   className="h-9 gap-2"
-                  onClick={() => onNavigate('/project/new')}
+                  onClick={() => setShowCreateProjectDialog(true)}
                   data-tour="home-new-project"
                >
                  <Plus className="h-3.5 w-3.5" />
@@ -258,7 +260,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
                   title="开始你的第一个项目"
                   description="ChouannNovel 帮助你通过 AI 驱动的工作流构建复杂的小说世界。"
                   action={
-                    <Button onClick={() => onNavigate('/project/new')}>
+                    <Button onClick={() => setShowCreateProjectDialog(true)}>
                       <Plus className="mr-2 h-4 w-4" />
                       创建新项目
                     </Button>
@@ -381,6 +383,13 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 新建项目对话框 */}
+      <CreateProjectDialog
+        open={showCreateProjectDialog}
+        onOpenChange={setShowCreateProjectDialog}
+        onSuccess={(projectId) => onNavigate(`/project/${projectId}`)}
+      />
 
       {/* 新手引导 */}
       <Tour module="home" steps={HOME_TOUR_STEPS} />

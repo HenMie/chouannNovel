@@ -23,8 +23,14 @@ function isBrowserEnvironment(): boolean {
 }
 
 async function initWebSqlClient(): Promise<SqlClient> {
+  // 允许通过全局变量覆盖 wasm 路径，便于测试环境找到本地文件
+  const wasmLocation =
+    (globalThis as any).__SQLJS_WASM_PATH__ && typeof (globalThis as any).__SQLJS_WASM_PATH__ === "string"
+      ? (globalThis as any).__SQLJS_WASM_PATH__
+      : sqlWasmUrl
+
   const SQL = await initSqlJs({
-    locateFile: () => sqlWasmUrl,
+    locateFile: () => wasmLocation,
   })
 
   const database = new SQL.Database()

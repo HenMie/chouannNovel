@@ -59,6 +59,7 @@ interface NodeConfigDrawerProps {
   open: boolean
   onClose: () => void
   onSave: (node: WorkflowNode) => void
+  onNavigate?: (path: string) => void  // 导航函数，用于跳转到设置页等
 }
 
 // 节点类型标签
@@ -89,6 +90,7 @@ export function NodeConfigDrawer({
   open,
   onClose,
   onSave,
+  onNavigate,
 }: NodeConfigDrawerProps) {
   const [name, setName] = useState('')
   const [config, setConfig] = useState<NodeConfig>({})
@@ -175,6 +177,7 @@ export function NodeConfigDrawer({
             nodes={nodes}
             currentNodeId={node.id}
             onChange={setConfig}
+            onNavigate={onNavigate}
           />
         )
 
@@ -436,6 +439,7 @@ export function NodeConfigDrawer({
             nodes={nodes}
             currentNodeId={node.id}
             onChange={setConfig}
+            onNavigate={onNavigate}
           />
         )
 

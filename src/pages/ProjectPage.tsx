@@ -55,6 +55,7 @@ import { exportProjectToFile, exportSettingsToFile, importSettingsFromFile } fro
 import { getErrorMessage, handleAppError } from '@/lib/errors'
 import { toast } from 'sonner'
 import type { Workflow } from '@/types'
+import { CreateWorkflowDialog } from '@/components/dialogs'
 
 interface ProjectPageProps {
   projectId: string
@@ -75,6 +76,7 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
 
   const { settings, loadSettings } = useSettingsStore()
   const [workflowToDelete, setWorkflowToDelete] = useState<Workflow | null>(null)
+  const [showCreateWorkflowDialog, setShowCreateWorkflowDialog] = useState(false)
 
   useEffect(() => {
     // 加载项目和工作流
@@ -315,7 +317,7 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
                 工作流列表
               </h2>
               <Button
-                onClick={() => onNavigate(`/project/${projectId}/workflow/new`)}
+                onClick={() => setShowCreateWorkflowDialog(true)}
               >
                 <Plus className="mr-2 h-4 w-4" />
                 新建工作流
@@ -353,7 +355,7 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
                     title="暂无工作流"
                     description="工作流是 AI 创作的核心，可以包含多个步骤的自动化任务"
                     action={
-                      <Button onClick={() => onNavigate(`/project/${projectId}/workflow/new`)}>
+                      <Button onClick={() => setShowCreateWorkflowDialog(true)}>
                         <Plus className="mr-2 h-4 w-4" />
                         创建第一个工作流
                       </Button>
@@ -501,6 +503,16 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 新建工作流对话框 */}
+      <CreateWorkflowDialog
+        open={showCreateWorkflowDialog}
+        onOpenChange={setShowCreateWorkflowDialog}
+        projectId={projectId}
+        onSuccess={(workflowId) => 
+          onNavigate(`/project/${projectId}/workflow/${workflowId}`)
+        }
+      />
     </div>
   )
 }

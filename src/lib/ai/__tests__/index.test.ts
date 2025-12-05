@@ -1,14 +1,22 @@
 // lib/ai AI 模块测试
 // 测试模型配置、可用模型获取、provider options 构建等功能
 
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import {
   BUILTIN_MODELS,
   getBuiltinModelsByProvider,
   getAvailableModels,
   getModelConfig,
   getModelProvider,
+  chat,
+  chatStream,
+  chatStreamIterable,
+  type StreamChunk,
 } from "../index"
+import { generateText, streamText } from "ai"
+import { createOpenAI } from "@ai-sdk/openai"
+import { createGoogleGenerativeAI } from "@ai-sdk/google"
+import { createAnthropic } from "@ai-sdk/anthropic"
 import type { GlobalConfig, AIProvider } from "@/types"
 
 // ========== Mock AI SDK ==========
@@ -61,6 +69,21 @@ function createMockGlobalConfig(overrides?: Partial<GlobalConfig>): GlobalConfig
     ...overrides,
   }
 }
+
+const baseMessages = [{ role: "user" as const, content: "hi" }]
+
+// 构造可控的异步流
+function createAsyncStream(chunks: string[]) {
+  return (async function* () {
+    for (const chunk of chunks) {
+      yield chunk
+    }
+  })()
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 // ========== BUILTIN_MODELS 测试 ==========
 
@@ -563,6 +586,245 @@ describe("AI 模块 - 模型 ID 一致性", () => {
       expect(typeof model.name).toBe("string")
       expect(model.name.length).toBeGreaterThan(0)
     })
+  })
+})
+
+// ========== chat 功能测试 ==========
+
+describe("AI 模块 - chat 功能", () => {
+  it("应该使用启用的 OpenAI 提供商并映射 usage", async () => {
+    const config = createMockGlobalConfig({
+      ai_providers: {
+        openai: {
+          api_key: "openai-key",
+          base_url: "https://api.openai.com",
+          enabled: true,
+          enabled_models: ["gpt-5"],
+          custom_models: [],
+        },
+        gemini: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+        claude: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+      },
+    })
+
+    const openaiModel = vi.fn()
+    vi.mocked(createOpenAI).mockReturnValue(openaiModel as any)
+    vi.mocked(generateText).mockResolvedValue({
+      text: "hello",
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    } as any)
+
+    const response = await chat(
+      {
+        provider: "openai",
+        model: "gpt-5",
+        messages: baseMessages,
+        temperature: 0.8,
+        maxTokens: 120,
+        topP: 0.9,
+      },
+      config,
+    )
+
+    expect(createOpenAI).toHaveBeenCalledWith({
+      apiKey: "openai-key",
+      baseURL: "https://api.openai.com",
+    })
+    expect(openaiModel).toHaveBeenCalledWith("gpt-5")
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        temperature: 0.8,
+        maxOutputTokens: 120,
+        topP: 0.9,
+        providerOptions: undefined,
+      }),
+    )
+    expect(response).toEqual({
+      content: "hello",
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+    })
+  })
+
+  it("Gemini 3 Pro 应该忽略不支持的参数并构造 thinking 配置", async () => {
+    const config = createMockGlobalConfig({
+      ai_providers: {
+        openai: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+        gemini: {
+          api_key: "gemini-key",
+          enabled: true,
+          enabled_models: ["gemini-3-pro-preview"],
+          custom_models: [],
+        },
+        claude: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+      },
+    })
+
+    const googleModel = vi.fn()
+    vi.mocked(createGoogleGenerativeAI).mockReturnValue(googleModel as any)
+    vi.mocked(generateText).mockResolvedValue({ text: "resp" } as any)
+
+    await chat(
+      {
+        provider: "gemini",
+        model: "gemini-3-pro-preview",
+        messages: baseMessages,
+        temperature: 0.5,
+        topP: 0.8,
+        thinkingConfig: { thinkingLevel: "high", includeThoughts: true },
+      },
+      config,
+    )
+
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        temperature: undefined, // 不支持 temperature
+        topP: undefined, // 不支持 topP
+        providerOptions: {
+          google: {
+            thinkingConfig: { thinkingLevel: "high", includeThoughts: true },
+          },
+        },
+      }),
+    )
+  })
+
+  it("未配置 api_key 的提供商应该抛出错误", async () => {
+    const config = createMockGlobalConfig({
+      ai_providers: {
+        openai: {
+          api_key: "",
+          enabled: true,
+          enabled_models: ["gpt-5"],
+          custom_models: [],
+        },
+        gemini: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+        claude: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+      },
+    })
+
+    await expect(
+      chat(
+        { provider: "openai", model: "gpt-5", messages: baseMessages },
+        config,
+      ),
+    ).rejects.toThrow("提供商 openai 未配置或未启用")
+  })
+
+  it("未知提供商应该触发不支持的错误", async () => {
+    const config = createMockGlobalConfig() as any
+    config.ai_providers.unknown = {
+      api_key: "test",
+      enabled: true,
+      enabled_models: [],
+      custom_models: [],
+    }
+
+    await expect(
+      chat(
+        { provider: "unknown" as AIProvider, model: "custom", messages: baseMessages } as any,
+        config,
+      ),
+    ).rejects.toThrow("不支持的提供商")
+  })
+})
+
+// ========== chatStream 功能测试 ==========
+
+describe("AI 模块 - chatStream 功能", () => {
+  it("应该流式返回分片并包含结束标记", async () => {
+    const config = createMockGlobalConfig({
+      ai_providers: {
+        openai: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+        gemini: {
+          api_key: "gemini-key",
+          enabled: true,
+          enabled_models: ["gemini-2.5-pro"],
+          custom_models: [],
+        },
+        claude: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+      },
+    })
+
+    const googleModel = vi.fn()
+    vi.mocked(createGoogleGenerativeAI).mockReturnValue(googleModel as any)
+    vi.mocked(streamText).mockReturnValue({
+      textStream: createAsyncStream(["a", "b"]),
+    } as any)
+
+    const chunks: StreamChunk[] = []
+    await chatStream(
+      {
+        provider: "gemini",
+        model: "gemini-2.5-pro",
+        messages: baseMessages,
+        thinkingConfig: { thinkingBudget: 256, includeThoughts: false },
+      },
+      config,
+      (chunk) => chunks.push(chunk),
+    )
+
+    expect(chunks).toEqual([
+      { content: "a", done: false },
+      { content: "b", done: false },
+      { content: "", done: true },
+    ])
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: {
+          google: {
+            thinkingConfig: { thinkingBudget: 256, includeThoughts: false },
+          },
+        },
+      }),
+    )
+  })
+})
+
+// ========== chatStreamIterable 功能测试 ==========
+
+describe("AI 模块 - chatStreamIterable 功能", () => {
+  it("应该返回可迭代的流并附加结束块", async () => {
+    const config = createMockGlobalConfig({
+      ai_providers: {
+        openai: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+        gemini: { api_key: "", enabled: false, enabled_models: [], custom_models: [] },
+        claude: {
+          api_key: "claude-key",
+          enabled: true,
+          enabled_models: ["claude-opus-4-5-20251101"],
+          custom_models: [],
+        },
+      },
+    })
+
+    const claudeModel = vi.fn()
+    vi.mocked(createAnthropic).mockReturnValue(claudeModel as any)
+    vi.mocked(streamText).mockReturnValue({
+      textStream: createAsyncStream(["chunk"]),
+    } as any)
+
+    const received: StreamChunk[] = []
+    for await (const chunk of chatStreamIterable(
+      {
+        provider: "claude",
+        model: "claude-opus-4-5-20251101",
+        messages: baseMessages,
+        thinkingConfig: { effort: "medium" },
+      },
+      config,
+    )) {
+      received.push(chunk)
+    }
+
+    expect(received).toEqual([
+      { content: "chunk", done: false },
+      { content: "", done: true },
+    ])
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: { anthropic: { effort: "medium" } },
+      }),
+    )
   })
 })
 

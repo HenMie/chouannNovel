@@ -103,6 +103,22 @@ export const ALL_SHORTCUTS: ShortcutDefinition[] = [
     scope: 'workflow',
     group: '节点编辑',
   },
+  {
+    id: 'workflow_edit',
+    keys: 'Enter',
+    description: '编辑选中节点',
+    scope: 'workflow',
+    group: '节点编辑',
+    condition: '选中单个节点时',
+  },
+  {
+    id: 'workflow_duplicate',
+    keys: 'Ctrl+D',
+    description: '复制并粘贴节点',
+    scope: 'workflow',
+    group: '节点编辑',
+    condition: '选中节点时',
+  },
 
   // 历史操作
   {

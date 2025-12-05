@@ -54,7 +54,7 @@ import { getGlobalConfig, generateId, getWorkflowVersions, createWorkflowVersion
 import { exportWorkflowToFile, importWorkflowFromFile } from '@/lib/import-export'
 import { getErrorMessage, handleAppError } from '@/lib/errors'
 import type { WorkflowVersion } from '@/types'
-import { useHotkeys, HOTKEY_PRESETS, useWorkflowHistory } from '@/lib/hooks'
+import { useHotkeys, HOTKEY_PRESETS, useWorkflowHistory, useRunButtonState } from '@/lib/hooks'
 import { toast } from 'sonner'
 import { Tour } from '@/components/help/Tour'
 import { WORKFLOW_TOUR_STEPS } from '@/tours'
@@ -504,7 +504,9 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
 
   // 检查是否有开始流程节点
   const hasStartNode = nodes.some(n => n.type === 'start')
-  const hasExecutableNode = nodes.some(n => n.type !== 'start')
+  
+  // 使用 Hook 统一管理运行按钮状态
+  const runButtonState = useRunButtonState(nodes, globalConfig, isExecuting)
 
   const handleRun = async () => {
     // 检查全局配置
@@ -828,6 +830,41 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
       },
       enabled: !isExecuting && selectedNodeIds.size > 0,
     },
+
+    // Enter: 编辑选中的节点（仅当选中单个节点时）
+    {
+      key: 'Enter',
+      ctrl: false,
+      handler: () => {
+        if (!isExecuting && selectedNodeIds.size === 1) {
+          const nodeId = Array.from(selectedNodeIds)[0]
+          const node = nodes.find(n => n.id === nodeId)
+          if (node) {
+            handleEditNode(node)
+          }
+        }
+      },
+      enabled: !isExecuting && !isConfigOpen && !showInputDialog && selectedNodeIds.size === 1,
+    },
+
+    // Ctrl+D: 复制并粘贴选中的节点（快速复制）
+    {
+      key: 'd',
+      ctrl: true,
+      handler: () => {
+        if (!isExecuting && selectedNodeIds.size > 0) {
+          const selectedNodes = nodes.filter(n => selectedNodeIds.has(n.id))
+          // 先复制
+          handleCopyNodes(selectedNodes)
+          // 再粘贴
+          setTimeout(() => {
+            handlePasteNode()
+          }, 100)
+        }
+      },
+      enabled: !isExecuting && selectedNodeIds.size > 0,
+      preventDefault: true,
+    },
   ])
 
   if (!currentWorkflow) {
@@ -960,16 +997,41 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
           </Button>
           
           {!isExecuting ? (
-            <Button
-              size="sm"
-              data-testid="workflow-run-button"
-              data-tour="workflow-run-button"
-              onClick={handleRun}
-              disabled={!hasExecutableNode}
-            >
-              <Play className="mr-2 h-4 w-4" />
-              运行
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* 用 span 包裹禁用按钮以支持 Tooltip */}
+                <span tabIndex={runButtonState.disabled ? 0 : undefined}>
+                  <Button
+                    size="sm"
+                    data-testid="workflow-run-button"
+                    data-tour="workflow-run-button"
+                    onClick={handleRun}
+                    disabled={runButtonState.disabled}
+                    className={runButtonState.disabled ? 'pointer-events-none' : ''}
+                  >
+                    <Play className="mr-2 h-4 w-4" />
+                    运行
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {runButtonState.disabled && runButtonState.reason && (
+                <TooltipContent className="max-w-xs">
+                  <div className="space-y-2">
+                    <p className="text-sm">{runButtonState.reason}</p>
+                    {runButtonState.actionUrl && (
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-xs text-primary-foreground underline"
+                        onClick={() => onNavigate(runButtonState.actionUrl!)}
+                      >
+                        {runButtonState.actionLabel || '去配置'} →
+                      </Button>
+                    )}
+                  </div>
+                </TooltipContent>
+              )}
+            </Tooltip>
           ) : (
             <>
               {isPaused ? (
@@ -1359,6 +1421,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
           setSelectedNode(null)
         }}
         onSave={handleSaveNode}
+        onNavigate={onNavigate}
       />
 
       {/* 保存版本对话框 */}

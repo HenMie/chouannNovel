@@ -29,6 +29,7 @@ interface AIChatConfigProps {
   nodes?: WorkflowNode[]  // 所有节点，用于检测变量
   currentNodeId?: string  // 当前节点 ID，用于变量选择器过滤
   onChange: (config: Partial<AIChatConfigType>) => void
+  onNavigate?: (path: string) => void  // 导航函数，用于跳转到设置页
 }
 
 // 设定分类配置
@@ -66,7 +67,7 @@ const defaultConfig: AIChatConfigType = {
 const normalizeMode = (mode?: PromptInputMode): PromptInputMode =>
   mode === 'variable' ? 'variable' : 'manual'
 
-export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], currentNodeId, onChange }: AIChatConfigProps) {
+export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], currentNodeId, onChange, onNavigate }: AIChatConfigProps) {
   // 合并默认配置，兼容旧版 prompt 字段
   const legacyConfig = config as any
   const fallbackSystemPrompt = config.system_prompt ?? legacyConfig.prompt ?? ''
@@ -228,6 +229,17 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
         <p className="mt-2 text-xs text-muted-foreground">
           请先在全局设置中配置并启用 AI 服务
         </p>
+        {onNavigate && (
+          <Button
+            variant="link"
+            size="sm"
+            className="mt-3 text-primary"
+            onClick={() => onNavigate('/settings')}
+          >
+            <Settings2 className="mr-1.5 h-3.5 w-3.5" />
+            去配置
+          </Button>
+        )}
       </div>
     )
   }

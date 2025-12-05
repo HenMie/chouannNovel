@@ -670,18 +670,29 @@ export async function getGlobalConfig(): Promise<GlobalConfig> {
   }
 
   const aiProviders = JSON.parse(results[0].ai_providers)
+  const defaultProviders: GlobalConfig['ai_providers'] = {
+    openai: { api_key: '', enabled: false, enabled_models: DEFAULT_ENABLED_MODELS.openai, custom_models: [] },
+    gemini: { api_key: '', enabled: false, enabled_models: DEFAULT_ENABLED_MODELS.gemini, custom_models: [] },
+    claude: { api_key: '', enabled: false, enabled_models: DEFAULT_ENABLED_MODELS.claude, custom_models: [] },
+  }
+
+  // 补全缺失的 provider 配置
+  const mergedProviders: GlobalConfig['ai_providers'] = {
+    ...defaultProviders,
+    ...aiProviders,
+  }
   
   // 迁移：为旧配置添加默认模型列表
   for (const provider of ['openai', 'gemini', 'claude'] as const) {
-    if (aiProviders[provider] && !aiProviders[provider].enabled_models) {
-      aiProviders[provider].enabled_models = DEFAULT_ENABLED_MODELS[provider]
-      aiProviders[provider].custom_models = []
+    if (mergedProviders[provider] && !mergedProviders[provider].enabled_models) {
+      mergedProviders[provider].enabled_models = DEFAULT_ENABLED_MODELS[provider]
+      mergedProviders[provider].custom_models = []
     }
   }
 
   return {
     ...results[0],
-    ai_providers: aiProviders,
+    ai_providers: mergedProviders,
   }
 }
 

@@ -46,6 +46,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { CreateProjectDialog, CreateWorkflowDialog } from '@/components/dialogs'
 
 interface SidebarProps {
   onNavigate: (path: string) => void
@@ -82,6 +83,10 @@ export function Sidebar({ onNavigate, currentPath }: SidebarProps) {
     type: 'project',
     data: null,
   })
+  // 对话框状态
+  const [showCreateProjectDialog, setShowCreateProjectDialog] = useState(false)
+  const [showCreateWorkflowDialog, setShowCreateWorkflowDialog] = useState(false)
+  const [createWorkflowProjectId, setCreateWorkflowProjectId] = useState<string>('')
 
   useEffect(() => {
     loadProjects()
@@ -216,7 +221,7 @@ export function Sidebar({ onNavigate, currentPath }: SidebarProps) {
           <Button
             variant="outline"
             className="mb-2 w-full justify-start gap-2"
-            onClick={() => onNavigate('/project/new')}
+            onClick={() => setShowCreateProjectDialog(true)}
           >
             <Plus className="h-4 w-4" />
             新建项目
@@ -315,7 +320,10 @@ export function Sidebar({ onNavigate, currentPath }: SidebarProps) {
                           variant="ghost"
                           size="sm"
                           className="mb-1 w-full justify-start gap-2 text-muted-foreground h-7 text-xs"
-                          onClick={() => onNavigate(`/project/${project.id}/workflow/new`)}
+                          onClick={() => {
+                            setCreateWorkflowProjectId(project.id)
+                            setShowCreateWorkflowDialog(true)
+                          }}
                         >
                           <Plus className="h-3 w-3" />
                           新建工作流
@@ -448,6 +456,23 @@ export function Sidebar({ onNavigate, currentPath }: SidebarProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 新建项目对话框 */}
+      <CreateProjectDialog
+        open={showCreateProjectDialog}
+        onOpenChange={setShowCreateProjectDialog}
+        onSuccess={(projectId) => onNavigate(`/project/${projectId}`)}
+      />
+
+      {/* 新建工作流对话框 */}
+      <CreateWorkflowDialog
+        open={showCreateWorkflowDialog}
+        onOpenChange={setShowCreateWorkflowDialog}
+        projectId={createWorkflowProjectId}
+        onSuccess={(workflowId) => 
+          onNavigate(`/project/${createWorkflowProjectId}/workflow/${workflowId}`)
+        }
+      />
     </div>
   )
 }

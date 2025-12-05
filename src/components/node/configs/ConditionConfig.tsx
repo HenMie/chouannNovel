@@ -1,8 +1,10 @@
 // 条件判断节点配置表单
 
+import { Settings2 } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/ui/button'
 import { PromptEditor } from '@/components/ui/prompt-editor'
 import { VariableSelect } from '@/components/ui/variable-select'
 import {
@@ -28,6 +30,7 @@ interface ConditionConfigProps {
   nodes?: WorkflowNode[]  // 用于跳转目标选择
   currentNodeId?: string  // 当前节点 ID（排除自己）
   onChange: (config: Partial<ConditionConfigType>) => void
+  onNavigate?: (path: string) => void  // 导航函数，用于跳转到设置页
 }
 
 // 默认配置
@@ -74,7 +77,8 @@ export function ConditionConfigForm({
   globalConfig, 
   nodes = [],
   currentNodeId,
-  onChange 
+  onChange,
+  onNavigate,
 }: ConditionConfigProps) {
   // 合并默认配置
   const currentConfig: ConditionConfigType = { ...defaultConfig, ...config }
@@ -327,6 +331,17 @@ export function ConditionConfigForm({
                 <p className="text-sm text-muted-foreground">
                   请先在全局设置中配置 AI 服务
                 </p>
+                {onNavigate && (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="mt-2 text-primary"
+                    onClick={() => onNavigate('/settings')}
+                  >
+                    <Settings2 className="mr-1.5 h-3.5 w-3.5" />
+                    去配置
+                  </Button>
+                )}
               </div>
             ) : (
               <Select value={currentConfig.ai_model} onValueChange={handleModelChange}>
