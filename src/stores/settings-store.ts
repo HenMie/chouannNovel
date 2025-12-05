@@ -10,6 +10,13 @@ import {
 } from '@/lib/db'
 import { logError } from '@/lib/errors'
 
+// 筛选状态类型
+export type SettingFilterStatus = 'all' | 'enabled' | 'disabled'
+
+// 排序方式类型
+export type SettingSortBy = 'name' | 'created_at' | 'updated_at'
+export type SettingSortOrder = 'asc' | 'desc'
+
 interface SettingsState {
   // 设定数据
   settings: Setting[]
@@ -26,6 +33,10 @@ interface SettingsState {
   removeSetting: (id: string) => Promise<void>
   toggleSetting: (id: string) => Promise<void>
   
+  // 批量操作
+  batchToggleSettings: (ids: string[], enabled: boolean) => Promise<void>
+  batchRemoveSettings: (ids: string[]) => Promise<void>
+  
   // 设定提示词操作
   saveSettingPrompt: (category: SettingCategory, promptTemplate: string) => Promise<void>
   
@@ -33,6 +44,14 @@ interface SettingsState {
   getSettingsByCategory: (category: SettingCategory) => Setting[]
   getEnabledSettings: (category?: SettingCategory) => Setting[]
   getSettingPromptByCategory: (category: SettingCategory) => SettingPrompt | undefined
+  
+  // 筛选和排序获取器
+  getFilteredAndSortedSettings: (
+    category: SettingCategory,
+    filterStatus: SettingFilterStatus,
+    sortBy: SettingSortBy,
+    sortOrder: SettingSortOrder
+  ) => Setting[]
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -111,6 +130,36 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
 
+  batchToggleSettings: async (ids, enabled) => {
+    const { settings } = get()
+    if (ids.length === 0) return
+    
+    try {
+      // 并发执行所有更新
+      await Promise.all(ids.map((id) => updateSetting(id, { enabled })))
+      set({
+        settings: settings.map((s) =>
+          ids.includes(s.id) ? { ...s, enabled, updated_at: new Date().toISOString() } : s
+        ),
+      })
+    } catch (error) {
+      logError({ error, context: '批量切换设定状态' })
+    }
+  },
+
+  batchRemoveSettings: async (ids) => {
+    const { settings } = get()
+    if (ids.length === 0) return
+    
+    try {
+      // 并发执行所有删除
+      await Promise.all(ids.map((id) => deleteSetting(id)))
+      set({ settings: settings.filter((s) => !ids.includes(s.id)) })
+    } catch (error) {
+      logError({ error, context: '批量删除设定' })
+    }
+  },
+
   saveSettingPrompt: async (category, promptTemplate) => {
     const { currentProjectId, settingPrompts } = get()
     if (!currentProjectId) return
@@ -144,6 +193,34 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   getSettingPromptByCategory: (category) => {
     return get().settingPrompts.find((p) => p.category === category)
+  },
+
+  getFilteredAndSortedSettings: (category, filterStatus, sortBy, sortOrder) => {
+    let filtered = get().settings.filter((s) => s.category === category)
+    
+    // 状态筛选
+    if (filterStatus === 'enabled') {
+      filtered = filtered.filter((s) => s.enabled)
+    } else if (filterStatus === 'disabled') {
+      filtered = filtered.filter((s) => !s.enabled)
+    }
+    
+    // 排序
+    filtered.sort((a, b) => {
+      let comparison = 0
+      
+      if (sortBy === 'name') {
+        comparison = a.name.localeCompare(b.name, 'zh-CN')
+      } else if (sortBy === 'created_at') {
+        comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      } else if (sortBy === 'updated_at') {
+        comparison = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
+      }
+      
+      return sortOrder === 'asc' ? comparison : -comparison
+    })
+    
+    return filtered
   },
 }))
 

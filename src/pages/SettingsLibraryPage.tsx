@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
@@ -22,6 +22,12 @@ import {
   Quote,
   ToggleLeft,
   ToggleRight,
+  CheckSquare,
+  X,
+  Filter,
+  ArrowUpDown,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -29,6 +35,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Sheet,
@@ -55,12 +62,23 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from '@/components/ui/dropdown-menu'
+import { Badge } from '@/components/ui/badge'
 import { Header } from '@/components/layout/Header'
 import { useProjectStore } from '@/stores/project-store'
-import { useSettingsStore } from '@/stores/settings-store'
+import { useSettingsStore, type SettingFilterStatus, type SettingSortBy, type SettingSortOrder } from '@/stores/settings-store'
 import { Tour } from '@/components/help/Tour'
 import { SETTINGS_TOUR_STEPS } from '@/tours'
-import { useDebouncedValue } from '@/lib/utils'
+import { useDebouncedValue, cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { SettingCategory, Setting } from '@/types'
 
@@ -111,14 +129,22 @@ const CATEGORIES: Array<{
 // 虚拟设定列表组件
 function VirtualSettingsList({
   settings,
+  selectedIds,
+  selectionMode,
   onEdit,
   onDelete,
   onToggle,
+  onSelect,
+  onShiftSelect,
 }: {
   settings: Setting[]
+  selectedIds: Set<string>
+  selectionMode: boolean
   onEdit: (setting: Setting) => void
   onDelete: (setting: Setting) => void
   onToggle: (id: string) => void
+  onSelect: (id: string, selected: boolean) => void
+  onShiftSelect: (id: string) => void
 }) {
   const parentRef = useRef<HTMLDivElement>(null)
   // 跟踪展开状态以动态调整高度
@@ -162,9 +188,13 @@ function VirtualSettingsList({
               key={setting.id}
               setting={setting}
               index={index}
+              isSelected={selectedIds.has(setting.id)}
+              selectionMode={selectionMode}
               onEdit={() => onEdit(setting)}
               onDelete={() => onDelete(setting)}
               onToggle={() => onToggle(setting.id)}
+              onSelect={(selected) => onSelect(setting.id, selected)}
+              onShiftSelect={() => onShiftSelect(setting.id)}
             />
           ))}
         </AnimatePresence>
@@ -201,6 +231,8 @@ function VirtualSettingsList({
               <SettingCardVirtual
                 setting={setting}
                 isExpanded={expandedIds.has(setting.id)}
+                isSelected={selectedIds.has(setting.id)}
+                selectionMode={selectionMode}
                 onToggleExpand={() => {
                   toggleExpanded(setting.id)
                   // 重新测量
@@ -209,6 +241,8 @@ function VirtualSettingsList({
                 onEdit={() => onEdit(setting)}
                 onDelete={() => onDelete(setting)}
                 onToggle={() => onToggle(setting.id)}
+                onSelect={(selected) => onSelect(setting.id, selected)}
+                onShiftSelect={() => onShiftSelect(setting.id)}
               />
             </div>
           )
@@ -222,28 +256,61 @@ function VirtualSettingsList({
 function SettingCardVirtual({
   setting,
   isExpanded,
+  isSelected,
+  selectionMode,
   onToggleExpand,
   onEdit,
   onDelete,
   onToggle,
+  onSelect,
+  onShiftSelect,
 }: {
   setting: Setting
   isExpanded: boolean
+  isSelected: boolean
+  selectionMode: boolean
   onToggleExpand: () => void
   onEdit: () => void
   onDelete: () => void
   onToggle: () => void
+  onSelect: (selected: boolean) => void
+  onShiftSelect: () => void
 }) {
+  // 处理点击卡片（用于 Shift 选择）
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (selectionMode && e.shiftKey) {
+      e.preventDefault()
+      onShiftSelect()
+    }
+  }
   const cardContent = (
-    <Card className={`transition-colors hover:border-primary/50 ${!setting.enabled ? 'opacity-60' : ''}`}>
+    <Card 
+      className={cn(
+        'transition-colors hover:border-primary/50',
+        !setting.enabled && 'opacity-60',
+        isSelected && 'border-primary ring-1 ring-primary/30 bg-primary/5'
+      )}
+      onClick={handleCardClick}
+    >
       <CardHeader className="pb-2 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
+            {selectionMode && (
+              <Checkbox
+                checked={isSelected}
+                onCheckedChange={(checked) => onSelect(!!checked)}
+                onClick={(e) => e.stopPropagation()}
+                className="h-4 w-4"
+              />
+            )}
             <Button
               variant="ghost"
               size="sm"
               className="h-6 w-6 p-0"
-              onClick={onToggleExpand}
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleExpand()
+              }}
             >
               {isExpanded ? (
                 <ChevronDown className="h-4 w-4" />
@@ -263,16 +330,17 @@ function SettingCardVirtual({
               id={`switch-${setting.id}`}
               checked={setting.enabled}
               onCheckedChange={onToggle}
+              onClick={(e) => e.stopPropagation()}
               className="scale-75 mr-2"
             />
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEdit() }}>
               <Edit2 className="h-3.5 w-3.5" />
             </Button>
             <Button
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-destructive hover:text-destructive"
-              onClick={onDelete}
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -280,13 +348,13 @@ function SettingCardVirtual({
         </div>
       </CardHeader>
       {isExpanded ? (
-        <CardContent className="pt-0 pb-3 px-3 ml-9">
+        <CardContent className={cn("pt-0 pb-3 px-3", selectionMode ? "ml-[52px]" : "ml-9")}>
           <div className="rounded bg-muted/30 p-3 text-sm font-mono whitespace-pre-wrap">
             {setting.content}
           </div>
         </CardContent>
       ) : (
-        <CardContent className="pt-0 pb-3 px-3 ml-9">
+        <CardContent className={cn("pt-0 pb-3 px-3", selectionMode ? "ml-[52px]" : "ml-9")}>
           <p className="line-clamp-1 text-xs text-muted-foreground">
             {setting.content}
           </p>
@@ -338,8 +406,10 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
     editSetting,
     removeSetting,
     toggleSetting,
+    batchToggleSettings,
+    batchRemoveSettings,
     saveSettingPrompt,
-    getSettingsByCategory,
+    getFilteredAndSortedSettings,
     getSettingPromptByCategory,
   } = useSettingsStore()
 
@@ -351,11 +421,23 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
   const [promptTemplate, setPromptTemplate] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
 
+  // 批量选择状态
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null)
+  const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = useState(false)
+
+  // 筛选和排序状态
+  const [filterStatus, setFilterStatus] = useState<SettingFilterStatus>('all')
+  const [sortBy, setSortBy] = useState<SettingSortBy>('name')
+  const [sortOrder, setSortOrder] = useState<SettingSortOrder>('asc')
+
   // 表单状态
   const [formName, setFormName] = useState('')
   const [formContent, setFormContent] = useState('')
   const contentInputRef = useRef<HTMLTextAreaElement>(null)
   const promptInputRef = useRef<HTMLTextAreaElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   // 加载项目和设定
   useEffect(() => {
@@ -381,9 +463,135 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
     loadSettings(projectId, debouncedSearchQuery)
   }, [projectId, debouncedSearchQuery, loadSettings])
 
-  // 获取当前分类的设定
-  const currentCategorySettings = getSettingsByCategory(activeTab)
+  // 获取当前分类的设定（应用筛选和排序）
+  const currentCategorySettings = useMemo(() => {
+    return getFilteredAndSortedSettings(activeTab, filterStatus, sortBy, sortOrder)
+  }, [activeTab, filterStatus, sortBy, sortOrder, getFilteredAndSortedSettings])
+  
   const currentCategory = CATEGORIES.find((c) => c.key === activeTab)
+
+  // 切换分类时清空选择
+  useEffect(() => {
+    setSelectedIds(new Set())
+    setLastSelectedId(null)
+  }, [activeTab])
+
+  // 退出选择模式时清空选择
+  useEffect(() => {
+    if (!selectionMode) {
+      setSelectedIds(new Set())
+      setLastSelectedId(null)
+    }
+  }, [selectionMode])
+
+  // 快捷键处理
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 如果正在输入，忽略快捷键
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return
+      }
+
+      // Ctrl+A 全选
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a' && selectionMode) {
+        e.preventDefault()
+        const allIds = new Set(currentCategorySettings.map(s => s.id))
+        setSelectedIds(allIds)
+        toast.success(`已选择 ${allIds.size} 个设定`)
+      }
+
+      // Delete 批量删除
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectionMode && selectedIds.size > 0) {
+        e.preventDefault()
+        setBatchDeleteConfirmOpen(true)
+      }
+
+      // Escape 退出选择模式
+      if (e.key === 'Escape' && selectionMode) {
+        setSelectionMode(false)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [selectionMode, selectedIds.size, currentCategorySettings])
+
+  // 处理单个选择
+  const handleSelect = useCallback((id: string, selected: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (selected) {
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
+      return next
+    })
+    setLastSelectedId(id)
+  }, [])
+
+  // 处理 Shift 选择（范围选择）
+  const handleShiftSelect = useCallback((id: string) => {
+    if (!lastSelectedId) {
+      handleSelect(id, true)
+      return
+    }
+
+    const currentIndex = currentCategorySettings.findIndex(s => s.id === id)
+    const lastIndex = currentCategorySettings.findIndex(s => s.id === lastSelectedId)
+
+    if (currentIndex === -1 || lastIndex === -1) return
+
+    const start = Math.min(currentIndex, lastIndex)
+    const end = Math.max(currentIndex, lastIndex)
+
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      for (let i = start; i <= end; i++) {
+        next.add(currentCategorySettings[i].id)
+      }
+      return next
+    })
+  }, [lastSelectedId, currentCategorySettings, handleSelect])
+
+  // 全选/反选
+  const handleSelectAll = useCallback(() => {
+    if (selectedIds.size === currentCategorySettings.length) {
+      // 已全选，取消全选
+      setSelectedIds(new Set())
+    } else {
+      // 全选
+      setSelectedIds(new Set(currentCategorySettings.map(s => s.id)))
+    }
+  }, [selectedIds.size, currentCategorySettings])
+
+  // 批量启用
+  const handleBatchEnable = useCallback(async () => {
+    const ids = Array.from(selectedIds)
+    await batchToggleSettings(ids, true)
+    toast.success(`已启用 ${ids.length} 个设定`)
+    setSelectedIds(new Set())
+    setSelectionMode(false)
+  }, [selectedIds, batchToggleSettings])
+
+  // 批量禁用
+  const handleBatchDisable = useCallback(async () => {
+    const ids = Array.from(selectedIds)
+    await batchToggleSettings(ids, false)
+    toast.success(`已禁用 ${ids.length} 个设定`)
+    setSelectedIds(new Set())
+    setSelectionMode(false)
+  }, [selectedIds, batchToggleSettings])
+
+  // 批量删除
+  const handleBatchDelete = useCallback(async () => {
+    const ids = Array.from(selectedIds)
+    await batchRemoveSettings(ids)
+    toast.success(`已删除 ${ids.length} 个设定`)
+    setSelectedIds(new Set())
+    setSelectionMode(false)
+    setBatchDeleteConfirmOpen(false)
+  }, [selectedIds, batchRemoveSettings])
 
   // 打开新增抽屉
   const handleAdd = () => {
@@ -533,8 +741,129 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                       className="pl-8"
                     />
                  </div>
+                 {/* 筛选下拉 */}
+                 <DropdownMenu>
+                   <DropdownMenuTrigger asChild>
+                     <Button variant="outline" size="icon" className="h-9 w-9">
+                       <Filter className="h-4 w-4" />
+                     </Button>
+                   </DropdownMenuTrigger>
+                   <DropdownMenuContent align="end" className="w-48">
+                     <DropdownMenuLabel>状态筛选</DropdownMenuLabel>
+                     <DropdownMenuRadioGroup value={filterStatus} onValueChange={(v) => setFilterStatus(v as SettingFilterStatus)}>
+                       <DropdownMenuRadioItem value="all">全部</DropdownMenuRadioItem>
+                       <DropdownMenuRadioItem value="enabled">
+                         <CheckCircle2 className="mr-2 h-4 w-4 text-green-500" />
+                         已启用
+                       </DropdownMenuRadioItem>
+                       <DropdownMenuRadioItem value="disabled">
+                         <XCircle className="mr-2 h-4 w-4 text-muted-foreground" />
+                         已禁用
+                       </DropdownMenuRadioItem>
+                     </DropdownMenuRadioGroup>
+                     <DropdownMenuSeparator />
+                     <DropdownMenuLabel>排序方式</DropdownMenuLabel>
+                     <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as SettingSortBy)}>
+                       <DropdownMenuRadioItem value="name">按名称</DropdownMenuRadioItem>
+                       <DropdownMenuRadioItem value="created_at">按创建时间</DropdownMenuRadioItem>
+                       <DropdownMenuRadioItem value="updated_at">按更新时间</DropdownMenuRadioItem>
+                     </DropdownMenuRadioGroup>
+                     <DropdownMenuSeparator />
+                     <DropdownMenuItem onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}>
+                       <ArrowUpDown className="mr-2 h-4 w-4" />
+                       {sortOrder === 'asc' ? '升序 → 降序' : '降序 → 升序'}
+                     </DropdownMenuItem>
+                   </DropdownMenuContent>
+                 </DropdownMenu>
+                 {/* 批量选择按钮 */}
+                 <Button
+                   variant={selectionMode ? 'secondary' : 'outline'}
+                   size="icon"
+                   className="h-9 w-9"
+                   onClick={() => setSelectionMode(!selectionMode)}
+                   title={selectionMode ? '退出选择模式' : '进入选择模式'}
+                 >
+                   {selectionMode ? <X className="h-4 w-4" /> : <CheckSquare className="h-4 w-4" />}
+                 </Button>
               </div>
             </div>
+
+            {/* 筛选状态提示 */}
+            {(filterStatus !== 'all' || sortBy !== 'name' || sortOrder !== 'asc') && (
+              <div className="mb-4 flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-muted-foreground">当前筛选：</span>
+                {filterStatus !== 'all' && (
+                  <Badge variant="secondary" className="gap-1">
+                    {filterStatus === 'enabled' ? '已启用' : '已禁用'}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => setFilterStatus('all')} />
+                  </Badge>
+                )}
+                {(sortBy !== 'name' || sortOrder !== 'asc') && (
+                  <Badge variant="secondary" className="gap-1">
+                    {sortBy === 'name' ? '名称' : sortBy === 'created_at' ? '创建时间' : '更新时间'}
+                    ({sortOrder === 'asc' ? '升序' : '降序'})
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => { setSortBy('name'); setSortOrder('asc') }} />
+                  </Badge>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs"
+                  onClick={() => { setFilterStatus('all'); setSortBy('name'); setSortOrder('asc') }}
+                >
+                  重置
+                </Button>
+              </div>
+            )}
+
+            {/* 批量操作工具栏 */}
+            <AnimatePresence>
+              {selectionMode && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="mb-4 flex items-center gap-2 rounded-lg border bg-muted/50 p-3"
+                >
+                  <Checkbox
+                    checked={selectedIds.size === currentCategorySettings.length && currentCategorySettings.length > 0}
+                    onCheckedChange={handleSelectAll}
+                    className="h-4 w-4"
+                  />
+                  <span className="text-sm">
+                    {selectedIds.size > 0 
+                      ? `已选择 ${selectedIds.size} 项` 
+                      : '点击复选框选择设定，Shift+点击可范围选择'}
+                  </span>
+                  {selectedIds.size > 0 && (
+                    <>
+                      <div className="mx-2 h-4 w-px bg-border" />
+                      <Button variant="outline" size="sm" onClick={handleBatchEnable}>
+                        <ToggleRight className="mr-1.5 h-3.5 w-3.5" />
+                        启用
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={handleBatchDisable}>
+                        <ToggleLeft className="mr-1.5 h-3.5 w-3.5" />
+                        禁用
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setBatchDeleteConfirmOpen(true)}
+                      >
+                        <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                        删除
+                      </Button>
+                    </>
+                  )}
+                  <div className="flex-1" />
+                  <span className="text-xs text-muted-foreground">
+                    Ctrl+A 全选 · Delete 删除 · Esc 退出
+                  </span>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SettingCategory)}>
               <TabsList className="mb-6 grid w-full grid-cols-4" data-tour="settings-tabs">
@@ -582,9 +911,9 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                       <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                         <category.icon className="mb-4 h-12 w-12 text-muted-foreground/50" />
                         <p className="mb-2 text-muted-foreground">
-                          {searchQuery ? '未找到匹配的设定' : `暂无${category.label}设定`}
+                          {searchQuery || filterStatus !== 'all' ? '未找到匹配的设定' : `暂无${category.label}设定`}
                         </p>
-                        {!searchQuery && (
+                        {!searchQuery && filterStatus === 'all' && (
                            <p className="text-sm text-muted-foreground/70">
                               点击上方按钮添加{category.label}设定
                            </p>
@@ -592,12 +921,16 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                       </CardContent>
                     </Card>
                   ) : (
-                    <div data-tour="settings-list">
+                    <div data-tour="settings-list" ref={containerRef}>
                     <VirtualSettingsList
                       settings={currentCategorySettings}
+                      selectedIds={selectedIds}
+                      selectionMode={selectionMode}
                       onEdit={handleEdit}
                       onDelete={setDeletingSetting}
                       onToggle={toggleSetting}
+                      onSelect={handleSelect}
+                      onShiftSelect={handleShiftSelect}
                     />
                     </div>
                   )}
@@ -752,6 +1085,24 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* 批量删除确认对话框 */}
+      <AlertDialog open={batchDeleteConfirmOpen} onOpenChange={setBatchDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认批量删除</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定要删除选中的 {selectedIds.size} 个设定吗？此操作无法撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBatchDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              删除 {selectedIds.size} 项
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* 新手引导 */}
       <Tour module="settings" steps={SETTINGS_TOUR_STEPS} />
     </div>
@@ -762,24 +1113,54 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
 interface SettingCardProps {
   setting: Setting
   index: number
+  isSelected: boolean
+  selectionMode: boolean
   onEdit: () => void
   onDelete: () => void
   onToggle: () => void
+  onSelect: (selected: boolean) => void
+  onShiftSelect: () => void
 }
 
-function SettingCard({ setting, index, onEdit, onDelete, onToggle }: SettingCardProps) {
+function SettingCard({ setting, index, isSelected, selectionMode, onEdit, onDelete, onToggle, onSelect, onShiftSelect }: SettingCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
+  // 处理点击卡片（用于 Shift 选择）
+  const handleCardClick = (e: React.MouseEvent) => {
+    if (selectionMode && e.shiftKey) {
+      e.preventDefault()
+      onShiftSelect()
+    }
+  }
+
   const cardContent = (
-    <Card className={`transition-colors hover:border-primary/50 ${!setting.enabled ? 'opacity-60' : ''}`}>
+    <Card 
+      className={cn(
+        'transition-colors hover:border-primary/50',
+        !setting.enabled && 'opacity-60',
+        isSelected && 'border-primary ring-1 ring-primary/30 bg-primary/5'
+      )}
+      onClick={handleCardClick}
+    >
       <CardHeader className="pb-2 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
+            {selectionMode && (
+              <Checkbox
+                checked={isSelected}
+                onCheckedChange={(checked) => onSelect(!!checked)}
+                onClick={(e) => e.stopPropagation()}
+                className="h-4 w-4"
+              />
+            )}
             <Button
               variant="ghost"
               size="sm"
               className="h-6 w-6 p-0"
-              onClick={() => setIsExpanded(!isExpanded)}
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsExpanded(!isExpanded)
+              }}
             >
               {isExpanded ? (
                 <ChevronDown className="h-4 w-4" />
@@ -799,16 +1180,17 @@ function SettingCard({ setting, index, onEdit, onDelete, onToggle }: SettingCard
               id={`switch-${setting.id}`}
               checked={setting.enabled}
               onCheckedChange={onToggle}
+              onClick={(e) => e.stopPropagation()}
               className="scale-75 mr-2"
             />
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEdit() }}>
               <Edit2 className="h-3.5 w-3.5" />
             </Button>
             <Button
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-destructive hover:text-destructive"
-              onClick={onDelete}
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -823,7 +1205,7 @@ function SettingCard({ setting, index, onEdit, onDelete, onToggle }: SettingCard
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            <CardContent className="pt-0 pb-3 px-3 ml-9">
+            <CardContent className={cn("pt-0 pb-3 px-3", selectionMode ? "ml-[52px]" : "ml-9")}>
               <div className="rounded bg-muted/30 p-3 text-sm font-mono whitespace-pre-wrap">
                 {setting.content}
               </div>
@@ -832,7 +1214,7 @@ function SettingCard({ setting, index, onEdit, onDelete, onToggle }: SettingCard
         )}
       </AnimatePresence>
       {!isExpanded && (
-        <CardContent className="pt-0 pb-3 px-3 ml-9">
+        <CardContent className={cn("pt-0 pb-3 px-3", selectionMode ? "ml-[52px]" : "ml-9")}>
           <p className="line-clamp-1 text-xs text-muted-foreground">
             {setting.content}
           </p>

@@ -1,14 +1,13 @@
 // lib/ai AI 模块测试
 // 测试模型配置、可用模型获取、provider options 构建等功能
 
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import {
   BUILTIN_MODELS,
   getBuiltinModelsByProvider,
   getAvailableModels,
   getModelConfig,
   getModelProvider,
-  type ModelConfig,
 } from "../index"
 import type { GlobalConfig, AIProvider } from "@/types"
 

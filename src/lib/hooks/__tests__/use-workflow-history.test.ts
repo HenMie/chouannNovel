@@ -1,8 +1,8 @@
 // use-workflow-history Hook 测试
 // 测试撤销/重做命令栈管理
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { renderHook, act, waitFor } from "@testing-library/react"
+import { describe, it, expect, vi } from "vitest"
+import { renderHook, act } from "@testing-library/react"
 import { useWorkflowHistory, type WorkflowCommand } from "../use-workflow-history"
 
 // ========== 测试命令工厂 ==========
