@@ -87,9 +87,9 @@ describe("ThemeStore", () => {
       onchange: null,
       addListener: vi.fn(),
       removeListener: vi.fn(),
-      addEventListener: (event, handler) => {
+      addEventListener: (event: string, handler: (e: MediaQueryListEvent) => void) => {
         if (event === "change") {
-          listeners.push(handler as any)
+          listeners.push(handler)
         }
       },
       removeEventListener: vi.fn(),

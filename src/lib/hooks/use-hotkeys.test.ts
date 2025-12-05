@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react"
 import { useHotkey, useHotkeys, HOTKEY_PRESETS } from "./use-hotkeys"
-import { vi } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 
 // 统一派发键盘事件，方便校验 defaultPrevented
 const dispatchKeyEvent = (

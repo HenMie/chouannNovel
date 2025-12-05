@@ -26,12 +26,10 @@ import {
   Undo2,
   Redo2,
   PanelRightClose,
-  PanelRightOpen,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { EmptyState } from '@/components/ui/empty-state'
 import {
   DropdownMenu,
   DropdownMenuContent,
