@@ -62,6 +62,7 @@ import {
 } from '@/components/ui/context-menu'
 import { cn } from '@/lib/utils'
 import { useNodeSelection } from '@/lib/hooks'
+import { getNodeOutputVariables } from '@/components/ui/variable-picker-shared'
 import type { WorkflowNode, NodeType, AIChatConfig, LoopStartConfig, ConditionIfConfig, VarUpdateConfig, TextExtractConfig, TextConcatConfig, ParallelStartConfig, StartConfig } from '@/types'
 
 // 节点类型配置
@@ -194,8 +195,92 @@ function getInputSourceDesc(_source?: string, variable?: string): React.ReactNod
   return <Tag color="gray">未设置变量</Tag>
 }
 
+// 变量引用匹配正则
+const VARIABLE_PATTERN = /\{\{([^}]+)\}\}/g
+// 节点ID引用格式：{{@nodeId}} 或 {{@nodeId > 描述}}
+const NODE_REF_PATTERN = /^\s*@([^}>]+)(\s*>\s*.+?)?\s*$/
+
+/**
+ * 格式化变量引用为友好显示
+ * 将 {{@nodeId}} 转换为 {{节点名 > 描述}}
+ * 将 {{用户问题}} 保持不变
+ * @param maxTextLength 普通文本的最大总长度，超过会截断
+ */
+function formatVariableReferences(text: string, nodes: WorkflowNode[], maxTextLength = 40): React.ReactNode {
+  if (!text) return null
+  
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+  let match
+  let textLength = 0 // 跟踪普通文本长度
+  let truncated = false
+  const pattern = new RegExp(VARIABLE_PATTERN.source, 'g')
+  
+  while ((match = pattern.exec(text)) !== null) {
+    // 添加匹配前的普通文本
+    if (match.index > lastIndex) {
+      let plainText = text.slice(lastIndex, match.index)
+      const remaining = maxTextLength - textLength
+      
+      if (remaining <= 0 && !truncated) {
+        parts.push('...')
+        truncated = true
+      } else if (plainText.length > remaining) {
+        parts.push(plainText.slice(0, remaining) + '...')
+        textLength = maxTextLength
+        truncated = true
+      } else {
+        parts.push(plainText)
+        textLength += plainText.length
+      }
+    }
+    
+    const varContent = match[1].trim()
+    const nodeRefMatch = varContent.match(NODE_REF_PATTERN)
+    
+    if (nodeRefMatch) {
+      // 节点引用：{{@nodeId}} 或 {{@nodeId > 描述}}
+      const nodeId = nodeRefMatch[1].trim()
+      const node = nodes.find(n => n.id === nodeId)
+      
+      if (node) {
+        // 获取节点输出描述
+        const variables = getNodeOutputVariables(node)
+        const description = variables[0]?.description || ''
+        const displayText = description ? `${node.name} > ${description}` : node.name
+        parts.push(<Tag key={match.index} color="green">{displayText}</Tag>)
+      } else {
+        // 未找到节点，显示简短 ID
+        const shortId = nodeId.length > 8 ? `${nodeId.slice(0, 8)}...` : nodeId
+        parts.push(<Tag key={match.index} color="orange">@{shortId}</Tag>)
+      }
+    } else {
+      // 普通变量引用：{{用户问题}} 等
+      parts.push(<Tag key={match.index} color="green">{varContent}</Tag>)
+    }
+    
+    lastIndex = match.index + match[0].length
+  }
+  
+  // 添加剩余的普通文本
+  if (lastIndex < text.length && !truncated) {
+    let remainingText = text.slice(lastIndex)
+    const remaining = maxTextLength - textLength
+    
+    if (remaining <= 0) {
+      parts.push('...')
+    } else if (remainingText.length > remaining) {
+      parts.push(remainingText.slice(0, remaining) + '...')
+    } else {
+      parts.push(remainingText)
+    }
+  }
+  
+  return parts.length > 0 ? <>{parts}</> : null
+}
+
 // 生成节点描述
-function getNodeDescription(node: WorkflowNode): React.ReactNode {
+function getNodeDescription(node: WorkflowNode, nodes: WorkflowNode[]): React.ReactNode {
   const config = node.config as any
   
   switch (node.type) {
@@ -228,8 +313,8 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
       let inputDesc: React.ReactNode = <Tag color="gray">未设置提示词</Tag>
       
       if (userPrompt) {
-        const preview = userPrompt.length > 20 ? `${userPrompt.slice(0, 20)}...` : userPrompt
-        inputDesc = <Tag color="blue">{preview}</Tag>
+        // 使用格式化函数将变量引用转换为友好显示
+        inputDesc = formatVariableReferences(userPrompt, nodes)
       }
       
       return (
@@ -245,8 +330,9 @@ function getNodeDescription(node: WorkflowNode): React.ReactNode {
     
     case 'var_update': {
       const varConfig = config as VarUpdateConfig
+      // 使用格式化函数将变量引用转换为友好显示
       const valueDesc = varConfig?.value_template 
-        ? <Tag color="blue">{varConfig.value_template.slice(0, 30)}{varConfig.value_template.length > 30 ? '...' : ''}</Tag>
+        ? formatVariableReferences(varConfig.value_template, nodes)
         : <Tag color="gray">空值</Tag>
       
       return (
@@ -522,6 +608,7 @@ function calculateNodeLevels(nodes: WorkflowNode[]): Map<string, { level: number
 // 节点卡片组件（纯展示）
 function NodeCard({
   node,
+  nodes,
   index,
   blockStack,
   isActive,
@@ -544,6 +631,7 @@ function NodeCard({
   wrapperRef,
 }: {
   node: WorkflowNode
+  nodes: WorkflowNode[]
   index: number
   blockStack: { id: string; type: string }[]
   isActive?: boolean
@@ -704,7 +792,7 @@ function NodeCard({
 
         {/* 第二行：描述 */}
         <div className="mt-1 text-xs leading-relaxed pl-7">
-          {getNodeDescription(node)}
+          {getNodeDescription(node, nodes)}
         </div>
       </div>
 
@@ -853,6 +941,7 @@ function NodeCard({
 // 可排序节点行组件
 function SortableNodeRow(props: {
   node: WorkflowNode
+  nodes: WorkflowNode[]
   index: number
   blockStack: { id: string; type: string }[]
   isActive?: boolean
@@ -1209,6 +1298,7 @@ export function WorkflowNodeTree({
                   <SortableNodeRow
                     key={node.id}
                     node={node}
+                    nodes={nodes}
                     index={nodeIndex}
                     blockStack={nodeInfo?.blockStack || []}
                     isActive={selectedNodeId === node.id}
@@ -1239,6 +1329,7 @@ export function WorkflowNodeTree({
           {activeNode ? (
             <NodeCard
               node={activeNode}
+              nodes={nodes}
               index={nodes.indexOf(activeNode)}
               blockStack={nodeLevels.get(activeNode.id)?.blockStack || []}
               isActive={selectedNodeId === activeNode.id}
