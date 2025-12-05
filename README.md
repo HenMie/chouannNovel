@@ -163,7 +163,3 @@ git push origin v1.0.0
 ├── e2e/                   # E2E 测试
 └── scripts/               # 构建脚本
 ```
-
-## 许可证
-
-[MIT License](LICENSE)
