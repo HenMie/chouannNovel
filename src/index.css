@@ -116,6 +116,20 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* 禁止页面文本被选中，提供桌面应用体验 */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* 允许输入框和文本域中的文本可选 */
+  input,
+  textarea,
+  [contenteditable="true"],
+  pre,
+  code,
+  .selectable {
+    user-select: text;
+    -webkit-user-select: text;
   }
 }
 

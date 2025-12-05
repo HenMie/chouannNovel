@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
   ArrowLeft,
   Eye,
@@ -43,6 +43,7 @@ import { getErrorMessage, handleAppError } from '@/lib/errors'
 import { useThemeStore } from '@/stores/theme-store'
 import { Tour } from '@/components/help/Tour'
 import { AI_CONFIG_TOUR_STEPS } from '@/tours'
+import { getVersion } from '@tauri-apps/api/app'
 
 interface SettingsPageProps {
   onNavigate: (path: string) => void
@@ -183,10 +184,22 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
     gemini: { id: '', name: '' },
     claude: { id: '', name: '' },
   })
+  // 版本信息
+  const [appVersion, setAppVersion] = useState<string>('')
+
+  const loadVersionInfo = useCallback(async () => {
+    try {
+      const version = await getVersion()
+      setAppVersion(version)
+    } catch {
+      // 在非 Tauri 环境下（如开发环境的浏览器）忽略错误
+    }
+  }, [])
 
   useEffect(() => {
     loadConfig()
-  }, [])
+    loadVersionInfo()
+  }, [loadVersionInfo])
 
   const loadConfig = async () => {
     try {
@@ -791,6 +804,13 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* 版本信息 */}
+                <div className="mt-8 pt-6 border-t border-border/50">
+                  <p className="text-center text-xs text-muted-foreground">
+                    Powered by Chouann {appVersion ? `v${appVersion}` : ''}
+                  </p>
+                </div>
               </div>
             )}
           </div>

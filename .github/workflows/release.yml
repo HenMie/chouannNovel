@@ -1,0 +1,154 @@
+# Release 工作流：自动构建并发布安装包
+# 在推送 v*.*.* 格式的 Tag 时触发
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  TAURI_SIGNING_PRIVATE_KEY: ''
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+
+jobs:
+  # 创建 Release
+  create-release:
+    name: 创建 Release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create_release.outputs.id }}
+      release_upload_url: ${{ steps.create_release.outputs.upload_url }}
+    
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 获取版本号
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: 创建 Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## 更新内容
+            
+            请在此处填写更新内容...
+            
+            ## 下载
+            
+            - **Windows**: 下载 `.msi` 或 `.exe` 安装包
+            - **macOS (Apple Silicon)**: 下载 `.dmg` 安装包
+          draft: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # 构建安装包
+  build:
+    name: 构建 ${{ matrix.name }}
+    needs: create-release
+    runs-on: ${{ matrix.platform }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows x64 - 只生成 NSIS (.exe) 安装包
+          - name: Windows x64
+            platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: '--target x86_64-pc-windows-msvc --bundles nsis'
+          
+          # macOS ARM64 (Apple Silicon / M系列) - 只生成 DMG 安装包
+          - name: macOS ARM64
+            platform: macos-latest
+            target: aarch64-apple-darwin
+            args: '--target aarch64-apple-darwin --bundles dmg'
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 安装 Rust 工具链
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: 设置 Rust 缓存
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          shared-key: ${{ matrix.target }}
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 同步版本号
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "同步版本号: $VERSION"
+          
+          # 更新 package.json
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            # Windows 使用 PowerShell
+            powershell -Command "(Get-Content package.json) -replace '\"version\": \"[^\"]+\"', '\"version\": \"'$VERSION'\"' | Set-Content package.json"
+          else
+            # Unix 系统使用 sed
+            sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
+            rm -f package.json.bak
+          fi
+          
+          # 更新 tauri.conf.json
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            powershell -Command "(Get-Content src-tauri/tauri.conf.json) -replace '\"version\": \"[^\"]+\"', '\"version\": \"'$VERSION'\"' | Set-Content src-tauri/tauri.conf.json"
+          else
+            sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+            rm -f src-tauri/tauri.conf.json.bak
+          fi
+          
+          # 更新 Cargo.toml
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            powershell -Command "(Get-Content src-tauri/Cargo.toml) -replace '^version = \"[^\"]+\"', 'version = \"'$VERSION'\"' | Set-Content src-tauri/Cargo.toml"
+          else
+            sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
+            rm -f src-tauri/Cargo.toml.bak
+          fi
+          
+          echo "版本同步完成"
+
+      - name: 构建 Tauri 应用
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          args: ${{ matrix.args }}
+
+  # 发布 Release
+  publish-release:
+    name: 发布 Release
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
