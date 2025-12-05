@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Play,
   Pause,
@@ -25,6 +25,8 @@ import {
   RotateCcw,
   Undo2,
   Redo2,
+  PanelRightClose,
+  PanelRightOpen,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -47,6 +49,7 @@ import { Header } from '@/components/layout/Header'
 import { NodeConfigDrawer } from '@/components/node/NodeConfigDrawer'
 import { WorkflowNodeTree, nodeTypeConfig } from '@/components/node/WorkflowNodeTree'
 import { StreamingOutput, NodeOutputPanel } from '@/components/execution/StreamingOutput'
+import { WorkflowGuide, CollapsedOutputIndicator } from '@/components/execution/WorkflowGuide'
 import { useProjectStore } from '@/stores/project-store'
 import { useExecutionStore } from '@/stores/execution-store'
 import { useSettingsStore } from '@/stores/settings-store'
@@ -130,6 +133,16 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
   const [initialInput, setInitialInput] = useState('')
   const [showInputDialog, setShowInputDialog] = useState(false)
   const [nodeToDelete, setNodeToDelete] = useState<string | null>(null)
+  
+  // 输出面板折叠状态（从 localStorage 读取初始值）
+  const [isOutputPanelCollapsed, setIsOutputPanelCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('workflow-output-panel-collapsed')
+      return saved === 'true'
+    } catch {
+      return false
+    }
+  })
   
   // 版本历史状态
   const [versions, setVersions] = useState<WorkflowVersion[]>([])
@@ -227,6 +240,37 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
   const isRunning = executionStatus === 'running'
   const isPaused = executionStatus === 'paused'
   const isExecuting = isRunning || isPaused
+  
+  // 切换输出面板折叠状态
+  const toggleOutputPanel = () => {
+    setIsOutputPanelCollapsed(prev => {
+      const newValue = !prev
+      try {
+        localStorage.setItem('workflow-output-panel-collapsed', String(newValue))
+      } catch {
+        // ignore
+      }
+      return newValue
+    })
+  }
+  
+  // 执行开始时自动展开输出面板
+  useEffect(() => {
+    if (isExecuting && isOutputPanelCollapsed) {
+      setIsOutputPanelCollapsed(false)
+      try {
+        localStorage.setItem('workflow-output-panel-collapsed', 'false')
+      } catch {
+        // ignore
+      }
+    }
+  }, [isExecuting, isOutputPanelCollapsed])
+  
+  // AI 配置状态检查
+  const hasAINode = nodes.some(n => n.type === 'ai_chat')
+  const isAIConfigured = globalConfig ? Object.values(globalConfig.ai_providers).some(
+    p => p.enabled && p.api_key
+  ) : false
 
   useEffect(() => {
     // 加载工作流和节点
@@ -1226,105 +1270,142 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
 
         {/* 输出面板 */}
         <Separator orientation="vertical" />
-        <div className="flex w-96 flex-col border-l bg-background overflow-hidden" data-tour="workflow-output-panel">
-          <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2">
-            <span className="text-sm font-medium">执行输出</span>
-            {/* 执行状态指示器 */}
-            {executionStatus === 'running' && (
-              <span className="flex items-center gap-1.5 text-xs font-medium text-primary">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-                </span>
-                执行中...
-              </span>
-            )}
-            {executionStatus === 'paused' && (
-              <span className="flex items-center gap-1 text-xs font-medium text-yellow-500">
-                <Pause className="h-3 w-3" />
-                已暂停
-              </span>
-            )}
-            {executionStatus === 'completed' && (
-              <span className="flex items-center gap-1 text-xs font-medium text-green-500">
-                <CheckCircle2 className="h-3 w-3" />
-                完成
-              </span>
-            )}
-            {executionStatus === 'failed' && (
-              <span className="flex items-center gap-1 text-xs font-medium text-red-500">
-                <AlertCircle className="h-3 w-3" />
-                失败
-              </span>
-            )}
-            {executionStatus === 'timeout' && (
-              <span className="flex items-center gap-1 text-xs font-medium text-orange-500">
-                <Clock className="h-3 w-3" />
-                超时
-              </span>
-            )}
-          </div>
-          <ScrollArea className="flex-1">
-            <div className="space-y-4 p-4">
-              {/* 节点输出列表 */}
-              {nodeOutputs.map((output) => (
-                <NodeOutputPanel
-                  key={output.nodeId}
-                  nodeId={output.nodeId}
-                  nodeName={output.nodeName}
-                  nodeType={nodeTypeConfig[output.nodeType as NodeType]?.label || output.nodeType}
-                  output={output.output}
-                  isRunning={output.isRunning}
-                  isStreaming={output.isStreaming}
-                  canEdit={isPaused}
-                  onEdit={modifyNodeOutput}
-                  resolvedConfig={output.resolvedConfig}
-                />
-              ))}
-              
-              {/* 最终输出 */}
-              {executionStatus === 'completed' && finalOutput && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="rounded-lg border-2 border-primary bg-card overflow-hidden shadow-sm"
-                >
-                  <div className="flex items-center gap-2 border-b bg-primary/5 px-4 py-2">
-                    <div className="h-2 w-2 rounded-full bg-primary" />
-                    <span className="text-sm font-medium">最终输出</span>
-                  </div>
-                  <StreamingOutput content={finalOutput} className="max-h-[400px] p-4" />
-                </motion.div>
-              )}
+        <AnimatePresence mode="wait" initial={false}>
+          {isOutputPanelCollapsed ? (
+            // 折叠状态 - 显示迷你指示器
+            <CollapsedOutputIndicator
+              key="collapsed"
+              executionStatus={executionStatus}
+              onExpand={toggleOutputPanel}
+            />
+          ) : (
+            // 展开状态 - 完整输出面板
+            <motion.div
+              key="expanded"
+              className="flex w-96 flex-col border-l bg-background overflow-hidden"
+              data-tour="workflow-output-panel"
+              initial={{ opacity: 0, width: 0 }}
+              animate={{ opacity: 1, width: 384 }}
+              exit={{ opacity: 0, width: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2">
+                <span className="text-sm font-medium">执行输出</span>
+                <div className="flex items-center gap-2">
+                  {/* 执行状态指示器 */}
+                  {executionStatus === 'running' && (
+                    <span className="flex items-center gap-1.5 text-xs font-medium text-primary">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                      </span>
+                      执行中...
+                    </span>
+                  )}
+                  {executionStatus === 'paused' && (
+                    <span className="flex items-center gap-1 text-xs font-medium text-yellow-500">
+                      <Pause className="h-3 w-3" />
+                      已暂停
+                    </span>
+                  )}
+                  {executionStatus === 'completed' && (
+                    <span className="flex items-center gap-1 text-xs font-medium text-green-500">
+                      <CheckCircle2 className="h-3 w-3" />
+                      完成
+                    </span>
+                  )}
+                  {executionStatus === 'failed' && (
+                    <span className="flex items-center gap-1 text-xs font-medium text-red-500">
+                      <AlertCircle className="h-3 w-3" />
+                      失败
+                    </span>
+                  )}
+                  {executionStatus === 'timeout' && (
+                    <span className="flex items-center gap-1 text-xs font-medium text-orange-500">
+                      <Clock className="h-3 w-3" />
+                      超时
+                    </span>
+                  )}
+                  {/* 折叠按钮 */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={toggleOutputPanel}
+                      >
+                        <PanelRightClose className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>折叠面板</TooltipContent>
+                  </Tooltip>
+                </div>
+              </div>
+              <ScrollArea className="flex-1">
+                <div className="space-y-4 p-4">
+                  {/* 节点输出列表 */}
+                  {nodeOutputs.map((output) => (
+                    <NodeOutputPanel
+                      key={output.nodeId}
+                      nodeId={output.nodeId}
+                      nodeName={output.nodeName}
+                      nodeType={nodeTypeConfig[output.nodeType as NodeType]?.label || output.nodeType}
+                      output={output.output}
+                      isRunning={output.isRunning}
+                      isStreaming={output.isStreaming}
+                      canEdit={isPaused}
+                      onEdit={modifyNodeOutput}
+                      resolvedConfig={output.resolvedConfig}
+                    />
+                  ))}
+                  
+                  {/* 最终输出 */}
+                  {executionStatus === 'completed' && finalOutput && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="rounded-lg border-2 border-primary bg-card overflow-hidden shadow-sm"
+                    >
+                      <div className="flex items-center gap-2 border-b bg-primary/5 px-4 py-2">
+                        <div className="h-2 w-2 rounded-full bg-primary" />
+                        <span className="text-sm font-medium">最终输出</span>
+                      </div>
+                      <StreamingOutput content={finalOutput} className="max-h-[400px] p-4" />
+                    </motion.div>
+                  )}
 
-              {/* 错误信息 */}
-              {executionError && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/20"
-                >
-                  <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-                    <AlertCircle className="h-4 w-4" />
-                    <span className="font-medium text-sm">执行错误</span>
-                  </div>
-                  <p className="mt-2 text-sm text-red-600/90 dark:text-red-400/90 break-words">
-                    {executionError}
-                  </p>
-                </motion.div>
-              )}
+                  {/* 错误信息 */}
+                  {executionError && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/20"
+                    >
+                      <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                        <AlertCircle className="h-4 w-4" />
+                        <span className="font-medium text-sm">执行错误</span>
+                      </div>
+                      <p className="mt-2 text-sm text-red-600/90 dark:text-red-400/90 break-words">
+                        {executionError}
+                      </p>
+                    </motion.div>
+                  )}
 
-              {/* 空状态 */}
-              {nodeOutputs.length === 0 && !executionError && (
-                <EmptyState
-                  icon={Play}
-                  title="暂无输出"
-                  description="运行工作流后，输出将显示在这里"
-                />
-              )}
-            </div>
-          </ScrollArea>
-        </div>
+                  {/* 空状态 - 显示操作指引 */}
+                  {nodeOutputs.length === 0 && !executionError && (
+                    <WorkflowGuide
+                      hasNodes={nodes.length > 0}
+                      hasAINode={hasAINode}
+                      isAIConfigured={isAIConfigured}
+                      onNavigateToSettings={() => onNavigate('/settings')}
+                    />
+                  )}
+                </div>
+              </ScrollArea>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* 输入对话框 */}

@@ -117,7 +117,7 @@ describe("lib/db - 项目与工作流", () => {
 
     const restored = await db.restoreNodes(workflow.id, [
       {
-        type: "variable",
+        type: "var_update",
         name: "新节点A",
         config: { a: 1 },
         order_index: 0,
@@ -146,7 +146,7 @@ describe("lib/db - 节点操作", () => {
 
     await db.createNode(
       workflow.id,
-      "variable",
+      "var_update",
       "插入节点",
       {},
       { insert_after_index: 0, block_id: "block-1", parent_block_id: "parent-1" }
@@ -193,7 +193,7 @@ describe("lib/db - 设定与提示词", () => {
 describe("lib/db - 全局配置", () => {
   it("默认配置应包含预设模型列表并可更新", async () => {
     const config = await db.getGlobalConfig()
-    expect(config.ai_providers.openai.enabled_models.length).toBeGreaterThan(0)
+    expect(config.ai_providers.openai.enabled_models?.length ?? 0).toBeGreaterThan(0)
 
     await db.updateGlobalConfig({
       theme: "dark",
@@ -340,7 +340,7 @@ describe("lib/db - 工作流版本", () => {
     const workflow = await db.createWorkflow(project.id, "流程")
     const v1 = await db.createWorkflowVersion(workflow.id, "v1")
     await db.createNode(workflow.id, "ai_chat", "节点")
-    const v2 = await db.createWorkflowVersion(workflow.id, "v2")
+    await db.createWorkflowVersion(workflow.id, "v2")
 
     const versions = await db.getWorkflowVersions(workflow.id)
     expect(versions[0].version_number).toBe(2)
