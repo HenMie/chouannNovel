@@ -28,10 +28,38 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史用于生成 changelog
 
       - name: 获取版本号
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: 生成更新日志
+        id: changelog
+        run: |
+          # 获取上一个 tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREV_TAG" ]; then
+            # 如果没有上一个 tag，获取所有提交
+            echo "首次发布，获取所有提交记录"
+            COMMITS=$(git log --pretty=format:"- %s" --no-merges)
+          else
+            # 获取从上一个 tag 到当前的提交
+            echo "从 $PREV_TAG 到 ${{ github.ref_name }} 的提交"
+            COMMITS=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges)
+          fi
+          
+          # 将多行内容写入文件
+          echo "$COMMITS" > changelog.txt
+          
+          # 设置输出（处理多行）
+          {
+            echo 'CHANGELOG<<EOF'
+            cat changelog.txt
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
 
       - name: 创建 Release
         id: create_release
@@ -42,12 +70,21 @@ jobs:
           body: |
             ## 更新内容
             
-            请在此处填写更新内容...
+            ${{ steps.changelog.outputs.CHANGELOG }}
             
-            ## 下载
+            ## 下载说明
             
-            - **Windows**: 下载 `.msi` 或 `.exe` 安装包
-            - **macOS (Apple Silicon)**: 下载 `.dmg` 安装包
+            ### Windows
+            下载 `.exe` 安装包，双击运行即可安装。
+            
+            ### macOS (Apple Silicon)
+            下载 `.dmg` 安装包。
+            
+            ⚠️ **首次运行未签名应用**：如果提示"无法打开应用"，请在终端执行：
+            ```bash
+            sudo xattr -rd com.apple.quarantine /Applications/chouannnovel.app
+            ```
+            或打开「系统偏好设置」→「安全性与隐私」→ 点击「仍要打开」。
           draft: true
           prerelease: false
         env:
