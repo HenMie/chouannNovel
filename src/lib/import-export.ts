@@ -6,6 +6,7 @@ import { open, save } from '@tauri-apps/plugin-dialog'
 import { readTextFile, writeTextFile } from '@tauri-apps/plugin-fs'
 import type { ExportedWorkflow, ExportedSettings, ExportedProject } from '@/types'
 import * as db from '@/lib/db'
+import { logError } from '@/lib/errors'
 
 // 文件过滤器
 const JSON_FILTERS = [
@@ -35,7 +36,7 @@ export async function exportWorkflowToFile(workflowId: string): Promise<boolean>
     }
     return false
   } catch (error) {
-    console.error('导出工作流失败:', error)
+    logError({ error, context: '导出工作流' })
     throw error
   }
 }
@@ -69,7 +70,7 @@ export async function importWorkflowFromFile(
     const workflow = await db.importWorkflow(projectId, data, newName)
     return { success: true, workflow }
   } catch (error) {
-    console.error('导入工作流失败:', error)
+    logError({ error, context: '导入工作流' })
     throw error
   }
 }
@@ -93,7 +94,7 @@ export async function exportSettingsToFile(projectId: string, projectName: strin
     }
     return false
   } catch (error) {
-    console.error('导出设定库失败:', error)
+    logError({ error, context: '导出设定库' })
     throw error
   }
 }
@@ -127,7 +128,7 @@ export async function importSettingsFromFile(
     await db.importSettings(projectId, data, mode)
     return true
   } catch (error) {
-    console.error('导入设定库失败:', error)
+    logError({ error, context: '导入设定库' })
     throw error
   }
 }
@@ -154,7 +155,7 @@ export async function exportProjectToFile(projectId: string): Promise<boolean> {
     }
     return false
   } catch (error) {
-    console.error('导出项目失败:', error)
+    logError({ error, context: '导出项目' })
     throw error
   }
 }
@@ -187,7 +188,7 @@ export async function importProjectFromFile(
     const project = await db.importProject(data, newName)
     return { success: true, project }
   } catch (error) {
-    console.error('导入项目失败:', error)
+    logError({ error, context: '导入项目' })
     throw error
   }
 }

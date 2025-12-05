@@ -1,7 +1,7 @@
 // execution-store.ts 测试
 // 测试执行 Store 的所有功能
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import { useExecutionStore } from "../execution-store"
 import type { Workflow, WorkflowNode, GlobalConfig, Setting, SettingPrompt } from "@/types"
 

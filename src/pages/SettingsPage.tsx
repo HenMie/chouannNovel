@@ -39,7 +39,10 @@ import * as db from '@/lib/db'
 import type { GlobalConfig, AIProvider, CustomModel, Theme } from '@/types'
 import { getBuiltinModelsByProvider } from '@/lib/ai'
 import { cn } from '@/lib/utils'
+import { getErrorMessage, handleAppError } from '@/lib/errors'
 import { useThemeStore } from '@/stores/theme-store'
+import { Tour } from '@/components/help/Tour'
+import { AI_CONFIG_TOUR_STEPS } from '@/tours'
 
 interface SettingsPageProps {
   onNavigate: (path: string) => void
@@ -190,8 +193,11 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
       const globalConfig = await db.getGlobalConfig()
       setConfig(globalConfig)
     } catch (error) {
-      console.error('加载配置失败:', error)
-      toast.error('加载配置失败')
+      handleAppError({
+        error,
+        context: '加载配置',
+        toastMessage: `加载配置失败：${getErrorMessage(error)}`,
+      })
     } finally {
       setIsLoading(false)
     }
@@ -210,8 +216,11 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
       })
       toast.success('配置已保存')
     } catch (error) {
-      console.error('保存配置失败:', error)
-      toast.error('保存配置失败')
+      handleAppError({
+        error,
+        context: '保存配置',
+        toastMessage: `保存配置失败：${getErrorMessage(error)}`,
+      })
     } finally {
       setIsSaving(false)
     }
@@ -399,7 +408,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
 
       <div className="flex flex-1 overflow-hidden">
         {/* 左侧导航 */}
-        <aside className="w-64 border-r bg-muted/30 p-4 hidden md:block">
+        <aside className="w-64 border-r bg-muted/30 p-4 hidden md:block" data-tour="ai-config-nav">
           <nav className="space-y-1">
             <Button
               variant={activeTab === 'ai' ? 'secondary' : 'ghost'}
@@ -434,7 +443,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                     : '调整应用的基础行为和默认值'}
                 </TypographyMuted>
               </div>
-              <Button onClick={handleSave} disabled={isSaving}>
+              <Button onClick={handleSave} disabled={isSaving} data-tour="ai-config-save">
                 {isSaving ? (
                   <>
                     <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -452,7 +461,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
             <Separator className="my-6" />
 
             {activeTab === 'ai' && (
-              <div className="space-y-6">
+              <div className="space-y-6" data-tour="ai-config-providers">
                 {aiProviders.map((provider) => (
                   <Card key={provider.id} className="overflow-hidden">
                     <CardHeader className="bg-muted/40 px-6 py-4">
@@ -511,7 +520,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                       </div>
                     </CardHeader>
                     <CardContent className="p-6 space-y-4">
-                      <div className="space-y-2">
+                      <div className="space-y-2" data-tour="ai-config-api-key">
                         <Label htmlFor={`${provider.id}-api-key`}>API Key</Label>
                         <div className="relative flex gap-2">
                           <div className="relative flex-1">
@@ -577,7 +586,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
 
                       {/* 模型配置区域 */}
                       <Separator />
-                      <div className="space-y-3">
+                      <div className="space-y-3" data-tour="ai-config-models">
                         <div 
                           className="flex items-center justify-between cursor-pointer py-1"
                           onClick={() => setExpandedModels((prev) => ({
@@ -787,6 +796,9 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
           </div>
         </main>
       </div>
+
+      {/* 新手引导 */}
+      <Tour module="ai_config" steps={AI_CONFIG_TOUR_STEPS} />
     </div>
   )
 }

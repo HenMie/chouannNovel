@@ -11,6 +11,7 @@ import { Header } from '@/components/layout/Header'
 import { useProjectStore } from '@/stores/project-store'
 import { toast } from 'sonner'
 import { getWorkflow } from '@/lib/db'
+import { getErrorMessage, handleAppError } from '@/lib/errors'
 
 interface EditWorkflowPageProps {
   projectId: string
@@ -79,8 +80,11 @@ export function EditWorkflowPage({ projectId, workflowId, onNavigate }: EditWork
         }
         applyWorkflowData(workflow)
       } catch (error) {
-        console.error('加载工作流失败:', error)
-        toast.error('加载工作流失败')
+        handleAppError({
+          error,
+          context: '加载工作流',
+          toastMessage: `加载工作流失败：${getErrorMessage(error)}`,
+        })
         onNavigate(`/project/${projectId}`)
       } finally {
         if (isMounted) {
@@ -112,8 +116,11 @@ export function EditWorkflowPage({ projectId, workflowId, onNavigate }: EditWork
       toast.success('工作流更新成功')
       onNavigate(`/project/${projectId}/workflow/${workflowId}`)
     } catch (error) {
-      console.error('更新工作流失败:', error)
-      toast.error('更新工作流失败')
+      handleAppError({
+        error,
+        context: '更新工作流',
+        toastMessage: `更新工作流失败：${getErrorMessage(error)}`,
+      })
     } finally {
       setIsSaving(false)
     }

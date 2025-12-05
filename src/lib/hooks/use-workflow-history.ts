@@ -26,25 +26,26 @@ interface UseWorkflowHistoryReturn {
  */
 export function useWorkflowHistory(config: HistoryConfig = {}): UseWorkflowHistoryReturn {
   const { maxSize = 50 } = config
-  const [undoStack, setUndoStack] = useState<WorkflowCommand[]>([])
-  const [redoStack, setRedoStack] = useState<WorkflowCommand[]>([])
+  // 使用 unknown 类型允许存储任意返回值类型的命令
+  const [undoStack, setUndoStack] = useState<WorkflowCommand<unknown>[]>([])
+  const [redoStack, setRedoStack] = useState<WorkflowCommand<unknown>[]>([])
 
-  const undoRef = useRef<WorkflowCommand[]>([])
-  const redoRef = useRef<WorkflowCommand[]>([])
+  const undoRef = useRef<WorkflowCommand<unknown>[]>([])
+  const redoRef = useRef<WorkflowCommand<unknown>[]>([])
 
-  const syncUndo = (stack: WorkflowCommand[]) => {
+  const syncUndo = (stack: WorkflowCommand<unknown>[]) => {
     undoRef.current = stack
     setUndoStack(stack)
   }
 
-  const syncRedo = (stack: WorkflowCommand[]) => {
+  const syncRedo = (stack: WorkflowCommand<unknown>[]) => {
     redoRef.current = stack
     setRedoStack(stack)
   }
 
   const execute = useCallback(async <T,>(command: WorkflowCommand<T>): Promise<T> => {
     const result = await command.redo()
-    const nextUndoStack = [...undoRef.current, command]
+    const nextUndoStack: WorkflowCommand<unknown>[] = [...undoRef.current, command]
     if (nextUndoStack.length > maxSize) {
       nextUndoStack.splice(0, nextUndoStack.length - maxSize)
     }

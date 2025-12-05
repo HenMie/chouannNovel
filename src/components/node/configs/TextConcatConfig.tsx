@@ -4,8 +4,7 @@ import { Plus, Trash2, GripVertical } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { PromptEditor } from '@/components/ui/prompt-editor'
-import { VariableSelect } from '@/components/ui/variable-select'
+import { PromptInputField, type PromptInputMode } from '@/components/ui/prompt-input-field'
 import {
   Select,
   SelectContent,
@@ -29,17 +28,31 @@ type SourceItem = TextConcatConfigType['sources'][number]
 // 默认配置
 const defaultConfig: TextConcatConfigType = {
   sources: [
-    { type: 'variable', variable: '' }
+    { mode: 'variable', variable: '' }
   ],
   separator: '\n',
 }
 
+// 迁移旧版数据
+function migrateSource(source: SourceItem): SourceItem {
+  // 如果已经是新格式，直接返回
+  if (source.mode) return source
+  // 从旧格式迁移
+  if (source.type === 'variable') {
+    return { mode: 'variable', variable: source.variable || '' }
+  }
+  return { mode: 'manual', manual: source.custom || '' }
+}
+
 export function TextConcatConfigForm({ config, onChange, nodes = [], currentNodeId }: TextConcatConfigProps) {
-  // 合并默认配置
+  // 合并默认配置，并迁移旧版数据
+  const migratedSources = config.sources?.length 
+    ? config.sources.map(migrateSource) 
+    : defaultConfig.sources
   const currentConfig: TextConcatConfigType = { 
     ...defaultConfig, 
     ...config,
-    sources: config.sources?.length ? config.sources : defaultConfig.sources,
+    sources: migratedSources,
   }
 
   // 更新配置
@@ -50,7 +63,7 @@ export function TextConcatConfigForm({ config, onChange, nodes = [], currentNode
   // 添加来源项
   const addSource = () => {
     updateConfig({
-      sources: [...currentConfig.sources, { type: 'custom', custom: '' }]
+      sources: [...currentConfig.sources, { mode: 'manual', manual: '' }]
     })
   }
 
@@ -62,70 +75,66 @@ export function TextConcatConfigForm({ config, onChange, nodes = [], currentNode
     })
   }
 
-  // 更新来源项
-  const updateSource = (index: number, updates: Partial<SourceItem>) => {
+  // 更新来源项模式
+  const handleSourceModeChange = (index: number, mode: PromptInputMode) => {
+    const source = currentConfig.sources[index]
     const newSources = [...currentConfig.sources]
-    newSources[index] = { ...newSources[index], ...updates }
+    if (mode === 'manual') {
+      newSources[index] = { mode: 'manual', manual: source.manual || '' }
+    } else {
+      newSources[index] = { mode: 'variable', variable: source.variable || '' }
+    }
+    updateConfig({ sources: newSources })
+  }
+
+  // 更新来源项手动输入值
+  const handleSourceManualChange = (index: number, value: string) => {
+    const newSources = [...currentConfig.sources]
+    newSources[index] = { mode: 'manual', manual: value }
+    updateConfig({ sources: newSources })
+  }
+
+  // 更新来源项变量引用值
+  const handleSourceVariableChange = (index: number, value: string) => {
+    const newSources = [...currentConfig.sources]
+    newSources[index] = { mode: 'variable', variable: value }
     updateConfig({ sources: newSources })
   }
 
   // 渲染单个来源项
   const renderSourceItem = (source: SourceItem, index: number) => {
+    const mode: PromptInputMode = source.mode === 'variable' ? 'variable' : 'manual'
+    const manualValue = source.manual ?? ''
+    const variableValue = source.variable ?? ''
+
     return (
       <Card key={index} className="relative">
         <CardContent className="pt-4 pb-4 pr-10">
-          <div className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground cursor-move">
+          <div className="absolute left-2 top-4 text-muted-foreground cursor-move">
             <GripVertical className="h-4 w-4" />
           </div>
           
-          <div className="ml-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground font-medium shrink-0">
-                #{index + 1}
-              </span>
-              <Select
-                value={source.type}
-                onValueChange={(value: SourceItem['type']) =>
-                  updateSource(index, { type: value, variable: undefined, custom: undefined })
-                }
-              >
-                <SelectTrigger className="h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="variable">引用变量</SelectItem>
-                  <SelectItem value="custom">自定义文本</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {source.type === 'variable' && (
-              <VariableSelect
-                placeholder="选择引用变量"
-                value={source.variable || ''}
-                onChange={(value) => updateSource(index, { type: 'variable', variable: value })}
-                nodes={nodes}
-                currentNodeId={currentNodeId}
-              />
-            )}
-
-            {source.type === 'custom' && (
-              <PromptEditor
-                placeholder="输入自定义文本，输入 / 选择变量..."
-                minHeight="60px"
-                value={source.custom || ''}
-                onChange={(value) => updateSource(index, { custom: value })}
-                nodes={nodes}
-                currentNodeId={currentNodeId}
-              />
-            )}
+          <div className="ml-4">
+            <PromptInputField
+              label={`来源 #${index + 1}`}
+              mode={mode}
+              manualValue={manualValue}
+              variableValue={variableValue}
+              onModeChange={(m) => handleSourceModeChange(index, m)}
+              onManualChange={(v) => handleSourceManualChange(index, v)}
+              onVariableChange={(v) => handleSourceVariableChange(index, v)}
+              nodes={nodes}
+              currentNodeId={currentNodeId}
+              placeholder="输入文本或输入 / 选择变量..."
+              minHeight="60px"
+            />
           </div>
 
           {currentConfig.sources.length > 1 && (
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-muted-foreground hover:text-destructive"
+              className="absolute right-1 top-4 h-8 w-8 text-muted-foreground hover:text-destructive"
               onClick={() => removeSource(index)}
             >
               <Trash2 className="h-4 w-4" />

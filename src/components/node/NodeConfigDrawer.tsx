@@ -20,6 +20,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { PromptInputField, type PromptInputMode } from '@/components/ui/prompt-input-field'
 import { AIChatConfigForm } from './configs/AIChatConfig'
 import { TextExtractConfigForm } from './configs/TextExtractConfig'
 import { TextConcatConfigForm } from './configs/TextConcatConfig'
@@ -32,6 +33,7 @@ import { ConditionIfConfigForm } from './configs/ConditionIfConfig'
 import { toast } from 'sonner'
 import { useHotkeys, HOTKEY_PRESETS } from '@/lib/hooks'
 import * as db from '@/lib/db'
+import { handleAppError } from '@/lib/errors'
 import type { 
   WorkflowNode, 
   NodeConfig, 
@@ -100,7 +102,7 @@ export function NodeConfigDrawer({
         const config = await db.getGlobalConfig()
         setGlobalConfig(config)
       } catch (error) {
-        console.error('加载全局配置失败:', error)
+        handleAppError({ error, context: '加载全局配置', silent: true })
       }
     }
     loadGlobalConfig()
@@ -135,8 +137,11 @@ export function NodeConfigDrawer({
       toast.success('节点配置已保存')
       onClose()
     } catch (error) {
-      console.error('保存节点配置失败:', error)
-      toast.error('保存失败')
+      handleAppError({
+        error,
+        context: '保存节点配置',
+        toastMessage: '保存失败',
+      })
     } finally {
       setIsSaving(false)
     }
@@ -325,6 +330,38 @@ export function NodeConfigDrawer({
           ...(startConfig?.custom_variables?.map(v => ({ name: v.name, description: '自定义变量' })) || [])
         ]
         
+        // 值输入模式相关
+        const valueMode: PromptInputMode = varUpdateConfig.value_mode === 'variable' ? 'variable' : 'manual'
+        const valueManual = varUpdateConfig.value_manual ?? varUpdateConfig.value_template ?? ''
+        const valueVariable = varUpdateConfig.value_variable ?? 
+          (valueMode === 'variable' ? varUpdateConfig.value_template ?? '' : '')
+        
+        const handleValueModeChange = (mode: PromptInputMode) => {
+          if (mode === 'manual') {
+            setConfig({ ...config, value_mode: 'manual', value_template: valueManual })
+          } else {
+            setConfig({ ...config, value_mode: 'variable', value_template: valueVariable })
+          }
+        }
+        
+        const handleValueManualChange = (value: string) => {
+          setConfig({
+            ...config,
+            value_mode: 'manual',
+            value_template: value,
+            value_manual: value,
+          })
+        }
+        
+        const handleValueVariableChange = (value: string) => {
+          setConfig({
+            ...config,
+            value_mode: 'variable',
+            value_template: value,
+            value_variable: value,
+          })
+        }
+        
         return (
           <div className="space-y-4">
             <div className="space-y-2">
@@ -352,20 +389,21 @@ export function NodeConfigDrawer({
               </p>
             </div>
             
-            <div className="space-y-2">
-              <Label htmlFor="value_template">新值</Label>
-              <Input
-                id="value_template"
-                placeholder="输入新值，支持 {{变量名}} 引用"
-                value={varUpdateConfig.value_template || ''}
-                onChange={(e) =>
-                  setConfig({ ...config, value_template: e.target.value })
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                支持使用 {'{{变量名}}'} 引用其他变量
-              </p>
-            </div>
+            <PromptInputField
+              id="value_template"
+              label="新值"
+              description="设置变量的新值"
+              mode={valueMode}
+              manualValue={valueManual}
+              variableValue={valueVariable}
+              onModeChange={handleValueModeChange}
+              onManualChange={handleValueManualChange}
+              onVariableChange={handleValueVariableChange}
+              nodes={nodes}
+              currentNodeId={node.id}
+              placeholder="输入新值，输入 / 选择变量..."
+              minHeight="80px"
+            />
           </div>
         )
       }

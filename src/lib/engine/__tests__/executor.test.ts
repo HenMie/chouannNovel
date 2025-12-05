@@ -13,6 +13,7 @@ import type {
   LoopStartConfig,
   AIChatConfig,
   ParallelStartConfig,
+  NodeConfig,
 } from "@/types"
 
 // Mock chatStream
@@ -39,7 +40,7 @@ const createTestWorkflow = (overrides?: Partial<Workflow>): Workflow => ({
 const createTestNode = (
   type: WorkflowNode["type"],
   name: string,
-  config: Record<string, unknown> = {},
+  config: NodeConfig = {},
   overrides?: Partial<WorkflowNode>
 ): WorkflowNode => ({
   id: `node-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
@@ -358,6 +359,376 @@ describe("WorkflowExecutor - 工作流执行器", () => {
         const result = await executor.execute()
         expect(result.output).toBe("b")
       })
+
+      it("JSON 路径为空应该抛出错误", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "json_path",
+            json_path: "",  // 空路径
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: '{"key":"value"}',
+        })
+
+        const result = await executor.execute()
+        expect(result.status).toBe("failed")
+        expect(result.error).toContain("JSON 路径不能为空")
+      })
+
+      it("不存在的 JSON 路径应该返回空字符串", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "json_path",
+            json_path: "nonexistent.path",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: '{"key":"value"}',
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("")
+      })
+
+      it("非字符串 JSON 值应该返回 JSON 字符串", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "json_path",
+            json_path: "data",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: '{"data":{"nested":"value"}}',
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe('{"nested":"value"}')
+      })
+    })
+
+    describe("手动输入模式", () => {
+      it("input_mode=manual 应该支持变量插值", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "前缀{{用户问题}}后缀",  // 包含变量的输入
+            input_mode: "manual",
+            extract_mode: "start_end",
+            start_marker: "前缀",
+            end_marker: "后缀",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试内容",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("测试内容")
+      })
+    })
+
+    describe("Markdown 转文本模式", () => {
+      it("应该移除标题标记", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "md_to_text",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "# 一级标题\n## 二级标题\n正文内容",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("一级标题\n二级标题\n正文内容")
+      })
+
+      it("应该移除加粗和斜体标记", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "md_to_text",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "**加粗文字** 和 *斜体文字* 以及 __另一种加粗__",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("加粗文字 和 斜体文字 以及 另一种加粗")
+      })
+
+      it("应该保留代码块内容但移除标记", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "md_to_text",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "```javascript\nconst x = 1;\n```",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toContain("const x = 1;")
+        expect(result.output).not.toContain("```")
+      })
+
+      it("应该移除行内代码的反引号", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "md_to_text",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "使用 `console.log` 函数输出",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("使用 console.log 函数输出")
+      })
+
+      it("应该移除链接但保留文本", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "md_to_text",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "访问 [官方网站](https://example.com) 了解更多",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("访问 官方网站 了解更多")
+      })
+
+      it("应该移除图片但保留 alt 文本", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "md_to_text",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "这是一张图片：![示例图](image.png)",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("这是一张图片：示例图")
+      })
+
+      it("应该移除列表标记", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "md_to_text",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "- 项目一\n- 项目二\n1. 有序项一\n2. 有序项二",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toContain("项目一")
+        expect(result.output).toContain("项目二")
+        expect(result.output).toContain("有序项一")
+        expect(result.output).not.toContain("- ")
+        expect(result.output).not.toContain("1. ")
+      })
+
+      it("应该移除引用标记", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "md_to_text",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "> 这是引用内容\n> 第二行引用",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("这是引用内容\n第二行引用")
+      })
+
+      it("应该移除删除线标记", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "md_to_text",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "~~删除的文字~~ 保留的文字",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("删除的文字 保留的文字")
+      })
+    })
+
+    describe("边界条件", () => {
+      it("空正则表达式应该抛出错误", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "regex",
+            regex_pattern: "",  // 空正则
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试文本",
+        })
+
+        const result = await executor.execute()
+        expect(result.status).toBe("failed")
+        expect(result.error).toContain("正则表达式不能为空")
+      })
+
+      it("起始标记为空应该抛出错误", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "start_end",
+            start_marker: "",  // 空起始标记
+            end_marker: "[END]",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试文本",
+        })
+
+        const result = await executor.execute()
+        expect(result.status).toBe("failed")
+        expect(result.error).toContain("起始标记不能为空")
+      })
+
+      it("找不到起始标记应该返回空字符串", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "start_end",
+            start_marker: "[NOT_FOUND]",
+            end_marker: "[END]",
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试文本",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("")
+      })
+
+      it("有结束标记但找不到时应该提取到末尾", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "start_end",
+            start_marker: "[START]",
+            end_marker: "[NOT_FOUND]",  // 存在但找不到
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "前缀[START]剩余内容",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("剩余内容")
+      })
+
+      it("不支持的提取模式应该抛出错误", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_extract", "提取", {
+            input_variable: "用户问题",
+            extract_mode: "unsupported_mode" as any,
+          } as TextExtractConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试文本",
+        })
+
+        const result = await executor.execute()
+        expect(result.status).toBe("failed")
+        expect(result.error).toContain("不支持的提取模式")
+      })
     })
   })
 
@@ -426,6 +797,112 @@ describe("WorkflowExecutor - 工作流执行器", () => {
 
       const result = await executor.execute()
       expect(result.output).toBe("行1\n行2")
+    })
+
+    describe("新格式支持 (mode)", () => {
+      it("mode=manual 应该支持手动输入并进行变量插值", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_concat", "拼接", {
+            sources: [
+              { mode: "manual", manual: "前缀_{{用户问题}}_后缀" },
+            ],
+            separator: ",",
+          } as TextConcatConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试内容",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("前缀_测试内容_后缀")
+      })
+
+      it("mode=variable 应该从节点输出获取值", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { id: "start-1", order_index: 0 }),
+          createTestNode("text_concat", "拼接", {
+            sources: [
+              { mode: "variable", variable: "start-1" },
+              { mode: "manual", manual: "_后缀" },
+            ],
+            separator: "",
+          } as TextConcatConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "输入值",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("输入值_后缀")
+      })
+
+      it("mode=variable 应该回退到全局变量", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_concat", "拼接", {
+            sources: [
+              { mode: "variable", variable: "用户问题" },
+              { mode: "manual", manual: "已处理" },
+            ],
+            separator: "-",
+          } as TextConcatConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "原始输入",
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("原始输入-已处理")
+      })
+
+      it("混合新旧格式应该都能正常工作", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_concat", "拼接", {
+            sources: [
+              { type: "custom", custom: "旧格式" },  // 旧格式
+              { mode: "manual", manual: "新格式" },  // 新格式
+            ],
+            separator: "+",
+          } as TextConcatConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("旧格式+新格式")
+      })
+
+      it("空来源数组应该返回空字符串", async () => {
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("text_concat", "拼接", {
+            sources: [],
+            separator: ",",
+          } as TextConcatConfig, { order_index: 1 }),
+        ]
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+        })
+
+        const result = await executor.execute()
+        expect(result.output).toBe("")
+      })
     })
   })
 
@@ -597,7 +1074,7 @@ describe("WorkflowExecutor - 工作流执行器", () => {
           globalConfig,
           initialInput: "包含关键词",
           onEvent: (e) => {
-            if (e.type === "node_completed") {
+            if (e.type === "node_completed" && e.nodeName) {
               nodeNames.push(e.nodeName)
             }
           },
@@ -968,6 +1445,676 @@ describe("WorkflowExecutor - 工作流执行器", () => {
       expect(result.status).toBe("failed")
       expect(result.error).toContain("需要系统提示词或用户问题")
     })
+
+    describe("对话历史功能", () => {
+      it("enable_history=true 时应该保存对话历史", async () => {
+        let callCount = 0
+        let capturedMessages: unknown[][] = []
+        
+        mockChatStream.mockImplementation(async (options, _config, onChunk) => {
+          callCount++
+          capturedMessages.push([...options.messages])
+          onChunk({ content: `回复${callCount}`, done: false })
+          onChunk({ content: "", done: true })
+        })
+        
+        const config: AIChatConfig = {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "",
+          user_prompt: "{{用户问题}}",
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          enable_history: true,
+          history_count: 5,
+          setting_ids: [],
+        }
+        
+        const aiNodeId = "ai-node-1"
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("ai_chat", "AI对话", config, { id: aiNodeId, order_index: 1 }),
+        ]
+        
+        // 第一次执行
+        const executor1 = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "第一个问题",
+        })
+        
+        await executor1.execute()
+        
+        // 验证第一次没有历史记录
+        expect(capturedMessages[0]).toHaveLength(1)  // 只有 user 消息
+        
+        // 验证历史已保存到上下文
+        const ctx1 = executor1.getContext()
+        const history = ctx1.getHistory(aiNodeId)
+        expect(history).toHaveLength(2)  // user + assistant
+        expect(history[0].role).toBe("user")
+        expect(history[0].content).toBe("第一个问题")
+        expect(history[1].role).toBe("assistant")
+        expect(history[1].content).toBe("回复1")
+      })
+
+      it("history_count 应该限制历史消息数量", async () => {
+        let capturedMessages: unknown[] = []
+        
+        mockChatStream.mockImplementation(async (options, _config, onChunk) => {
+          capturedMessages = [...options.messages]
+          onChunk({ content: "回复", done: false })
+          onChunk({ content: "", done: true })
+        })
+        
+        const config: AIChatConfig = {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "",
+          user_prompt: "当前问题",
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          enable_history: true,
+          history_count: 2,  // 只保留 2 条历史
+          setting_ids: [],
+        }
+        
+        const aiNodeId = "ai-node-history"
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("ai_chat", "AI对话", config, { id: aiNodeId, order_index: 1 }),
+        ]
+        
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试",
+        })
+        
+        // 预先添加历史记录
+        const ctx = executor.getContext()
+        ctx.addToHistory(aiNodeId, { role: "user", content: "历史问题1" })
+        ctx.addToHistory(aiNodeId, { role: "assistant", content: "历史回复1" })
+        ctx.addToHistory(aiNodeId, { role: "user", content: "历史问题2" })
+        ctx.addToHistory(aiNodeId, { role: "assistant", content: "历史回复2" })
+        ctx.addToHistory(aiNodeId, { role: "user", content: "历史问题3" })
+        ctx.addToHistory(aiNodeId, { role: "assistant", content: "历史回复3" })
+        
+        await executor.execute()
+        
+        // 应该只包含最近 2 条历史 + 当前 user 消息
+        // 历史：历史问题3, 历史回复3
+        // 当前：当前问题
+        expect(capturedMessages).toHaveLength(3)
+        expect((capturedMessages[0] as any).content).toBe("历史问题3")
+        expect((capturedMessages[1] as any).content).toBe("历史回复3")
+        expect((capturedMessages[2] as any).content).toBe("当前问题")
+      })
+
+      it("enable_history=false 时不应该包含历史", async () => {
+        let capturedMessages: unknown[] = []
+        
+        mockChatStream.mockImplementation(async (options, _config, onChunk) => {
+          capturedMessages = [...options.messages]
+          onChunk({ content: "回复", done: false })
+          onChunk({ content: "", done: true })
+        })
+        
+        const config: AIChatConfig = {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "系统提示",
+          user_prompt: "当前问题",
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          enable_history: false,  // 禁用历史
+          history_count: 5,
+          setting_ids: [],
+        }
+        
+        const aiNodeId = "ai-node-no-history"
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("ai_chat", "AI对话", config, { id: aiNodeId, order_index: 1 }),
+        ]
+        
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试",
+        })
+        
+        // 预先添加历史记录
+        const ctx = executor.getContext()
+        ctx.addToHistory(aiNodeId, { role: "user", content: "历史问题" })
+        ctx.addToHistory(aiNodeId, { role: "assistant", content: "历史回复" })
+        
+        await executor.execute()
+        
+        // 应该只有 system 和 user 消息，没有历史
+        expect(capturedMessages).toHaveLength(2)
+        expect((capturedMessages[0] as any).role).toBe("system")
+        expect((capturedMessages[1] as any).role).toBe("user")
+      })
+    })
+
+    describe("设定注入功能", () => {
+      it("应该将选中的设定注入到系统提示词", async () => {
+        let capturedMessages: unknown[] = []
+        
+        mockChatStream.mockImplementation(async (options, _config, onChunk) => {
+          capturedMessages = [...options.messages]
+          onChunk({ content: "回复", done: false })
+          onChunk({ content: "", done: true })
+        })
+        
+        const config: AIChatConfig = {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "你是助手",
+          user_prompt: "问题",
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: ["setting-1", "setting-2"],
+        }
+        
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("ai_chat", "AI对话", config, { order_index: 1 }),
+        ]
+        
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试",
+          settings: [
+            {
+              id: "setting-1",
+              project_id: "project-1",
+              category: "character",
+              name: "主角",
+              content: "一个勇敢的骑士",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            {
+              id: "setting-2",
+              project_id: "project-1",
+              category: "character",
+              name: "反派",
+              content: "黑暗法师",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ],
+        })
+        
+        await executor.execute()
+        
+        // 系统提示词应该包含设定内容
+        const systemMsg = capturedMessages.find((m: any) => m.role === "system") as any
+        expect(systemMsg).toBeDefined()
+        expect(systemMsg.content).toContain("主角")
+        expect(systemMsg.content).toContain("勇敢的骑士")
+        expect(systemMsg.content).toContain("反派")
+        expect(systemMsg.content).toContain("黑暗法师")
+        // 原始系统提示词也应该保留
+        expect(systemMsg.content).toContain("你是助手")
+      })
+
+      it("禁用的设定不应该被注入", async () => {
+        let capturedMessages: unknown[] = []
+        
+        mockChatStream.mockImplementation(async (options, _config, onChunk) => {
+          capturedMessages = [...options.messages]
+          onChunk({ content: "回复", done: false })
+          onChunk({ content: "", done: true })
+        })
+        
+        const config: AIChatConfig = {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "系统提示",
+          user_prompt: "问题",
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: ["setting-enabled", "setting-disabled"],
+        }
+        
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("ai_chat", "AI对话", config, { order_index: 1 }),
+        ]
+        
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试",
+          settings: [
+            {
+              id: "setting-enabled",
+              project_id: "project-1",
+              category: "worldview",
+              name: "启用的设定",
+              content: "应该出现",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            {
+              id: "setting-disabled",
+              project_id: "project-1",
+              category: "worldview",
+              name: "禁用的设定",
+              content: "不应该出现",
+              enabled: false,  // 禁用
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ],
+        })
+        
+        await executor.execute()
+        
+        const systemMsg = capturedMessages.find((m: any) => m.role === "system") as any
+        expect(systemMsg.content).toContain("应该出现")
+        expect(systemMsg.content).not.toContain("不应该出现")
+      })
+
+      it("未选中的设定不应该被注入", async () => {
+        let capturedMessages: unknown[] = []
+        
+        mockChatStream.mockImplementation(async (options, _config, onChunk) => {
+          capturedMessages = [...options.messages]
+          onChunk({ content: "回复", done: false })
+          onChunk({ content: "", done: true })
+        })
+        
+        const config: AIChatConfig = {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "系统提示",
+          user_prompt: "问题",
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: ["setting-selected"],  // 只选中一个
+        }
+        
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("ai_chat", "AI对话", config, { order_index: 1 }),
+        ]
+        
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试",
+          settings: [
+            {
+              id: "setting-selected",
+              project_id: "project-1",
+              category: "style",
+              name: "选中的设定",
+              content: "应该出现",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            {
+              id: "setting-not-selected",
+              project_id: "project-1",
+              category: "style",
+              name: "未选中的设定",
+              content: "不应该出现",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ],
+        })
+        
+        await executor.execute()
+        
+        const systemMsg = capturedMessages.find((m: any) => m.role === "system") as any
+        expect(systemMsg.content).toContain("应该出现")
+        expect(systemMsg.content).not.toContain("不应该出现")
+      })
+
+      it("空 setting_ids 不应该注入任何设定", async () => {
+        let capturedMessages: unknown[] = []
+        
+        mockChatStream.mockImplementation(async (options, _config, onChunk) => {
+          capturedMessages = [...options.messages]
+          onChunk({ content: "回复", done: false })
+          onChunk({ content: "", done: true })
+        })
+        
+        const config: AIChatConfig = {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "纯净的系统提示",
+          user_prompt: "问题",
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: [],  // 空数组
+        }
+        
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("ai_chat", "AI对话", config, { order_index: 1 }),
+        ]
+        
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试",
+          settings: [
+            {
+              id: "setting-1",
+              project_id: "project-1",
+              category: "character",
+              name: "设定",
+              content: "不应该出现的内容",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ],
+        })
+        
+        await executor.execute()
+        
+        const systemMsg = capturedMessages.find((m: any) => m.role === "system") as any
+        expect(systemMsg.content).toBe("纯净的系统提示")
+      })
+
+      it("应该使用自定义设定提示词模板", async () => {
+        let capturedMessages: unknown[] = []
+        
+        mockChatStream.mockImplementation(async (options, _config, onChunk) => {
+          capturedMessages = [...options.messages]
+          onChunk({ content: "回复", done: false })
+          onChunk({ content: "", done: true })
+        })
+        
+        const config: AIChatConfig = {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "",
+          user_prompt: "问题",
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: ["setting-1"],
+        }
+        
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("ai_chat", "AI对话", config, { order_index: 1 }),
+        ]
+        
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试",
+          settings: [
+            {
+              id: "setting-1",
+              project_id: "project-1",
+              category: "outline",
+              name: "大纲",
+              content: "故事从一个小村庄开始",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ],
+          settingPrompts: [
+            {
+              id: "prompt-1",
+              project_id: "project-1",
+              category: "outline",
+              prompt_template: "=== 自定义大纲模板 ===\n{{items}}\n=== 结束 ===",
+              enabled: true,
+            },
+          ],
+        })
+        
+        await executor.execute()
+        
+        const systemMsg = capturedMessages.find((m: any) => m.role === "system") as any
+        expect(systemMsg.content).toContain("自定义大纲模板")
+        expect(systemMsg.content).toContain("故事从一个小村庄开始")
+        expect(systemMsg.content).toContain("=== 结束 ===")
+      })
+
+      it("禁用的自定义模板应该使用默认模板", async () => {
+        let capturedMessages: unknown[] = []
+        
+        mockChatStream.mockImplementation(async (options, _config, onChunk) => {
+          capturedMessages = [...options.messages]
+          onChunk({ content: "回复", done: false })
+          onChunk({ content: "", done: true })
+        })
+        
+        const config: AIChatConfig = {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "",
+          user_prompt: "问题",
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: ["setting-1"],
+        }
+        
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("ai_chat", "AI对话", config, { order_index: 1 }),
+        ]
+        
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试",
+          settings: [
+            {
+              id: "setting-1",
+              project_id: "project-1",
+              category: "character",
+              name: "角色A",
+              content: "一个神秘人物",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ],
+          settingPrompts: [
+            {
+              id: "prompt-1",
+              project_id: "project-1",
+              category: "character",
+              prompt_template: "不应该使用的模板",
+              enabled: false,  // 禁用
+            },
+          ],
+        })
+        
+        await executor.execute()
+        
+        const systemMsg = capturedMessages.find((m: any) => m.role === "system") as any
+        // 应该使用默认模板 "【角色设定】"
+        expect(systemMsg.content).toContain("【角色设定】")
+        expect(systemMsg.content).not.toContain("不应该使用的模板")
+      })
+
+      it("应该支持 Handlebars 风格的模板", async () => {
+        let capturedMessages: unknown[] = []
+        
+        mockChatStream.mockImplementation(async (options, _config, onChunk) => {
+          capturedMessages = [...options.messages]
+          onChunk({ content: "回复", done: false })
+          onChunk({ content: "", done: true })
+        })
+        
+        const config: AIChatConfig = {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "",
+          user_prompt: "问题",
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: ["setting-1", "setting-2"],
+        }
+        
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("ai_chat", "AI对话", config, { order_index: 1 }),
+        ]
+        
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试",
+          settings: [
+            {
+              id: "setting-1",
+              project_id: "project-1",
+              category: "worldview",
+              name: "世界观A",
+              content: "魔法世界",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            {
+              id: "setting-2",
+              project_id: "project-1",
+              category: "worldview",
+              name: "世界观B",
+              content: "科技世界",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ],
+          settingPrompts: [
+            {
+              id: "prompt-1",
+              project_id: "project-1",
+              category: "worldview",
+              prompt_template: "世界观列表：{{#each items}}[{{name}}:{{content}}]{{/each}}",
+              enabled: true,
+            },
+          ],
+        })
+        
+        await executor.execute()
+        
+        const systemMsg = capturedMessages.find((m: any) => m.role === "system") as any
+        expect(systemMsg.content).toContain("[世界观A:魔法世界]")
+        expect(systemMsg.content).toContain("[世界观B:科技世界]")
+      })
+
+      it("resolvedConfig 应该包含使用的设定名称", async () => {
+        let resolvedConfig: Record<string, unknown> = {}
+        
+        mockChatStream.mockImplementation(async (_options, _config, onChunk) => {
+          onChunk({ content: "回复", done: false })
+          onChunk({ content: "", done: true })
+        })
+        
+        const config: AIChatConfig = {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "系统提示",
+          user_prompt: "问题",
+          temperature: 0.7,
+          max_tokens: 1000,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: ["setting-1", "setting-2"],
+        }
+        
+        const nodes = [
+          createTestNode("start", "开始", {}, { order_index: 0 }),
+          createTestNode("ai_chat", "AI对话", config, { order_index: 1 }),
+        ]
+        
+        const executor = new WorkflowExecutor({
+          workflow,
+          nodes,
+          globalConfig,
+          initialInput: "测试",
+          settings: [
+            {
+              id: "setting-1",
+              project_id: "project-1",
+              category: "character",
+              name: "角色设定A",
+              content: "内容A",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            {
+              id: "setting-2",
+              project_id: "project-1",
+              category: "character",
+              name: "角色设定B",
+              content: "内容B",
+              enabled: true,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ],
+          onEvent: (e) => {
+            if (e.type === "node_completed" && e.nodeType === "ai_chat" && e.resolvedConfig) {
+              resolvedConfig = e.resolvedConfig
+            }
+          },
+        })
+        
+        await executor.execute()
+        
+        expect(resolvedConfig.settingNames).toEqual(["角色设定A", "角色设定B"])
+      })
+    })
   })
 
   // ========== 并行执行节点测试 ==========
@@ -980,7 +2127,7 @@ describe("WorkflowExecutor - 工作流执行器", () => {
         createTestNode("start", "开始", {}, { id: "start-1", order_index: 0 }),
         createTestNode("parallel_start", "并发开始", {
           concurrency: 3,
-          output_mode: "join",
+          output_mode: "concat",
           output_separator: "\n",
         } as ParallelStartConfig, { id: "parallel-start-1", order_index: 1, block_id: blockId }),
         createTestNode("text_concat", "任务1", {
@@ -1011,7 +2158,7 @@ describe("WorkflowExecutor - 工作流执行器", () => {
         createTestNode("start", "开始", {}, { id: "start-1", order_index: 0 }),
         createTestNode("parallel_start", "并发开始", {
           concurrency: 5,
-          output_mode: "join",
+          output_mode: "concat",
           output_separator: ",",
         } as ParallelStartConfig, { id: "parallel-start-1", order_index: 1, block_id: blockId }),
         createTestNode("text_concat", "任务A", {
@@ -1053,7 +2200,7 @@ describe("WorkflowExecutor - 工作流执行器", () => {
         createTestNode("start", "开始", {}, { id: "start-1", order_index: 0 }),
         createTestNode("parallel_start", "并发开始", {
           concurrency: 3,
-          output_mode: "join",
+          output_mode: "concat",
         } as ParallelStartConfig, { id: "parallel-start-1", order_index: 1, block_id: blockId }),
         createTestNode("parallel_end", "并发结束", {}, { id: "parallel-end-1", order_index: 2, block_id: blockId }),
       ]
@@ -1148,6 +2295,7 @@ describe("WorkflowExecutor - 工作流执行器", () => {
         createTestNode("ai_chat", "AI对话", {
           provider: "openai",
           model: "gpt-4",
+          system_prompt: "",
           user_prompt: "测试",
           temperature: 0.7,
           max_tokens: 100,
@@ -1288,7 +2436,7 @@ describe("WorkflowExecutor - 工作流执行器", () => {
         globalConfig,
         initialInput: "包含关键词",
         onEvent: (e) => {
-          if (e.type === "node_completed") {
+          if (e.type === "node_completed" && e.nodeName) {
             executedNodes.push(e.nodeName)
           }
         },
@@ -1328,7 +2476,7 @@ describe("WorkflowExecutor - 工作流执行器", () => {
         globalConfig,
         initialInput: "不包含目标词",
         onEvent: (e) => {
-          if (e.type === "node_completed") {
+          if (e.type === "node_completed" && e.nodeName) {
             executedNodes.push(e.nodeName)
           }
         },
@@ -1367,7 +2515,7 @@ describe("WorkflowExecutor - 工作流执行器", () => {
         globalConfig,
         initialInput: "不匹配",
         onEvent: (e) => {
-          if (e.type === "node_completed") {
+          if (e.type === "node_completed" && e.nodeName) {
             executedNodes.push(e.nodeName)
           }
         },

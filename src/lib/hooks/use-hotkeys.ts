@@ -1,7 +1,7 @@
 // 快捷键 Hook
 // 支持组合键（Ctrl+S, Ctrl+Enter 等）
 
-import { useEffect, useCallback, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 // 快捷键配置类型
 export interface HotkeyConfig {

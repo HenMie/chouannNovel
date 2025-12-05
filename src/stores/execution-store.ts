@@ -11,6 +11,7 @@ import {
   executorStatusToDbStatus,
 } from '@/lib/engine'
 import * as db from '@/lib/db'
+import { logError } from '@/lib/errors'
 
 // 节点输出显示信息
 export interface NodeOutputInfo {
@@ -126,7 +127,9 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       settingPrompts,
       onEvent: (event) => {
         // 异步处理事件，不阻塞执行器
-        handleExecutionEvent(event, get, set).catch(console.error)
+        handleExecutionEvent(event, get, set).catch(error =>
+          logError({ error, context: '处理执行事件' })
+        )
       },
     })
 
@@ -216,7 +219,7 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           ),
         })
       } catch (error) {
-        console.error('修改节点输出失败:', error)
+        logError({ error, context: '修改节点输出' })
       }
     }
   },
@@ -281,7 +284,7 @@ async function handleExecutionEvent(
           const nodeResult = await db.createNodeResult(executionId, event.nodeId)
           nodeResultIds.set(event.nodeId, nodeResult.id)
         } catch (error) {
-          console.error('保存节点结果失败:', error)
+          logError({ error, context: '保存节点结果' })
         }
       }
       break
@@ -329,7 +332,7 @@ async function handleExecutionEvent(
               resolved_config: event.resolvedConfig,
             })
           } catch (error) {
-            console.error('更新节点结果失败:', error)
+            logError({ error, context: '更新节点结果' })
           }
         }
       }
@@ -360,7 +363,7 @@ async function handleExecutionEvent(
               finished_at: new Date().toISOString(),
             })
           } catch (error) {
-            console.error('更新节点结果失败:', error)
+            logError({ error, context: '更新节点结果' })
           }
         }
       }

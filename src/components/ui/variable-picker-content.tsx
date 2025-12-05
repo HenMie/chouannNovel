@@ -1,7 +1,6 @@
 // 变量选择器内容组件
 // 共享的节点列表 + 变量列表面板
 
-import * as React from 'react'
 import { cn } from '@/lib/utils'
 import { nodeColorMap, type NodeCategory, type OutputVariable } from './variable-picker-shared'
 

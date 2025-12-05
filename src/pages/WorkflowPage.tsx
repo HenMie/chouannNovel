@@ -52,9 +52,12 @@ import { useExecutionStore } from '@/stores/execution-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { getGlobalConfig, generateId, getWorkflowVersions, createWorkflowVersion, restoreWorkflowVersion } from '@/lib/db'
 import { exportWorkflowToFile, importWorkflowFromFile } from '@/lib/import-export'
+import { getErrorMessage, handleAppError } from '@/lib/errors'
 import type { WorkflowVersion } from '@/types'
-import { useHotkeys, HOTKEY_PRESETS, useWorkflowHistory, useNodeSelection } from '@/lib/hooks'
+import { useHotkeys, HOTKEY_PRESETS, useWorkflowHistory } from '@/lib/hooks'
 import { toast } from 'sonner'
+import { Tour } from '@/components/help/Tour'
+import { WORKFLOW_TOUR_STEPS } from '@/tours'
 import type { WorkflowNode, NodeType, GlobalConfig } from '@/types'
 import {
   AlertDialog,
@@ -244,7 +247,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
         const config = await getGlobalConfig()
         setGlobalConfig(config)
       } catch (error) {
-        console.error('加载全局配置失败:', error)
+        handleAppError({ error, context: '加载全局配置', silent: true })
       }
 
       // 加载项目设定
@@ -258,7 +261,11 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
           const versionList = await getWorkflowVersions(workflowId)
           setVersions(versionList)
         } catch (error) {
-          console.error('加载版本历史失败:', error)
+          handleAppError({
+            error,
+            context: '加载版本历史',
+            toastMessage: '加载版本历史失败',
+          })
         }
       }
     }
@@ -529,8 +536,11 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     try {
       await startExecution(currentWorkflow!, nodes, globalConfig, initialInput, settings, settingPrompts)
     } catch (error) {
-      const message = error instanceof Error ? error.message : '执行失败'
-      toast.error(message)
+      handleAppError({
+        error,
+        context: '启动工作流执行',
+        toastMessage: getErrorMessage(error, '执行失败'),
+      })
     }
   }
 
@@ -542,8 +552,11 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
     try {
       await startExecution(currentWorkflow, nodes, globalConfig, initialInput, settings, settingPrompts)
     } catch (error) {
-      const message = error instanceof Error ? error.message : '执行失败'
-      toast.error(message)
+      handleAppError({
+        error,
+        context: '启动工作流执行',
+        toastMessage: getErrorMessage(error, '执行失败'),
+      })
     }
   }
 
@@ -950,6 +963,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
             <Button
               size="sm"
               data-testid="workflow-run-button"
+              data-tour="workflow-run-button"
               onClick={handleRun}
               disabled={!hasExecutableNode}
             >
@@ -980,12 +994,12 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
 
       <div className="flex flex-1 overflow-hidden">
         {/* 节点列表区域 */}
-        <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
+        <div className="flex flex-1 flex-col min-w-0 overflow-hidden" data-tour="workflow-node-list">
           <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2">
             <span className="text-sm font-medium">节点列表</span>
             <div className="flex items-center gap-2">
               {/* 撤销/重做按钮 */}
-              <div className="flex items-center gap-0.5 mr-2">
+              <div className="flex items-center gap-0.5 mr-2" data-tour="workflow-undo-redo">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -1024,6 +1038,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                     variant="ghost"
                     onClick={handlePasteNode}
                     disabled={!hasCopiedNode()}
+                    data-tour="workflow-paste-button"
                   >
                     <Clipboard className="mr-2 h-4 w-4" />
                     粘贴
@@ -1038,6 +1053,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                     size="sm"
                     variant="outline"
                     data-testid="workflow-add-node-button"
+                    data-tour="workflow-add-node-button"
                   >
                     <Plus className="mr-2 h-4 w-4" />
                     添加节点
@@ -1134,6 +1150,8 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                     onCopyNodes={handleCopyNodes}
                     onDeleteNodes={handleDeleteNodesClick}
                     onReorderNodes={handleReorderNodes}
+                    onPaste={handlePasteNode}
+                    hasCopiedNodes={hasCopiedNode()}
                     disabled={isExecuting}
                     selectedNodeIds={selectedNodeIds}
                     onSelectionChange={setSelectedNodeIds}
@@ -1146,7 +1164,7 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
 
         {/* 输出面板 */}
         <Separator orientation="vertical" />
-        <div className="flex w-96 flex-col border-l bg-background overflow-hidden">
+        <div className="flex w-96 flex-col border-l bg-background overflow-hidden" data-tour="workflow-output-panel">
           <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2">
             <span className="text-sm font-medium">执行输出</span>
             {/* 执行状态指示器 */}
@@ -1405,6 +1423,9 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 新手引导 */}
+      <Tour module="workflow" steps={WORKFLOW_TOUR_STEPS} />
     </div>
   )
 }

@@ -14,6 +14,8 @@ import {
   Search,
   ChevronsDown,
   ChevronsUp,
+  Keyboard,
+  GraduationCap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,10 +37,15 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
-import { EmptyState } from '@/components/ui/empty-state'
 import { useProjectStore } from '@/stores/project-store'
+import { useTourStore, type TourModule } from '@/stores/tour-store'
 import { cn } from '@/lib/utils'
 import type { Project, Workflow } from '@/types'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 interface SidebarProps {
   onNavigate: (path: string) => void
@@ -51,7 +58,7 @@ interface DeleteDialogState {
   data: Project | Workflow | null
 }
 
-export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps) {
+export function Sidebar({ onNavigate, currentPath }: SidebarProps) {
   const {
     projects,
     currentProject,
@@ -65,6 +72,8 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
     deleteProject,
     deleteWorkflow,
   } = useProjectStore()
+  
+  const { startTour, resetTour } = useTourStore()
 
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState('')
@@ -142,11 +151,11 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
         onNavigate('/')
       }
     } else {
-      await deleteWorkflow(data.id)
-      // @ts-ignore
-      if (currentWorkflow?.id === data.id) {
-        // @ts-ignore
-        onNavigate(`/project/${data.project_id}`)
+      // 类型守卫：workflow 类型的 data 一定有 project_id 属性
+      const workflowData = data as Workflow
+      await deleteWorkflow(workflowData.id)
+      if (currentWorkflow?.id === workflowData.id) {
+        onNavigate(`/project/${workflowData.project_id}`)
       }
     }
     setDeleteDialog({ open: false, type: 'project', data: null })
@@ -368,6 +377,48 @@ export function Sidebar({ onNavigate, currentPath: _currentPath }: SidebarProps)
           )}
         </div>
       </ScrollArea>
+
+      {/* 底部帮助区域 */}
+      <div className="border-t p-2">
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="flex-1 h-8 text-xs justify-start"
+                onClick={() => {
+                  // 根据当前路径确定要启动的 Tour
+                  let module: TourModule = 'home'
+                  if (currentPath.includes('/workflow/')) {
+                    module = 'workflow'
+                  } else if (currentPath.includes('/settings-library') || currentPath.includes('/settings')) {
+                    module = currentPath.includes('/settings-library') ? 'settings' : 'ai_config'
+                  }
+                  resetTour(module)
+                  startTour(module)
+                }}
+              >
+                <GraduationCap className="mr-2 h-3.5 w-3.5" />
+                开始引导
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">重新开始当前页面的新手引导</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+              >
+                <Keyboard className="h-3.5 w-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">按 F1 查看快捷键</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
 
       <AlertDialog
         open={deleteDialog.open}

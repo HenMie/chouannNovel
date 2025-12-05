@@ -3,7 +3,7 @@
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { VariableSelect } from '@/components/ui/variable-select'
+import { PromptInputField, type PromptInputMode } from '@/components/ui/prompt-input-field'
 import {
   Select,
   SelectContent,
@@ -38,22 +38,53 @@ export function TextExtractConfigForm({ config, onChange, nodes = [], currentNod
     onChange({ ...currentConfig, ...updates })
   }
 
+  // 输入模式相关
+  const inputMode: PromptInputMode = currentConfig.input_mode === 'manual' ? 'manual' : 'variable'
+  const inputManual = currentConfig.input_manual ?? ''
+  const inputVariable = currentConfig.input_variable_ref ?? currentConfig.input_variable ?? ''
+
+  const handleInputModeChange = (mode: PromptInputMode) => {
+    if (mode === 'manual') {
+      updateConfig({ input_mode: 'manual', input_variable: inputManual })
+    } else {
+      updateConfig({ input_mode: 'variable', input_variable: inputVariable })
+    }
+  }
+
+  const handleInputManualChange = (value: string) => {
+    updateConfig({
+      input_mode: 'manual',
+      input_variable: value,
+      input_manual: value,
+    })
+  }
+
+  const handleInputVariableChange = (value: string) => {
+    updateConfig({
+      input_mode: 'variable',
+      input_variable: value,
+      input_variable_ref: value,
+    })
+  }
+
   return (
     <div className="space-y-6">
       {/* 数据源设置 */}
-      <div className="space-y-4">
-        <Label>输入数据源</Label>
-        <VariableSelect
-          placeholder="选择引用变量"
-          value={currentConfig.input_variable || ''}
-          onChange={(value) => updateConfig({ input_variable: value })}
-          nodes={nodes}
-          currentNodeId={currentNodeId}
-        />
-        <p className="text-xs text-muted-foreground">
-          选择要提取内容的变量
-        </p>
-      </div>
+      <PromptInputField
+        id="input_variable"
+        label="输入数据源"
+        description="选择要提取内容的数据来源"
+        mode={inputMode}
+        manualValue={inputManual}
+        variableValue={inputVariable}
+        onModeChange={handleInputModeChange}
+        onManualChange={handleInputManualChange}
+        onVariableChange={handleInputVariableChange}
+        nodes={nodes}
+        currentNodeId={currentNodeId}
+        placeholder="输入文本或输入 / 选择变量..."
+        minHeight="80px"
+      />
 
       {/* 提取模式 */}
       <div className="space-y-4">

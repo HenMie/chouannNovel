@@ -1,7 +1,6 @@
 // 变量选择器组件（浮动弹窗版本）
 // 输入 / 时弹出，配合 PromptEditor 使用
 
-import * as React from 'react'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { VariablePickerContent } from './variable-picker-content'

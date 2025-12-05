@@ -312,7 +312,7 @@ const keywordModeLabels: Record<string, string> = {
 // 解析后配置显示组件
 export function ResolvedConfigDisplay({ 
   config, 
-  nodeType 
+  nodeType: _nodeType 
 }: { 
   config: ResolvedNodeConfig
   nodeType: string 

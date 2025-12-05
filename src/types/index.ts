@@ -199,6 +199,9 @@ export interface BatchConfig {
 // 文本提取节点配置
 export interface TextExtractConfig {
   input_variable?: string
+  input_mode?: 'manual' | 'variable'  // 输入模式
+  input_manual?: string               // 手动输入内容
+  input_variable_ref?: string         // 变量引用内容
   extract_mode: 'regex' | 'start_end' | 'json_path' | 'md_to_text'
   regex_pattern?: string
   start_marker?: string
@@ -209,8 +212,11 @@ export interface TextExtractConfig {
 // 文本拼接节点配置
 export interface TextConcatConfig {
   sources: Array<{
-    type: 'variable' | 'custom'
-    variable?: string
+    mode: 'manual' | 'variable'   // 输入模式
+    manual?: string               // 手动输入内容
+    variable?: string             // 变量引用内容
+    // 兼容旧版字段
+    type?: 'variable' | 'custom'
     custom?: string
   }>
   separator: string
@@ -232,6 +238,9 @@ export interface StartConfig {
 export interface VarUpdateConfig {
   variable_name: string   // 要更新的变量名（必须是已定义的全局变量）
   value_template: string  // 新值模板，支持 {{变量}} 插值
+  value_mode?: 'manual' | 'variable'  // 输入模式
+  value_manual?: string               // 手动输入内容
+  value_variable?: string             // 变量引用内容
 }
 
 

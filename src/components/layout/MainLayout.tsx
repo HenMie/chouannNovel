@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Sidebar } from './Sidebar'
 import { Toaster } from '@/components/ui/sonner'
+import { ShortcutsDialog } from '@/components/help/ShortcutsDialog'
+import { useHotkey } from '@/lib/hooks'
 
 // 页面组件
 import { HomePage } from '@/pages/HomePage'
@@ -18,10 +20,18 @@ import { getWorkflow } from '@/lib/db'
 export function MainLayout() {
   const [currentPath, setCurrentPath] = useState('/')
   const [workflowNames, setWorkflowNames] = useState<Record<string, string>>({})
+  const [showShortcuts, setShowShortcuts] = useState(false)
 
   const navigate = useCallback((path: string) => {
     setCurrentPath(path)
   }, [])
+
+  // 注册 F1 快捷键打开快捷键帮助
+  useHotkey({
+    key: 'F1',
+    handler: () => setShowShortcuts(true),
+    preventDefault: true,
+  })
 
   // 加载工作流名称（用于历史页面显示）
   useEffect(() => {
@@ -135,6 +145,13 @@ export function MainLayout() {
 
       {/* Toast 通知 */}
       <Toaster position="top-right" richColors closeButton />
+
+      {/* 快捷键帮助弹窗 */}
+      <ShortcutsDialog
+        open={showShortcuts}
+        onOpenChange={setShowShortcuts}
+        currentPath={currentPath}
+      />
     </div>
   )
 }

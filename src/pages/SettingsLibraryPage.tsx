@@ -20,6 +20,8 @@ import {
   List,
   Code,
   Quote,
+  ToggleLeft,
+  ToggleRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -46,9 +48,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { Header } from '@/components/layout/Header'
 import { useProjectStore } from '@/stores/project-store'
 import { useSettingsStore } from '@/stores/settings-store'
+import { Tour } from '@/components/help/Tour'
+import { SETTINGS_TOUR_STEPS } from '@/tours'
 import { useDebouncedValue } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { SettingCategory, Setting } from '@/types'
@@ -223,7 +234,7 @@ function SettingCardVirtual({
   onDelete: () => void
   onToggle: () => void
 }) {
-  return (
+  const cardContent = (
     <Card className={`transition-colors hover:border-primary/50 ${!setting.enabled ? 'opacity-60' : ''}`}>
       <CardHeader className="pb-2 py-3">
         <div className="flex items-center justify-between">
@@ -282,6 +293,39 @@ function SettingCardVirtual({
         </CardContent>
       )}
     </Card>
+  )
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        {cardContent}
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-48">
+        <ContextMenuItem onClick={onEdit}>
+          <Edit2 className="mr-2 h-4 w-4" />
+          编辑设定
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={onToggle}>
+          {setting.enabled ? (
+            <>
+              <ToggleLeft className="mr-2 h-4 w-4" />
+              禁用设定
+            </>
+          ) : (
+            <>
+              <ToggleRight className="mr-2 h-4 w-4" />
+              启用设定
+            </>
+          )}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={onDelete} variant="destructive">
+          <Trash2 className="mr-2 h-4 w-4" />
+          删除设定
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
@@ -479,7 +523,7 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                   管理角色、世界观、笔触风格和大纲等创作设定
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2" data-tour="settings-search">
                  <div className="relative w-full sm:w-64">
                     <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -493,7 +537,7 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
             </div>
 
             <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SettingCategory)}>
-              <TabsList className="mb-6 grid w-full grid-cols-4">
+              <TabsList className="mb-6 grid w-full grid-cols-4" data-tour="settings-tabs">
                 {CATEGORIES.map((category) => (
                   <TabsTrigger
                     key={category.key}
@@ -517,11 +561,12 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                         variant="outline"
                         size="sm"
                         onClick={handleOpenPromptEditor}
+                        data-tour="settings-prompt-button"
                       >
                         <Settings2 className="mr-2 h-4 w-4" />
                         注入提示词
                       </Button>
-                      <Button size="sm" onClick={handleAdd}>
+                      <Button size="sm" onClick={handleAdd} data-tour="settings-add-button">
                         <Plus className="mr-2 h-4 w-4" />
                         添加{category.label}
                       </Button>
@@ -547,12 +592,14 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                       </CardContent>
                     </Card>
                   ) : (
+                    <div data-tour="settings-list">
                     <VirtualSettingsList
                       settings={currentCategorySettings}
                       onEdit={handleEdit}
                       onDelete={setDeletingSetting}
                       onToggle={toggleSetting}
                     />
+                    </div>
                   )}
                 </TabsContent>
               ))}
@@ -704,6 +751,9 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 新手引导 */}
+      <Tour module="settings" steps={SETTINGS_TOUR_STEPS} />
     </div>
   )
 }
@@ -720,6 +770,77 @@ interface SettingCardProps {
 function SettingCard({ setting, index, onEdit, onDelete, onToggle }: SettingCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
+  const cardContent = (
+    <Card className={`transition-colors hover:border-primary/50 ${!setting.enabled ? 'opacity-60' : ''}`}>
+      <CardHeader className="pb-2 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => setIsExpanded(!isExpanded)}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </Button>
+            <div className="flex items-center gap-2">
+                <CardTitle className="text-sm font-semibold">{setting.name}</CardTitle>
+                {!setting.enabled && (
+                  <span className="text-[10px] bg-muted px-1.5 rounded text-muted-foreground">已禁用</span>
+                )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Switch
+              id={`switch-${setting.id}`}
+              checked={setting.enabled}
+              onCheckedChange={onToggle}
+              className="scale-75 mr-2"
+            />
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit}>
+              <Edit2 className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-destructive hover:text-destructive"
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <CardContent className="pt-0 pb-3 px-3 ml-9">
+              <div className="rounded bg-muted/30 p-3 text-sm font-mono whitespace-pre-wrap">
+                {setting.content}
+              </div>
+            </CardContent>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {!isExpanded && (
+        <CardContent className="pt-0 pb-3 px-3 ml-9">
+          <p className="line-clamp-1 text-xs text-muted-foreground">
+            {setting.content}
+          </p>
+        </CardContent>
+      )}
+    </Card>
+  )
+
   return (
     <motion.div
       layout
@@ -728,74 +849,36 @@ function SettingCard({ setting, index, onEdit, onDelete, onToggle }: SettingCard
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ delay: index * 0.05 }}
     >
-      <Card className={`transition-colors hover:border-primary/50 ${!setting.enabled ? 'opacity-60' : ''}`}>
-        <CardHeader className="pb-2 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                onClick={() => setIsExpanded(!isExpanded)}
-              >
-                {isExpanded ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronRight className="h-4 w-4" />
-                )}
-              </Button>
-              <div className="flex items-center gap-2">
-                 <CardTitle className="text-sm font-semibold">{setting.name}</CardTitle>
-                 {!setting.enabled && (
-                    <span className="text-[10px] bg-muted px-1.5 rounded text-muted-foreground">已禁用</span>
-                 )}
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              <Switch
-                id={`switch-${setting.id}`}
-                checked={setting.enabled}
-                onCheckedChange={onToggle}
-                className="scale-75 mr-2"
-              />
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit}>
-                <Edit2 className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-destructive hover:text-destructive"
-                onClick={onDelete}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <AnimatePresence>
-          {isExpanded && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <CardContent className="pt-0 pb-3 px-3 ml-9">
-                <div className="rounded bg-muted/30 p-3 text-sm font-mono whitespace-pre-wrap">
-                  {setting.content}
-                </div>
-              </CardContent>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        {!isExpanded && (
-          <CardContent className="pt-0 pb-3 px-3 ml-9">
-            <p className="line-clamp-1 text-xs text-muted-foreground">
-              {setting.content}
-            </p>
-          </CardContent>
-        )}
-      </Card>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          {cardContent}
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-48">
+          <ContextMenuItem onClick={onEdit}>
+            <Edit2 className="mr-2 h-4 w-4" />
+            编辑设定
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={onToggle}>
+            {setting.enabled ? (
+              <>
+                <ToggleLeft className="mr-2 h-4 w-4" />
+                禁用设定
+              </>
+            ) : (
+              <>
+                <ToggleRight className="mr-2 h-4 w-4" />
+                启用设定
+              </>
+            )}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onClick={onDelete} variant="destructive">
+            <Trash2 className="mr-2 h-4 w-4" />
+            删除设定
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </motion.div>
   )
 }

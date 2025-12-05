@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Header } from '@/components/layout/Header'
 import { useProjectStore } from '@/stores/project-store'
+import { getErrorMessage, handleAppError } from '@/lib/errors'
 import { toast } from 'sonner'
 
 interface NewWorkflowPageProps {
@@ -48,8 +49,11 @@ export function NewWorkflowPage({ projectId, onNavigate }: NewWorkflowPageProps)
         onNavigate(`/project/${projectId}/workflow/${workflow.id}`)
       }
     } catch (error) {
-      console.error('创建工作流失败:', error)
-      toast.error('创建工作流失败')
+      handleAppError({
+        error,
+        context: '创建工作流',
+        toastMessage: `创建工作流失败：${getErrorMessage(error)}`,
+      })
     } finally {
       setIsCreating(false)
     }

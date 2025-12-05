@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Header } from '@/components/layout/Header'
 import { useProjectStore } from '@/stores/project-store'
+import { getErrorMessage, handleAppError } from '@/lib/errors'
 import { toast } from 'sonner'
 
 interface NewProjectPageProps {
@@ -34,8 +35,11 @@ export function NewProjectPage({ onNavigate }: NewProjectPageProps) {
       toast.success('项目创建成功')
       onNavigate(`/project/${project.id}`)
     } catch (error) {
-      console.error('创建项目失败:', error)
-      toast.error('创建项目失败')
+      handleAppError({
+        error,
+        context: '创建项目',
+        toastMessage: `创建项目失败：${getErrorMessage(error)}`,
+      })
     } finally {
       setIsCreating(false)
     }

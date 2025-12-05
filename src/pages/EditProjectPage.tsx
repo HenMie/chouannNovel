@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Header } from '@/components/layout/Header'
 import { useProjectStore } from '@/stores/project-store'
+import { getErrorMessage, handleAppError } from '@/lib/errors'
 import { toast } from 'sonner'
 
 interface EditProjectPageProps {
@@ -59,8 +60,11 @@ export function EditProjectPage({ projectId, onNavigate }: EditProjectPageProps)
       toast.success('项目已更新')
       onNavigate(`/project/${projectId}`)
     } catch (error) {
-      console.error('更新项目失败:', error)
-      toast.error('更新项目失败')
+      handleAppError({
+        error,
+        context: '更新项目',
+        toastMessage: `更新项目失败：${getErrorMessage(error)}`,
+      })
     } finally {
       setIsSaving(false)
     }

@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 import { MainLayout } from '@/components/layout/MainLayout'
+import { AppErrorBoundary } from '@/components/layout/AppErrorBoundary'
+import { GlobalErrorListener } from '@/components/layout/GlobalErrorListener'
 import { useThemeStore } from '@/stores/theme-store'
 
 function App() {
@@ -20,7 +22,12 @@ function App() {
     }
   }, [theme])
 
-  return <MainLayout />
+  return (
+    <AppErrorBoundary>
+      <GlobalErrorListener />
+      <MainLayout />
+    </AppErrorBoundary>
+  )
 }
 
 export default App

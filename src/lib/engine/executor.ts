@@ -21,6 +21,7 @@ import type {
 } from '@/types'
 import type { Message } from '@/lib/ai/types'
 import { chatStream } from '@/lib/ai'
+import { logError } from '@/lib/errors'
 import { ExecutionContext, NodeExecutionState } from './context'
 
 // 执行器状态
@@ -675,13 +676,19 @@ export class WorkflowExecutor {
   private async executeTextExtractNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
     const config = node.config as TextExtractConfig
     
-    // 获取输入（通过变量引用）
+    // 获取输入
     let input: string = ''
     if (config.input_variable) {
-      // 优先从节点输出中获取
-      input = this.context.getNodeOutput(config.input_variable) 
-        ?? this.context.getVariable(config.input_variable) 
-        ?? ''
+      // 根据输入模式处理
+      if (config.input_mode === 'manual') {
+        // 手动输入模式：支持变量插值
+        input = this.context.interpolate(config.input_variable)
+      } else {
+        // 变量引用模式（默认）：优先从节点输出中获取
+        input = this.context.getNodeOutput(config.input_variable) 
+          ?? this.context.getVariable(config.input_variable) 
+          ?? ''
+      }
     }
     
     // 更新节点输入状态
@@ -888,20 +895,19 @@ export class WorkflowExecutor {
     for (const source of config.sources || []) {
       let value: string = ''
       
-      switch (source.type) {
-        case 'variable':
-          if (source.variable) {
-            // 优先从节点输出中获取
-            value = this.context.getNodeOutput(source.variable) 
-              ?? this.context.getVariable(source.variable) 
-              ?? ''
-          }
-          break
-        case 'custom':
-          value = source.custom 
-            ? this.context.interpolate(source.custom)
-            : ''
-          break
+      // 支持新格式（mode）和旧格式（type）
+      const isVariableMode = source.mode === 'variable' || source.type === 'variable'
+      const isManualMode = source.mode === 'manual' || source.type === 'custom'
+      
+      if (isVariableMode && source.variable) {
+        // 变量引用模式：优先从节点输出中获取
+        value = this.context.getNodeOutput(source.variable) 
+          ?? this.context.getVariable(source.variable) 
+          ?? ''
+      } else if (isManualMode) {
+        // 手动输入模式：支持变量插值
+        const content = source.manual ?? source.custom ?? ''
+        value = content ? this.context.interpolate(content) : ''
       }
       
       parts.push(value)
@@ -1311,7 +1317,7 @@ ${input}`
             const nodeState = this.context.getNodeState(parallelNode.id)
             return nodeState?.output || ''
           } catch (error) {
-            console.error(`并发执行节点 ${parallelNode.name} 失败:`, error)
+            logError({ error, context: `并发执行节点 ${parallelNode.name}` })
             return ''
           }
         })

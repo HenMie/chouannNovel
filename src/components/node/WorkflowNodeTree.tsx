@@ -20,6 +20,9 @@ import {
   Plus,
   CheckSquare,
   X,
+  ClipboardCopy,
+  ClipboardPaste,
+  MousePointer2,
 } from 'lucide-react'
 import {
   DndContext,
@@ -49,6 +52,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { cn } from '@/lib/utils'
 import { useNodeSelection } from '@/lib/hooks'
 import type { WorkflowNode, NodeType, AIChatConfig, LoopStartConfig, ConditionIfConfig, VarUpdateConfig, TextExtractConfig, TextConcatConfig, ParallelStartConfig, StartConfig } from '@/types'
@@ -471,6 +482,8 @@ interface WorkflowNodeTreeProps {
   onCopyNodes?: (nodes: WorkflowNode[]) => void
   onDeleteNodes?: (nodeIds: string[]) => void
   onReorderNodes: (nodeIds: string[]) => void
+  onPaste?: () => void
+  hasCopiedNodes?: boolean
   disabled?: boolean
   // 多选模式
   multiSelectEnabled?: boolean
@@ -520,6 +533,8 @@ function NodeCard({
   onDelete,
   onEdit,
   onCopy,
+  onPaste,
+  hasCopiedNodes,
   onToggleCollapse,
   disabled,
   isDragging,
@@ -540,6 +555,8 @@ function NodeCard({
   onDelete: () => void
   onEdit: () => void
   onCopy: () => void
+  onPaste?: () => void
+  hasCopiedNodes?: boolean
   onToggleCollapse?: () => void
   disabled?: boolean
   isDragging?: boolean
@@ -559,7 +576,8 @@ function NodeCard({
     scale: 1.02,
   } : {}
 
-  return (
+  // 节点内容（供 ContextMenu 包装）
+  const nodeContent = (
     <div
       ref={wrapperRef}
       style={{ ...style, ...overlayStyle }}
@@ -777,6 +795,59 @@ function NodeCard({
       </div>
     </div>
   )
+
+  // Overlay 模式下不显示右键菜单
+  if (isOverlay) {
+    return nodeContent
+  }
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        {nodeContent}
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-48">
+        <ContextMenuItem onClick={onEdit}>
+          <Settings className="mr-2 h-4 w-4" />
+          配置节点
+          <ContextMenuShortcut>Enter</ContextMenuShortcut>
+        </ContextMenuItem>
+        
+        {!isStartNode && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={onCopy}>
+              <ClipboardCopy className="mr-2 h-4 w-4" />
+              复制
+              <ContextMenuShortcut>Ctrl+C</ContextMenuShortcut>
+            </ContextMenuItem>
+            {hasCopiedNodes && onPaste && (
+              <ContextMenuItem onClick={onPaste}>
+                <ClipboardPaste className="mr-2 h-4 w-4" />
+                粘贴到此处
+                <ContextMenuShortcut>Ctrl+V</ContextMenuShortcut>
+              </ContextMenuItem>
+            )}
+            <ContextMenuSeparator />
+            {showCheckbox && onSelect && (
+              <ContextMenuItem onClick={(e) => onSelect(e as unknown as React.MouseEvent)}>
+                <MousePointer2 className="mr-2 h-4 w-4" />
+                {isSelected ? '取消选中' : '选中此节点'}
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem 
+              onClick={onDelete}
+              variant="destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              删除
+              <ContextMenuShortcut>Del</ContextMenuShortcut>
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  )
 }
 
 // 可排序节点行组件
@@ -793,6 +864,8 @@ function SortableNodeRow(props: {
   onDelete: () => void
   onEdit: () => void
   onCopy: () => void
+  onPaste?: () => void
+  hasCopiedNodes?: boolean
   onToggleCollapse?: () => void
   disabled?: boolean
 }) {
@@ -834,6 +907,8 @@ export function WorkflowNodeTree({
   onCopyNodes,
   onDeleteNodes,
   onReorderNodes,
+  onPaste,
+  hasCopiedNodes,
   disabled,
   multiSelectEnabled = false,
   selectedNodeIds: externalSelectedIds,
@@ -1145,6 +1220,8 @@ export function WorkflowNodeTree({
                     onDelete={() => onDeleteNode(node.id)}
                     onEdit={() => onSelectNode(node)}
                     onCopy={() => onCopyNode(node)}
+                    onPaste={onPaste}
+                    hasCopiedNodes={hasCopiedNodes}
                     disabled={disabled}
                     onToggleCollapse={
                       isBlockStart && node.block_id

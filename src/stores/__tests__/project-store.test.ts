@@ -700,7 +700,7 @@ describe("ProjectStore - 复制粘贴操作", () => {
         copiedNodes: {
           nodes: [
             { type: "ai_chat", name: "节点1", config: {} },
-            { type: "text_output", name: "节点2", config: {} },
+            { type: "output", name: "节点2", config: {} },
           ],
           sourceWorkflowId: "workflow-1",
         },
@@ -735,7 +735,7 @@ describe("ProjectStore - 批量复制粘贴", () => {
       const nodes = [
         createMockNode({ id: "1", type: "start", name: "开始流程" }),
         createMockNode({ id: "2", type: "ai_chat", name: "AI 节点" }),
-        createMockNode({ id: "3", type: "text_output", name: "输出节点" }),
+        createMockNode({ id: "3", type: "output", name: "输出节点" }),
       ]
 
       useProjectStore.getState().copyNodes(nodes)
@@ -766,7 +766,7 @@ describe("ProjectStore - 批量复制粘贴", () => {
         copiedNode: { type: "ai_chat", name: "旧节点", config: {} },
       })
 
-      const nodes = [createMockNode({ id: "1", type: "text_output", name: "新节点" })]
+      const nodes = [createMockNode({ id: "1", type: "output", name: "新节点" })]
       useProjectStore.getState().copyNodes(nodes)
 
       expect(useProjectStore.getState().copiedNode).toBeNull()
@@ -813,7 +813,7 @@ describe("ProjectStore - 批量复制粘贴", () => {
         copiedNodes: {
           nodes: [
             { type: "ai_chat", name: "AI 节点", config: {} },
-            { type: "text_output", name: "输出节点", config: {} },
+            { type: "output", name: "输出节点", config: {} },
           ],
           sourceWorkflowId: "workflow-1",
         },
@@ -952,7 +952,7 @@ describe("ProjectStore - 批量复制粘贴", () => {
         copiedNodes: {
           nodes: [
             { type: "ai_chat", name: "节点1", config: {} },
-            { type: "text_output", name: "节点2", config: {} },
+            { type: "output", name: "节点2", config: {} },
           ],
           sourceWorkflowId: "workflow-1",
         },
@@ -980,8 +980,8 @@ describe("ProjectStore - 批量复制粘贴", () => {
         copiedNodes: {
           nodes: [
             { type: "ai_chat", name: "节点1", config: {} },
-            { type: "text_output", name: "节点2", config: {} },
-            { type: "text_output", name: "节点3", config: {} },
+            { type: "output", name: "节点2", config: {} },
+            { type: "output", name: "节点3", config: {} },
           ],
           sourceWorkflowId: "workflow-1",
         },
@@ -1015,7 +1015,7 @@ describe("ProjectStore - 批量删除节点", () => {
     it("应该批量删除普通节点", async () => {
       const nodes = [
         createMockNode({ id: "1", type: "ai_chat" }),
-        createMockNode({ id: "2", type: "text_output" }),
+        createMockNode({ id: "2", type: "output" }),
         createMockNode({ id: "3", type: "ai_chat" }),
       ]
       useProjectStore.setState({ nodes })
@@ -1035,7 +1035,7 @@ describe("ProjectStore - 批量删除节点", () => {
         createMockNode({ id: "2", type: "loop_start", block_id: blockId }),
         createMockNode({ id: "3", type: "ai_chat", parent_block_id: blockId }),
         createMockNode({ id: "4", type: "loop_end", block_id: blockId }),
-        createMockNode({ id: "5", type: "text_output" }),
+        createMockNode({ id: "5", type: "output" }),
       ]
       useProjectStore.setState({ nodes })
       vi.mocked(db.deleteNode).mockResolvedValue()
@@ -1353,7 +1353,7 @@ describe("ProjectStore - 错误处理", () => {
       useProjectStore.setState({
         nodes: [
           createMockNode({ id: "1", type: "ai_chat" }),
-          createMockNode({ id: "2", type: "text_output" }),
+          createMockNode({ id: "2", type: "output" }),
         ],
       })
       vi.mocked(db.deleteNode).mockRejectedValue(new Error("批量删除失败"))

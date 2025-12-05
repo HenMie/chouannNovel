@@ -2,8 +2,8 @@
 // 点击展开选择框，复用共享的内容组件
 
 import * as React from 'react'
-import { useState, useRef, useMemo, useEffect } from 'react'
-import * as Portal from '@radix-ui/react-portal'
+import { useState, useRef, useMemo, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, X } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
@@ -29,6 +29,12 @@ interface VariableSelectProps {
   disabled?: boolean
 }
 
+interface DropdownPosition {
+  top: number
+  left: number
+  width: number
+}
+
 export function VariableSelect({
   value,
   onChange,
@@ -40,9 +46,9 @@ export function VariableSelect({
 }: VariableSelectProps) {
   const [open, setOpen] = useState(false)
   const [selectedCategoryIndex, setSelectedCategoryIndex] = useState(0)
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 })
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState<DropdownPosition>({ top: 0, left: 0, width: 320 })
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   // 构建分类数据
   const categories = useMemo(
@@ -53,46 +59,79 @@ export function VariableSelect({
   // 解析当前值以显示
   const displayValue = useMemo(() => {
     if (!value) return null
-    
-    // 先尝试解析节点引用格式 {{@nodeId}}
+
     const parsed = parseVariableText(value)
     if (parsed) {
-      // 根据 nodeId 动态获取完整显示文本
       const displayText = getDisplayTextByNodeId(nodes, parsed.nodeId)
-      // 分割为节点名和描述
       const parts = displayText.split(' > ')
-      return { 
-        nodeName: parts[0], 
-        description: parts[1] || '' 
+      return {
+        nodeName: parts[0],
+        description: parts[1] || '',
       }
     }
-    
-    // 尝试解析全局变量格式 {{变量名}}
+
     const globalMatch = value.match(/^\{\{([^@}]+)\}\}$/)
     if (globalMatch) {
       const varName = globalMatch[1].trim()
-      // 在 categories 中查找对应的全局变量
       for (const cat of categories) {
-        const variable = cat.variables.find(v => v.type === 'global' && v.varName === varName)
+        const variable = cat.variables.find(
+          (v) => v.type === 'global' && v.varName === varName
+        )
         if (variable) {
           return {
             nodeName: cat.name,
-            description: variable.description
+            description: variable.description,
           }
         }
       }
-      // 找不到时直接显示变量名
       return { nodeName: varName, description: '' }
     }
-    
+
     return null
   }, [value, nodes, categories])
 
-  // 处理选择
+  // 计算弹层位置
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return
+    const rect = triggerRef.current.getBoundingClientRect()
+    const width = Math.max(rect.width, 400)
+
+    let left = rect.left
+    if (left + width > window.innerWidth - 8) {
+      left = window.innerWidth - width - 8
+    }
+    left = Math.max(8, left)
+
+    let top = rect.bottom + 4
+    const dropdownHeight = dropdownRef.current?.offsetHeight ?? 320
+    if (top + dropdownHeight > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - dropdownHeight - 4)
+    }
+
+    setPosition({ top, left, width })
+  }, [])
+
+  const openDropdown = () => {
+    if (disabled) return
+    setOpen((prev) => {
+      const next = !prev
+      if (!prev && next) {
+        requestAnimationFrame(updatePosition)
+      }
+      return next
+    })
+  }
+
+  // 点击选项
   const handleSelect = (category: NodeCategory, variable: OutputVariable) => {
     onChange(getVariableText(category, variable))
     setOpen(false)
   }
+
+  // 下拉面板内的指针事件，阻止冒泡避免触发外部点击关闭
+  const handleDropdownPointerDown = useCallback((e: React.PointerEvent) => {
+    e.stopPropagation()
+  }, [])
 
   // 清除选择
   const handleClear = (e: React.MouseEvent) => {
@@ -100,73 +139,63 @@ export function VariableSelect({
     onChange('')
   }
 
-  // 计算下拉框位置
-  const updateDropdownPosition = () => {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect()
-      setDropdownPosition({
-        top: rect.bottom + 4,
-        left: rect.left,
-        width: Math.max(rect.width, 400),
-      })
-    }
-  }
-
-  // 打开下拉框时计算位置
-  const handleOpen = () => {
-    if (!open) {
-      updateDropdownPosition()
-    }
-    setOpen(!open)
-  }
-
   // 点击外部关闭
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as Node
-      // 检查点击是否在容器外部，并且不在下拉面板内部
-      const dropdownEl = document.querySelector('[data-variable-select-dropdown]')
+    if (!open) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
       if (
-        containerRef.current && 
-        !containerRef.current.contains(target) &&
-        (!dropdownEl || !dropdownEl.contains(target))
+        triggerRef.current?.contains(target) ||
+        dropdownRef.current?.contains(target)
       ) {
-        setOpen(false)
+        return
       }
+      setOpen(false)
     }
 
-    if (open) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    return () => document.removeEventListener('pointerdown', handlePointerDown, true)
   }, [open])
+
+  // 窗口尺寸变更时更新位置
+  useEffect(() => {
+    if (!open) return
+    const handleResize = () => updatePosition()
+    window.addEventListener('resize', handleResize)
+    window.addEventListener('scroll', handleResize, true)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      window.removeEventListener('scroll', handleResize, true)
+    }
+  }, [open, updatePosition])
 
   // 键盘导航
   useEffect(() => {
     if (!open) return
 
-    const currentCategory = categories[selectedCategoryIndex]
-
     const handleKeyDown = (e: KeyboardEvent) => {
       switch (e.key) {
         case 'ArrowUp':
           e.preventDefault()
-          setSelectedCategoryIndex(prev => 
+          setSelectedCategoryIndex((prev) =>
             prev > 0 ? prev - 1 : categories.length - 1
           )
           break
         case 'ArrowDown':
           e.preventDefault()
-          setSelectedCategoryIndex(prev => 
+          setSelectedCategoryIndex((prev) =>
             prev < categories.length - 1 ? prev + 1 : 0
           )
           break
-        case 'Enter':
+        case 'Enter': {
           e.preventDefault()
-          if (currentCategory && currentCategory.variables[0]) {
+          const currentCategory = categories[selectedCategoryIndex]
+          if (currentCategory?.variables[0]) {
             handleSelect(currentCategory, currentCategory.variables[0])
           }
           break
+        }
         case 'Escape':
           e.preventDefault()
           setOpen(false)
@@ -179,8 +208,7 @@ export function VariableSelect({
   }, [open, categories, selectedCategoryIndex])
 
   return (
-    <div ref={containerRef} className={cn('relative', className)}>
-      {/* 触发按钮 */}
+    <div className={cn('relative', className)}>
       <Button
         ref={triggerRef}
         variant="outline"
@@ -191,7 +219,7 @@ export function VariableSelect({
           'w-full justify-between font-normal',
           !value && 'text-muted-foreground'
         )}
-        onClick={handleOpen}
+        onClick={openDropdown}
       >
         <span className="truncate">
           {displayValue ? (
@@ -210,49 +238,55 @@ export function VariableSelect({
         </span>
         <div className="flex items-center gap-1 ml-2 shrink-0">
           {value && (
-            <X
-              className="h-4 w-4 opacity-50 hover:opacity-100"
-              onClick={handleClear}
-            />
+            <X className="h-4 w-4 opacity-50 hover:opacity-100" onClick={handleClear} />
           )}
-          <ChevronDown className={cn(
-            'h-4 w-4 opacity-50 transition-transform',
-            open && 'rotate-180'
-          )} />
+          <ChevronDown
+            className={cn('h-4 w-4 opacity-50 transition-transform', open && 'rotate-180')}
+          />
         </div>
       </Button>
 
-      {/* 下拉选择面板 - 使用 Portal 渲染到 body 避免被 overflow:hidden 截断 */}
-      <AnimatePresence>
-        {open && (
-          <Portal.Root>
-            <motion.div
-              data-variable-select-dropdown
-              initial={{ opacity: 0, y: -4, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -4, scale: 0.98 }}
-              transition={{ duration: 0.15 }}
-              className="fixed z-[100] rounded-lg border bg-popover shadow-lg overflow-hidden"
-              style={{
-                top: dropdownPosition.top,
-                left: dropdownPosition.left,
-                width: dropdownPosition.width,
-                minWidth: 400,
-              }}
-            >
-              {/* 使用共享的内容组件 */}
-              <VariablePickerContent
-                categories={categories}
-                selectedCategoryIndex={selectedCategoryIndex}
-                onCategoryHover={setSelectedCategoryIndex}
-                onCategoryClick={setSelectedCategoryIndex}
-                onVariableClick={handleSelect}
-                showVariableHighlight={false}
-              />
-            </motion.div>
-          </Portal.Root>
+      {/* 下拉面板通过 Portal 渲染到 body，避免被父级 overflow 裁剪 */}
+      {typeof window !== 'undefined' &&
+        createPortal(
+          <AnimatePresence>
+            {open && (
+              // 外层 div 用于稳定挂载 ref 和捕获事件，避免 motion.div 动画期间 ref 不稳定
+              <div
+                ref={dropdownRef}
+                onPointerDownCapture={handleDropdownPointerDown}
+                className="fixed z-[100]"
+                style={{
+                  top: position.top,
+                  left: position.left,
+                  width: position.width,
+                  maxHeight: '360px',
+                  // 确保面板可接收指针事件（防止被父级 pointer-events:none 影响）
+                  pointerEvents: 'auto',
+                }}
+                data-variable-select-dropdown
+              >
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.98, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.98, y: -4 }}
+                  transition={{ duration: 0.15 }}
+                  className="rounded-lg border bg-popover shadow-xl overflow-hidden"
+                >
+                  <VariablePickerContent
+                    categories={categories}
+                    selectedCategoryIndex={selectedCategoryIndex}
+                    onCategoryHover={setSelectedCategoryIndex}
+                    onCategoryClick={setSelectedCategoryIndex}
+                    onVariableClick={handleSelect}
+                    showVariableHighlight={false}
+                  />
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>,
+          document.body
         )}
-      </AnimatePresence>
     </div>
   )
 }

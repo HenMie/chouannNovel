@@ -67,6 +67,7 @@ export const selectors = {
     newWorkflowBtn: 'button:has-text("新建工作流")',
     workflowCard: '[data-testid="workflow-card"]',
     workflowTitle: '[data-testid="workflow-title"]',
+    workflowCardMenu: '[data-testid="workflow-card-menu"]',
     settingsBtn: 'button:has-text("设定库")',
     moreMenuBtn: '[data-testid="more-menu"]',
   },

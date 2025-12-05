@@ -18,19 +18,31 @@ async function addNode(page: Page, menuLabel: string, openSubmenu = false) {
   const addBtn = page.locator(selectors.workflow.addNodeBtn)
   await addBtn.click()
   
+  // 等待菜单内容出现
+  const menuContent = page.locator('[role="menu"]').first()
+  await expect(menuContent).toBeVisible({ timeout: 5000 })
+  
   // 如果需要打开子菜单（控制结构）
   if (openSubmenu) {
-    const submenuTrigger = page.locator('[role="menuitem"]').filter({ hasText: '控制结构' })
+    const submenuTrigger = menuContent.locator('[role="menuitem"]').filter({ hasText: '控制结构' })
     await expect(submenuTrigger).toBeVisible({ timeout: 5000 })
     await submenuTrigger.hover()
     // 等待子菜单出现
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
   }
   
   // 等待菜单项出现并点击
-  const menuItem = page.getByRole('menuitem', { name: menuLabel }).first()
+  const menuItem = page.locator('[role="menu"] [role="menuitem"]').filter({ hasText: menuLabel }).first()
   await expect(menuItem).toBeVisible({ timeout: 5000 })
   await menuItem.click()
+  
+  // 等待所有菜单关闭（点击按钮区域外来确保菜单关闭）
+  await page.waitForTimeout(300)
+  // 检查是否有可见的菜单，如果有则按 Escape 关闭
+  const visibleMenu = page.locator('[role="menu"]').first()
+  if (await visibleMenu.isVisible().catch(() => false)) {
+    await page.keyboard.press('Escape')
+  }
 }
 
 // 节点类型到菜单标签和搜索标签的映射
@@ -227,12 +239,15 @@ test.describe('工作流编辑流程', () => {
       // 等待配置面板打开
       await expect(page.locator('[role="dialog"], [data-state="open"]').first()).toBeVisible()
       
-      // 找到名称输入框并修改
-      const nameInput = page.locator('input').first()
+      // 找到节点名称输入框并修改（使用 label 关联的输入框）
+      const nameInput = page.locator('input#node-name')
       await nameInput.fill(newNodeName)
       
-      // 关闭配置面板（配置会自动保存）
-      await page.keyboard.press('Escape')
+      // 点击保存按钮保存配置
+      await page.click('button:has-text("保存")')
+      
+      // 等待保存成功提示
+      await expect(toastLocator(page, '节点配置已保存')).toBeVisible()
       
       // 验证节点名称已更新
       await expect(nodeLocator(page, newNodeName)).toBeVisible()
@@ -298,9 +313,20 @@ test.describe('工作流编辑流程', () => {
       
       await expect(toastLocator(page, '工作流创建成功')).toBeVisible()
       
-      // 返回项目页面
-      await page.click('text=项目')
-      await expect(page.locator('text=工作流列表')).toBeVisible()
+      // 返回项目页面（通过面包屑导航）
+      // 面包屑结构: 首页 > 项目 > 工作流名
+      const projectBreadcrumb = page.locator('nav[aria-label="breadcrumb"] a, nav[aria-label="breadcrumb"] [role="link"]').filter({ hasText: '项目' })
+      if (await projectBreadcrumb.isVisible()) {
+        await projectBreadcrumb.click()
+      } else {
+        // 如果面包屑不可见，使用 URL 导航
+        const currentUrl = page.url()
+        const projectMatch = currentUrl.match(/\/project\/([^/]+)/)
+        if (projectMatch) {
+          await page.goto(`/project/${projectMatch[1]}`)
+        }
+      }
+      await expect(page.locator('text=工作流列表')).toBeVisible({ timeout: 10000 })
     })
 
     test('应该成功删除工作流', async ({ page }) => {
@@ -311,8 +337,8 @@ test.describe('工作流编辑流程', () => {
         .first()
       await workflowCard.hover()
       
-      // 点击更多菜单按钮
-      const moreButton = workflowCard.locator('button').filter({ has: page.locator('svg.lucide-more-vertical') })
+      // 点击更多菜单按钮（使用 data-testid）
+      const moreButton = workflowCard.locator('[data-testid="workflow-card-menu"]')
       await moreButton.click()
       
       // 点击删除选项

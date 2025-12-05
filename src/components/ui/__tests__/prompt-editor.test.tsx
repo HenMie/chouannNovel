@@ -1,7 +1,6 @@
 // PromptEditor 组件测试
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { PromptEditor, highlightVariables, SYSTEM_VARIABLES, VARIABLE_PATTERN } from '../prompt-editor'
 import type { WorkflowNode } from '@/types'
 
@@ -119,7 +118,7 @@ describe('PromptEditor 组件', () => {
       editor.focus()
       
       // Tab 键应该被拦截
-      const event = fireEvent.keyDown(editor, { key: 'Tab' })
+      fireEvent.keyDown(editor, { key: 'Tab' })
       // 事件应该被阻止默认行为
     })
   })
@@ -218,8 +217,6 @@ describe('PromptEditor 组件', () => {
     it('Backspace 键应整体删除变量标签', async () => {
       const handleChange = vi.fn()
       render(<PromptEditor {...defaultProps} value="{{变量}} 后面的文字" onChange={handleChange} />)
-      
-      const editor = document.querySelector('.prompt-editor') as HTMLElement
       
       // 模拟光标在变量后面
       // 注意：这个测试比较复杂，因为需要模拟 Selection API

@@ -3,11 +3,9 @@ import { motion } from 'framer-motion'
 import {
   BookOpen,
   Plus,
-  Sparkles,
   MoreVertical,
   Pencil,
   Trash2,
-  Calendar,
   Layout,
   Download,
   ArrowUpDown,
@@ -54,6 +52,9 @@ import { importProjectFromFile } from '@/lib/import-export'
 import { toast } from 'sonner'
 import type { Project } from '@/types'
 import { cn } from '@/lib/utils'
+import { getErrorMessage, handleAppError } from '@/lib/errors'
+import { Tour } from '@/components/help/Tour'
+import { HOME_TOUR_STEPS } from '@/tours'
 
 interface HomePageProps {
   onNavigate: (path: string) => void
@@ -137,7 +138,11 @@ export function HomePage({ onNavigate }: HomePageProps) {
         onNavigate(`/project/${result.project.id}`)
       }
     } catch (error) {
-      toast.error('导入失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      handleAppError({
+        error,
+        context: '导入项目',
+        toastMessage: `导入失败: ${getErrorMessage(error)}`,
+      })
     }
   }
 
@@ -152,6 +157,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="mb-10 flex flex-col items-center text-center md:flex-row md:text-left md:justify-between"
+            data-tour="home-welcome"
           >
             <div>
               <TypographyH2 className="mb-2 border-b-0">
@@ -161,7 +167,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
                 继续你的创作之旅。你已经创建了 {projects.length} 个精彩的世界。
               </TypographyMuted>
             </div>
-            <div className="mt-6 flex gap-4 md:mt-0">
+            <div className="mt-6 flex gap-4 md:mt-0" data-tour="home-stats">
               <Card className="flex flex-col items-center justify-center p-4 min-w-[120px]">
                  <span className="text-2xl font-bold">{globalStats?.active_projects || projects.length}</span>
                  <span className="text-xs text-muted-foreground">活跃项目</span>
@@ -197,6 +203,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
                  size="sm"
                  className="h-9 gap-2"
                  onClick={handleImportProject}
+                 data-tour="home-import-project"
                >
                  <Download className="h-3.5 w-3.5" />
                  导入项目
@@ -205,6 +212,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
                   size="sm"
                   className="h-9 gap-2"
                   onClick={() => onNavigate('/project/new')}
+                  data-tour="home-new-project"
                >
                  <Plus className="h-3.5 w-3.5" />
                  新建项目
@@ -217,6 +225,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2 }}
+            data-tour="home-project-list"
           >
             {isLoadingProjects ? (
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -372,6 +381,9 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 新手引导 */}
+      <Tour module="home" steps={HOME_TOUR_STEPS} />
     </div>
   )
 }

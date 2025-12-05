@@ -8,6 +8,7 @@ import {
   getSettingPrompts,
   upsertSettingPrompt,
 } from '@/lib/db'
+import { logError } from '@/lib/errors'
 
 interface SettingsState {
   // 设定数据
@@ -49,7 +50,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       ])
       set({ settings, settingPrompts: prompts })
     } catch (error) {
-      console.error('加载设定库失败:', error)
+      logError({ error, context: '加载设定库' })
     } finally {
       set({ loading: false })
     }
@@ -64,7 +65,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({ settings: [...settings, newSetting] })
       return newSetting
     } catch (error) {
-      console.error('创建设定失败:', error)
+      logError({ error, context: '创建设定' })
       return null
     }
   },
@@ -79,7 +80,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         ),
       })
     } catch (error) {
-      console.error('更新设定失败:', error)
+      logError({ error, context: '更新设定' })
     }
   },
 
@@ -89,7 +90,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       await deleteSetting(id)
       set({ settings: settings.filter((s) => s.id !== id) })
     } catch (error) {
-      console.error('删除设定失败:', error)
+      logError({ error, context: '删除设定' })
     }
   },
 
@@ -106,7 +107,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         ),
       })
     } catch (error) {
-      console.error('切换设定状态失败:', error)
+      logError({ error, context: '切换设定状态' })
     }
   },
 
@@ -128,7 +129,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         set({ settingPrompts: [...settingPrompts, prompt] })
       }
     } catch (error) {
-      console.error('保存设定提示词失败:', error)
+      logError({ error, context: '保存设定提示词' })
     }
   },
 

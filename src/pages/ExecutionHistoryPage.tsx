@@ -52,6 +52,7 @@ import { StreamingOutput, hasResolvedConfig, ResolvedConfigDisplay } from '@/com
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import * as db from '@/lib/db'
+import { getErrorMessage, handleAppError } from '@/lib/errors'
 import type { Execution, NodeResult, WorkflowNode, ExecutionStatus } from '@/types'
 
 interface ExecutionHistoryPageProps {
@@ -335,7 +336,7 @@ function ExecutionDetailDialog({
       setIsLoading(true)
       db.getNodeResults(execution.id)
         .then(setNodeResults)
-        .catch(console.error)
+        .catch(error => handleAppError({ error, context: '加载节点结果', silent: true }))
         .finally(() => setIsLoading(false))
     }
   }, [open, execution])
@@ -475,8 +476,11 @@ export function ExecutionHistoryPage({
         setExecutions(executionList)
         setNodes(nodeList)
       } catch (error) {
-        console.error('加载执行历史失败:', error)
-        toast.error('加载执行历史失败')
+      handleAppError({
+        error,
+        context: '加载执行历史',
+        toastMessage: `加载执行历史失败：${getErrorMessage(error)}`,
+      })
       } finally {
         setIsLoading(false)
       }
@@ -532,8 +536,11 @@ export function ExecutionHistoryPage({
       URL.revokeObjectURL(url)
       toast.success(`已导出为 ${format.toUpperCase()} 文件`)
     } catch (error) {
-      console.error('导出失败:', error)
-      toast.error('导出失败')
+    handleAppError({
+      error,
+      context: '导出执行记录',
+      toastMessage: `导出失败：${getErrorMessage(error)}`,
+    })
     }
   }
 
@@ -547,8 +554,11 @@ export function ExecutionHistoryPage({
       setExecutions(executions.filter(e => e.id !== executionToDelete.id))
       toast.success('执行记录已删除')
     } catch (error) {
-      console.error('删除执行记录失败:', error)
-      toast.error('删除失败')
+    handleAppError({
+      error,
+      context: '删除执行记录',
+      toastMessage: `删除失败：${getErrorMessage(error)}`,
+    })
     } finally {
       setIsDeleting(false)
       setExecutionToDelete(null)

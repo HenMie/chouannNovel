@@ -1,8 +1,7 @@
 // Select 组件测试
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useState } from 'react'
 import {
   Select,
   SelectContent,
@@ -11,7 +10,6 @@ import {
   SelectValue,
   SelectGroup,
   SelectLabel,
-  SelectSeparator,
 } from '../select'
 
 // 基础 Select 测试组件
@@ -39,17 +37,6 @@ function BasicSelect({
         <SelectItem value="orange">橙子</SelectItem>
       </SelectContent>
     </Select>
-  )
-}
-
-// 受控 Select 组件
-function ControlledSelect() {
-  const [value, setValue] = useState('')
-  return (
-    <div>
-      <span data-testid="selected-value">{value}</span>
-      <BasicSelect value={value} onValueChange={setValue} />
-    </div>
   )
 }
 

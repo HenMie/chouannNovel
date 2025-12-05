@@ -120,7 +120,7 @@ test.describe('项目管理流程', () => {
       await page.click('button[type="submit"]')
 
       // 验证成功提示
-      await expect(toastLocator(page, '更新成功')).toBeVisible()
+      await expect(toastLocator(page, '项目已更新')).toBeVisible()
     })
   })
 

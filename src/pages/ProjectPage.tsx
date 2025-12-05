@@ -30,6 +30,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -45,6 +52,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { useProjectStore } from '@/stores/project-store'
 import { useSettingsStore } from '@/stores/settings-store'
 import { exportProjectToFile, exportSettingsToFile, importSettingsFromFile } from '@/lib/import-export'
+import { getErrorMessage, handleAppError } from '@/lib/errors'
 import { toast } from 'sonner'
 import type { Workflow } from '@/types'
 
@@ -62,7 +70,6 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
     setCurrentProject,
     setCurrentWorkflow,
     deleteWorkflow,
-    projectStats,
     loadProjectStats,
   } = useProjectStore()
 
@@ -108,7 +115,11 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
         toast.success('项目备份导出成功')
       }
     } catch (error) {
-      toast.error('导出失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      handleAppError({
+        error,
+        context: '导出项目备份',
+        toastMessage: `导出失败: ${getErrorMessage(error)}`,
+      })
     }
   }
 
@@ -121,7 +132,11 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
         toast.success('设定库导出成功')
       }
     } catch (error) {
-      toast.error('导出失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      handleAppError({
+        error,
+        context: '导出设定库',
+        toastMessage: `导出失败: ${getErrorMessage(error)}`,
+      })
     }
   }
 
@@ -136,7 +151,11 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
         toast.success(mode === 'merge' ? '设定库合并导入成功' : '设定库替换导入成功')
       }
     } catch (error) {
-      toast.error('导入失败: ' + (error instanceof Error ? error.message : '未知错误'))
+      handleAppError({
+        error,
+        context: '导入设定库',
+        toastMessage: `导入失败: ${getErrorMessage(error)}`,
+      })
     }
   }
 
@@ -351,78 +370,107 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.05 * index }}
                   >
-                    <Card
-                      data-testid="workflow-card"
-                      data-workflow-id={workflow.id}
-                      className="group relative h-full cursor-pointer transition-all hover:shadow-md hover:border-primary/50"
-                      onClick={() => {
-                        setCurrentWorkflow(workflow)
-                        onNavigate(`/project/${projectId}/workflow/${workflow.id}`)
-                      }}
-                    >
-                      <CardHeader className="pb-2">
-                        <div className="flex justify-between items-start">
-                          <CardTitle className="flex items-center gap-2 text-base leading-tight">
-                            <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-600">
-                              <Layout className="h-4 w-4" />
+                    <ContextMenu>
+                      <ContextMenuTrigger asChild>
+                        <Card
+                          data-testid="workflow-card"
+                          data-workflow-id={workflow.id}
+                          className="group relative h-full cursor-pointer transition-all hover:shadow-md hover:border-primary/50"
+                          onClick={() => {
+                            setCurrentWorkflow(workflow)
+                            onNavigate(`/project/${projectId}/workflow/${workflow.id}`)
+                          }}
+                        >
+                          <CardHeader className="pb-2">
+                            <div className="flex justify-between items-start">
+                              <CardTitle className="flex items-center gap-2 text-base leading-tight">
+                                <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-600">
+                                  <Layout className="h-4 w-4" />
+                                </div>
+                                <span className="line-clamp-1">{workflow.name}</span>
+                              </CardTitle>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 opacity-0 group-hover:opacity-100 -mr-2 -mt-2"
+                                    onClick={(e) => e.stopPropagation()}
+                                    data-testid="workflow-card-menu"
+                                  >
+                                    <MoreVertical className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      onNavigate(
+                                        `/project/${projectId}/workflow/${workflow.id}/edit`
+                                      )
+                                    }}
+                                  >
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    编辑
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setWorkflowToDelete(workflow)
+                                    }}
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    删除
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
-                            <span className="line-clamp-1">{workflow.name}</span>
-                          </CardTitle>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 opacity-0 group-hover:opacity-100 -mr-2 -mt-2"
-                                onClick={(e) => e.stopPropagation()}
-                                data-testid="workflow-card-menu"
-                              >
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  onNavigate(
-                                    `/project/${projectId}/workflow/${workflow.id}/edit`
-                                  )
-                                }}
-                              >
-                                <Pencil className="mr-2 h-4 w-4" />
-                                编辑
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setWorkflowToDelete(workflow)
-                                }}
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                删除
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                        {workflow.description && (
-                          <CardDescription className="line-clamp-2 min-h-[2.5rem] mt-2">
-                            {workflow.description}
-                          </CardDescription>
-                        )}
-                      </CardHeader>
-                      <CardContent className="pb-3">
-                         <div className="flex items-center justify-between text-xs text-muted-foreground mt-2">
-                            <span>循环上限: {workflow.loop_max_count}</span>
-                            <span>超时: {workflow.timeout_seconds}s</span>
-                         </div>
-                      </CardContent>
-                      <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                         <Button size="icon" className="h-8 w-8 rounded-full shadow-sm">
-                            <Play className="h-3.5 w-3.5 fill-current" />
-                         </Button>
-                      </div>
-                    </Card>
+                            {workflow.description && (
+                              <CardDescription className="line-clamp-2 min-h-[2.5rem] mt-2">
+                                {workflow.description}
+                              </CardDescription>
+                            )}
+                          </CardHeader>
+                          <CardContent className="pb-3">
+                             <div className="flex items-center justify-between text-xs text-muted-foreground mt-2">
+                                <span>循环上限: {workflow.loop_max_count}</span>
+                                <span>超时: {workflow.timeout_seconds}s</span>
+                             </div>
+                          </CardContent>
+                          <div className="absolute bottom-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                             <Button size="icon" className="h-8 w-8 rounded-full shadow-sm">
+                                <Play className="h-3.5 w-3.5 fill-current" />
+                             </Button>
+                          </div>
+                        </Card>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent className="w-48">
+                        <ContextMenuItem
+                          onClick={() => {
+                            setCurrentWorkflow(workflow)
+                            onNavigate(`/project/${projectId}/workflow/${workflow.id}`)
+                          }}
+                        >
+                          <Play className="mr-2 h-4 w-4" />
+                          打开工作流
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onClick={() => onNavigate(`/project/${projectId}/workflow/${workflow.id}/edit`)}
+                        >
+                          <Pencil className="mr-2 h-4 w-4" />
+                          编辑信息
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          onClick={() => setWorkflowToDelete(workflow)}
+                          variant="destructive"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          删除工作流
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
                   </motion.div>
                 ))}
               </div>

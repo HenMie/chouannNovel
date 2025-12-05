@@ -1,7 +1,7 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import type { Project, Workflow, WorkflowNode, GlobalStats, ProjectStats } from '@/types'
 import * as db from '@/lib/db'
+import { logError } from '@/lib/errors'
 
 // 复制的节点数据（不含 ID）
 interface CopiedNode {
@@ -118,7 +118,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const projects = await db.getProjects()
       set({ projects, isLoadingProjects: false })
     } catch (error) {
-      console.error('加载项目失败:', error)
+      logError({ error, context: '加载项目列表' })
       set({ isLoadingProjects: false })
     }
   },
@@ -128,7 +128,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const globalStats = await db.getGlobalStats()
       set({ globalStats })
     } catch (error) {
-      console.error('加载全局统计失败:', error)
+      logError({ error, context: '加载全局统计' })
     }
   },
 
@@ -176,7 +176,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const projectStats = await db.getProjectStats(projectId)
       set({ projectStats })
     } catch (error) {
-      console.error('加载项目统计失败:', error)
+      logError({ error, context: '加载项目统计' })
     }
   },
 
@@ -187,7 +187,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const workflows = await db.getWorkflows(projectId)
       set({ workflows, isLoadingWorkflows: false })
     } catch (error) {
-      console.error('加载工作流失败:', error)
+      logError({ error, context: '加载工作流列表' })
       set({ isLoadingWorkflows: false })
     }
   },
@@ -234,7 +234,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       const nodes = await db.getNodes(workflowId)
       set({ nodes, isLoadingNodes: false })
     } catch (error) {
-      console.error('加载节点失败:', error)
+      logError({ error, context: '加载节点列表' })
       set({ isLoadingNodes: false })
     }
   },
