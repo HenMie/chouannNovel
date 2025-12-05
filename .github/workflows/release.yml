@@ -105,33 +105,41 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "同步版本号: $VERSION"
           
-          # 更新 package.json
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            # Windows 使用 PowerShell
-            powershell -Command "(Get-Content package.json) -replace '\"version\": \"[^\"]+\"', '\"version\": \"'$VERSION'\"' | Set-Content package.json"
-          else
-            # Unix 系统使用 sed
-            sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
-            rm -f package.json.bak
-          fi
+          # 使用 Node.js 更新 JSON 文件（跨平台兼容）
+          node -e "
+            const fs = require('fs');
+            const version = '$VERSION';
+            
+            // 更新 package.json
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = version;
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log('已更新 package.json');
+            
+            // 更新 tauri.conf.json
+            const tauri = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+            tauri.version = version;
+            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(tauri, null, 2) + '\n');
+            console.log('已更新 tauri.conf.json');
+          "
           
-          # 更新 tauri.conf.json
+          # 更新 Cargo.toml（使用 sed，macOS 和 Linux 兼容）
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            powershell -Command "(Get-Content src-tauri/tauri.conf.json) -replace '\"version\": \"[^\"]+\"', '\"version\": \"'$VERSION'\"' | Set-Content src-tauri/tauri.conf.json"
-          else
-            sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
-            rm -f src-tauri/tauri.conf.json.bak
-          fi
-          
-          # 更新 Cargo.toml
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            powershell -Command "(Get-Content src-tauri/Cargo.toml) -replace '^version = \"[^\"]+\"', 'version = \"'$VERSION'\"' | Set-Content src-tauri/Cargo.toml"
+            node -e "
+              const fs = require('fs');
+              const version = '$VERSION';
+              let cargo = fs.readFileSync('src-tauri/Cargo.toml', 'utf8');
+              cargo = cargo.replace(/^version = \"[^\"]*\"/m, 'version = \"' + version + '\"');
+              fs.writeFileSync('src-tauri/Cargo.toml', cargo);
+              console.log('已更新 Cargo.toml');
+            "
           else
             sed -i.bak "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
             rm -f src-tauri/Cargo.toml.bak
+            echo "已更新 Cargo.toml"
           fi
           
-          echo "版本同步完成"
+          echo "版本同步完成: $VERSION"
 
       - name: 构建 Tauri 应用
         uses: tauri-apps/tauri-action@v0
