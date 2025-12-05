@@ -371,7 +371,7 @@ export function ProjectPage({ projectId, onNavigate }: ProjectPageProps) {
                     transition={{ delay: 0.05 * index }}
                   >
                     <ContextMenu>
-                      <ContextMenuTrigger asChild>
+                      <ContextMenuTrigger className="block h-full">
                         <Card
                           data-testid="workflow-card"
                           data-workflow-id={workflow.id}

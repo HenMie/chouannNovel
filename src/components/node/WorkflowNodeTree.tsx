@@ -803,7 +803,7 @@ function NodeCard({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>
+      <ContextMenuTrigger className="block">
         {nodeContent}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">

@@ -297,7 +297,7 @@ function SettingCardVirtual({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>
+      <ContextMenuTrigger className="block">
         {cardContent}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
@@ -850,7 +850,7 @@ function SettingCard({ setting, index, onEdit, onDelete, onToggle }: SettingCard
       transition={{ delay: index * 0.05 }}
     >
       <ContextMenu>
-        <ContextMenuTrigger asChild>
+        <ContextMenuTrigger className="block">
           {cardContent}
         </ContextMenuTrigger>
         <ContextMenuContent className="w-48">
