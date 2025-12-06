@@ -125,9 +125,7 @@ describe("getErrorMessage - 提取错误信息", () => {
   it("应该处理 Symbol", () => {
     const sym = Symbol("test")
     // Symbol 被 JSON.stringify 返回 undefined（非抛出）
-    // 这是一个边界情况，当前实现会返回 undefined
-    const result = getErrorMessage(sym)
-    // 验证函数不会抛出异常
+    // 这是一个边界情况，验证函数不会抛出异常
     expect(() => getErrorMessage(sym)).not.toThrow()
   })
 

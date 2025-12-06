@@ -374,24 +374,22 @@ describe("useRunButtonState - Hook 响应性", () => {
   })
 
   it("globalConfig 变化时应该更新状态", () => {
-    const nodes = [
+    const nodes: WorkflowNode[] = [
       createMockNode({ type: "start" }),
       createMockNode({ type: "ai_chat", config: { model: "gpt-4" } }),
     ]
     
-    let globalConfig: GlobalConfig | null = null
-    
     const { result, rerender } = renderHook(
-      ({ nodes, globalConfig }) => useRunButtonState(nodes, globalConfig, false),
-      { initialProps: { nodes, globalConfig } }
+      ({ nodes, globalConfig }: { nodes: WorkflowNode[]; globalConfig: GlobalConfig | null }) => 
+        useRunButtonState(nodes, globalConfig, false),
+      { initialProps: { nodes, globalConfig: null as GlobalConfig | null } }
     )
 
     expect(result.current.disabled).toBe(true)
     expect(result.current.reason).toBe("正在加载配置...")
 
     // 加载配置完成
-    globalConfig = createMockGlobalConfig()
-    rerender({ nodes, globalConfig })
+    rerender({ nodes, globalConfig: createMockGlobalConfig() })
 
     expect(result.current.disabled).toBe(false)
     expect(result.current.reason).toBeNull()
