@@ -140,6 +140,87 @@ describe("TourStore", () => {
     })
     expect(shouldAutoStartTour("home")).toBe(false)
   })
+
+  it("skipTour 在没有 activeTour 时不应修改状态", async () => {
+    const { useTourStore } = await loadStore()
+    
+    // 设置初始状态（没有 activeTour）
+    useTourStore.setState({
+      completedTours: {},
+      activeTour: null,
+      isRunning: false,
+    })
+    const originalState = useTourStore.getState().completedTours
+
+    useTourStore.getState().skipTour()
+
+    // completedTours 不应该改变
+    expect(useTourStore.getState().completedTours).toEqual(originalState)
+  })
+
+  it("completeTour 在没有 activeTour 时不应修改状态", async () => {
+    const { useTourStore } = await loadStore()
+    
+    // 设置初始状态（没有 activeTour）
+    useTourStore.setState({
+      completedTours: {},
+      activeTour: null,
+      isRunning: false,
+    })
+    const originalState = useTourStore.getState().completedTours
+
+    useTourStore.getState().completeTour()
+
+    // completedTours 不应该改变
+    expect(useTourStore.getState().completedTours).toEqual(originalState)
+  })
+
+  it("goToStep 应该允许设置任意正数索引", async () => {
+    const { useTourStore } = await loadStore()
+    useTourStore.getState().startTour("home")
+
+    useTourStore.getState().goToStep(100)
+    expect(useTourStore.getState().currentStepIndex).toBe(100)
+
+    useTourStore.getState().goToStep(0)
+    expect(useTourStore.getState().currentStepIndex).toBe(0)
+  })
+
+  it("nextStep 应该无限制递增", async () => {
+    const { useTourStore } = await loadStore()
+    useTourStore.getState().startTour("workflow")
+
+    // 多次递增
+    for (let i = 0; i < 10; i++) {
+      useTourStore.getState().nextStep()
+    }
+    expect(useTourStore.getState().currentStepIndex).toBe(10)
+  })
+
+  it("resetTour 应该只重置指定模块的完成状态", async () => {
+    const { useTourStore } = await loadStore()
+    useTourStore.setState({
+      completedTours: { home: true, workflow: true, settings: true },
+    })
+
+    useTourStore.getState().resetTour("workflow")
+
+    expect(useTourStore.getState().completedTours.home).toBe(true)
+    expect(useTourStore.getState().completedTours.workflow).toBeUndefined()
+    expect(useTourStore.getState().completedTours.settings).toBe(true)
+  })
+
+  it("isTourCompleted 应该正确区分不同模块", async () => {
+    const { useTourStore } = await loadStore()
+    useTourStore.setState({
+      completedTours: { home: true, workflow: false },
+    })
+
+    expect(useTourStore.getState().isTourCompleted("home")).toBe(true)
+    expect(useTourStore.getState().isTourCompleted("workflow")).toBe(false)
+    expect(useTourStore.getState().isTourCompleted("settings")).toBe(false)
+    expect(useTourStore.getState().isTourCompleted("ai_config")).toBe(false)
+  })
 })
 
 

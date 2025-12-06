@@ -2600,5 +2600,222 @@ describe("WorkflowExecutor - 工作流执行器", () => {
       expect(executor.getCurrentNodeIndex()).toBe(2)
     })
   })
+
+  // ========== VarUpdate 节点测试 ==========
+
+  describe("VarUpdate 节点执行", () => {
+    it("应该能更新已存在的变量", async () => {
+      const nodes = [
+        createTestNode("start", "开始", {
+          custom_variables: [{ name: "计数", default_value: "0" }],
+        } as StartConfig, { order_index: 0 }),
+        createTestNode("var_update", "更新变量", {
+          variable_name: "计数",
+          value_template: "已更新",
+        }, { order_index: 1 }),
+      ]
+      
+      const executor = new WorkflowExecutor({
+        workflow,
+        nodes,
+        globalConfig,
+        initialInput: "测试",
+      })
+
+      await executor.execute()
+      
+      const ctx = executor.getContext()
+      expect(ctx.getVariable("计数")).toBe("已更新")
+    })
+
+    it("应该支持变量插值到新值", async () => {
+      const nodes = [
+        createTestNode("start", "开始", {
+          custom_variables: [{ name: "结果", default_value: "" }],
+        } as StartConfig, { order_index: 0 }),
+        createTestNode("var_update", "更新变量", {
+          variable_name: "结果",
+          value_template: "用户说：{{用户问题}}",
+        }, { order_index: 1 }),
+      ]
+      
+      const executor = new WorkflowExecutor({
+        workflow,
+        nodes,
+        globalConfig,
+        initialInput: "你好",
+      })
+
+      await executor.execute()
+      
+      const ctx = executor.getContext()
+      expect(ctx.getVariable("结果")).toBe("用户说：你好")
+    })
+
+    it("更新不存在的变量应该抛出错误", async () => {
+      const nodes = [
+        createTestNode("start", "开始", {}, { order_index: 0 }),
+        createTestNode("var_update", "更新变量", {
+          variable_name: "不存在的变量",
+          value_template: "新值",
+        }, { order_index: 1 }),
+      ]
+      
+      const executor = new WorkflowExecutor({
+        workflow,
+        nodes,
+        globalConfig,
+        initialInput: "测试",
+      })
+
+      const result = await executor.execute()
+      
+      expect(result.status).toBe("failed")
+      expect(result.error).toContain("变量")
+    })
+
+  })
+
+  // ========== 条件判断更多操作符测试 ==========
+
+  describe("条件判断 - 更多操作符", () => {
+    it("< 操作符应该正确工作", async () => {
+      const nodes = [
+        createTestNode("start", "开始", {}, { order_index: 0 }),
+        createTestNode("condition", "条件判断", {
+          input_variable: "用户问题",
+          condition_type: "length",
+          length_operator: "<",
+          length_value: 10,
+          true_action: "next",
+          false_action: "next",
+        } as ConditionConfig, { order_index: 1 }),
+      ]
+      const executor = new WorkflowExecutor({
+        workflow,
+        nodes,
+        globalConfig,
+        initialInput: "短文本",
+      })
+
+      const result = await executor.execute()
+      expect(result.output).toBe("true")
+    })
+
+    it(">= 操作符应该正确工作", async () => {
+      const nodes = [
+        createTestNode("start", "开始", {}, { order_index: 0 }),
+        createTestNode("condition", "条件判断", {
+          input_variable: "用户问题",
+          condition_type: "length",
+          length_operator: ">=",
+          length_value: 5,
+          true_action: "next",
+          false_action: "next",
+        } as ConditionConfig, { order_index: 1 }),
+      ]
+      const executor = new WorkflowExecutor({
+        workflow,
+        nodes,
+        globalConfig,
+        initialInput: "12345",
+      })
+
+      const result = await executor.execute()
+      expect(result.output).toBe("true")
+    })
+
+    it("<= 操作符应该正确工作", async () => {
+      const nodes = [
+        createTestNode("start", "开始", {}, { order_index: 0 }),
+        createTestNode("condition", "条件判断", {
+          input_variable: "用户问题",
+          condition_type: "length",
+          length_operator: "<=",
+          length_value: 3,
+          true_action: "next",
+          false_action: "next",
+        } as ConditionConfig, { order_index: 1 }),
+      ]
+      const executor = new WorkflowExecutor({
+        workflow,
+        nodes,
+        globalConfig,
+        initialInput: "123",
+      })
+
+      const result = await executor.execute()
+      expect(result.output).toBe("true")
+    })
+  })
+
+  // ========== 循环条件测试 ==========
+
+  describe("LoopStart 条件循环", () => {
+    it("条件循环应该执行到最大次数", async () => {
+      const blockId = "loop-condition-1"
+      let loopCount = 0
+      
+      const nodes = [
+        createTestNode("start", "开始", {
+          custom_variables: [{ name: "内容", default_value: "初始" }],
+        } as StartConfig, { id: "start-1", order_index: 0 }),
+        createTestNode("loop_start", "循环开始", {
+          loop_type: "count",
+          max_iterations: 3,
+        } as LoopStartConfig, { id: "loop-start-1", order_index: 1, block_id: blockId }),
+        createTestNode("var_update", "更新变量", {
+          variable_name: "内容",
+          value_template: "已更新",
+        }, { id: "update-1", order_index: 2, block_id: blockId }),
+        createTestNode("loop_end", "循环结束", {}, { id: "loop-end-1", order_index: 3, block_id: blockId }),
+      ]
+      
+      const executor = new WorkflowExecutor({
+        workflow,
+        nodes,
+        globalConfig,
+        onEvent: (e) => {
+          if (e.type === "node_completed" && e.nodeName === "循环开始") {
+            loopCount++
+          }
+        },
+      })
+
+      await executor.execute()
+      
+      // 循环开始节点会执行 4 次（3 次循环 + 1 次检测到达上限）
+      expect(loopCount).toBe(4)
+    })
+  })
+
+  // ========== Start 节点自定义变量测试 ==========
+
+  describe("Start 节点自定义变量", () => {
+    it("应该初始化自定义变量", async () => {
+      const nodes = [
+        createTestNode("start", "开始", {
+          custom_variables: [
+            { name: "变量A", default_value: "值A" },
+            { name: "变量B", default_value: "值B" },
+          ],
+        } as StartConfig, { order_index: 0 }),
+      ]
+      
+      const executor = new WorkflowExecutor({
+        workflow,
+        nodes,
+        globalConfig,
+        initialInput: "测试",
+      })
+
+      await executor.execute()
+      
+      const ctx = executor.getContext()
+      expect(ctx.getVariable("变量A")).toBe("值A")
+      expect(ctx.getVariable("变量B")).toBe("值B")
+    })
+  })
+
 })
 

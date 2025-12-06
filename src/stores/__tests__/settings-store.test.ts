@@ -176,6 +176,35 @@ describe("SettingsStore - 设定操作", () => {
       const updated = useSettingsStore.getState().settings.find((s) => s.id === "1")
       expect(updated?.updated_at).not.toBe(oldDate)
     })
+
+    it("应该在更新失败时记录错误", async () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const setting = createMockSetting({ id: "1", name: "旧名称" })
+      useSettingsStore.setState({ settings: [setting] })
+      vi.mocked(db.updateSetting).mockRejectedValue(new Error("更新失败"))
+
+      await useSettingsStore.getState().editSetting("1", { name: "新名称" })
+
+      expect(consoleSpy).toHaveBeenCalled()
+      // 状态不应该改变
+      const current = useSettingsStore.getState().settings.find((s) => s.id === "1")
+      expect(current?.name).toBe("旧名称")
+      consoleSpy.mockRestore()
+    })
+
+    it("应该支持更新多个字段", async () => {
+      const setting = createMockSetting({ id: "1", name: "旧名称", content: "旧内容", enabled: false })
+      useSettingsStore.setState({ settings: [setting] })
+      vi.mocked(db.updateSetting).mockResolvedValue()
+
+      await useSettingsStore.getState().editSetting("1", { name: "新名称", content: "新内容", enabled: true })
+
+      expect(db.updateSetting).toHaveBeenCalledWith("1", { name: "新名称", content: "新内容", enabled: true })
+      const updated = useSettingsStore.getState().settings.find((s) => s.id === "1")
+      expect(updated?.name).toBe("新名称")
+      expect(updated?.content).toBe("新内容")
+      expect(updated?.enabled).toBe(true)
+    })
   })
 
   describe("removeSetting", () => {
@@ -188,6 +217,35 @@ describe("SettingsStore - 设定操作", () => {
 
       expect(db.deleteSetting).toHaveBeenCalledWith("1")
       expect(useSettingsStore.getState().settings).toHaveLength(0)
+    })
+
+    it("应该在删除失败时记录错误", async () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const setting = createMockSetting({ id: "1" })
+      useSettingsStore.setState({ settings: [setting] })
+      vi.mocked(db.deleteSetting).mockRejectedValue(new Error("删除失败"))
+
+      await useSettingsStore.getState().removeSetting("1")
+
+      expect(consoleSpy).toHaveBeenCalled()
+      // 设定应该仍然存在
+      expect(useSettingsStore.getState().settings).toHaveLength(1)
+      consoleSpy.mockRestore()
+    })
+
+    it("应该只删除指定的设定", async () => {
+      const settings = [
+        createMockSetting({ id: "1", name: "设定1" }),
+        createMockSetting({ id: "2", name: "设定2" }),
+        createMockSetting({ id: "3", name: "设定3" }),
+      ]
+      useSettingsStore.setState({ settings })
+      vi.mocked(db.deleteSetting).mockResolvedValue()
+
+      await useSettingsStore.getState().removeSetting("2")
+
+      expect(useSettingsStore.getState().settings).toHaveLength(2)
+      expect(useSettingsStore.getState().settings.find((s) => s.id === "2")).toBeUndefined()
     })
   })
 
@@ -220,6 +278,120 @@ describe("SettingsStore - 设定操作", () => {
       await useSettingsStore.getState().toggleSetting("non-existent")
 
       expect(db.updateSetting).not.toHaveBeenCalled()
+    })
+
+    it("应该在切换失败时记录错误", async () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const setting = createMockSetting({ id: "1", enabled: true })
+      useSettingsStore.setState({ settings: [setting] })
+      vi.mocked(db.updateSetting).mockRejectedValue(new Error("切换失败"))
+
+      await useSettingsStore.getState().toggleSetting("1")
+
+      expect(consoleSpy).toHaveBeenCalled()
+      // 状态不应该改变
+      const current = useSettingsStore.getState().settings.find((s) => s.id === "1")
+      expect(current?.enabled).toBe(true)
+      consoleSpy.mockRestore()
+    })
+  })
+
+  describe("batchToggleSettings", () => {
+    it("应该批量切换设定的启用状态", async () => {
+      const settings = [
+        createMockSetting({ id: "1", enabled: false }),
+        createMockSetting({ id: "2", enabled: false }),
+        createMockSetting({ id: "3", enabled: true }),
+      ]
+      useSettingsStore.setState({ settings })
+      vi.mocked(db.updateSetting).mockResolvedValue()
+
+      await useSettingsStore.getState().batchToggleSettings(["1", "2"], true)
+
+      expect(db.updateSetting).toHaveBeenCalledTimes(2)
+      expect(db.updateSetting).toHaveBeenCalledWith("1", { enabled: true })
+      expect(db.updateSetting).toHaveBeenCalledWith("2", { enabled: true })
+      
+      const s1 = useSettingsStore.getState().settings.find((s) => s.id === "1")
+      const s2 = useSettingsStore.getState().settings.find((s) => s.id === "2")
+      expect(s1?.enabled).toBe(true)
+      expect(s2?.enabled).toBe(true)
+    })
+
+    it("应该在空 ids 时不执行操作", async () => {
+      await useSettingsStore.getState().batchToggleSettings([], true)
+
+      expect(db.updateSetting).not.toHaveBeenCalled()
+    })
+
+    it("应该在批量切换失败时记录错误", async () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const settings = [
+        createMockSetting({ id: "1", enabled: false }),
+        createMockSetting({ id: "2", enabled: false }),
+      ]
+      useSettingsStore.setState({ settings })
+      vi.mocked(db.updateSetting).mockRejectedValue(new Error("批量切换失败"))
+
+      await useSettingsStore.getState().batchToggleSettings(["1", "2"], true)
+
+      expect(consoleSpy).toHaveBeenCalled()
+      consoleSpy.mockRestore()
+    })
+
+    it("应该更新 updated_at 字段", async () => {
+      const oldDate = "2024-01-01T00:00:00.000Z"
+      const settings = [
+        createMockSetting({ id: "1", enabled: false, updated_at: oldDate }),
+      ]
+      useSettingsStore.setState({ settings })
+      vi.mocked(db.updateSetting).mockResolvedValue()
+
+      await useSettingsStore.getState().batchToggleSettings(["1"], true)
+
+      const updated = useSettingsStore.getState().settings.find((s) => s.id === "1")
+      expect(updated?.updated_at).not.toBe(oldDate)
+    })
+  })
+
+  describe("batchRemoveSettings", () => {
+    it("应该批量删除设定", async () => {
+      const settings = [
+        createMockSetting({ id: "1" }),
+        createMockSetting({ id: "2" }),
+        createMockSetting({ id: "3" }),
+      ]
+      useSettingsStore.setState({ settings })
+      vi.mocked(db.deleteSetting).mockResolvedValue()
+
+      await useSettingsStore.getState().batchRemoveSettings(["1", "2"])
+
+      expect(db.deleteSetting).toHaveBeenCalledTimes(2)
+      expect(db.deleteSetting).toHaveBeenCalledWith("1")
+      expect(db.deleteSetting).toHaveBeenCalledWith("2")
+      expect(useSettingsStore.getState().settings).toHaveLength(1)
+      expect(useSettingsStore.getState().settings[0].id).toBe("3")
+    })
+
+    it("应该在空 ids 时不执行操作", async () => {
+      await useSettingsStore.getState().batchRemoveSettings([])
+
+      expect(db.deleteSetting).not.toHaveBeenCalled()
+    })
+
+    it("应该在批量删除失败时记录错误", async () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      const settings = [
+        createMockSetting({ id: "1" }),
+        createMockSetting({ id: "2" }),
+      ]
+      useSettingsStore.setState({ settings })
+      vi.mocked(db.deleteSetting).mockRejectedValue(new Error("批量删除失败"))
+
+      await useSettingsStore.getState().batchRemoveSettings(["1", "2"])
+
+      expect(consoleSpy).toHaveBeenCalled()
+      consoleSpy.mockRestore()
     })
   })
 })
@@ -273,6 +445,16 @@ describe("SettingsStore - 设定提示词操作", () => {
       await useSettingsStore.getState().saveSettingPrompt("character", "模板")
 
       expect(db.upsertSettingPrompt).not.toHaveBeenCalled()
+    })
+
+    it("应该在保存失败时记录错误", async () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+      vi.mocked(db.upsertSettingPrompt).mockRejectedValue(new Error("保存失败"))
+
+      await useSettingsStore.getState().saveSettingPrompt("character", "模板")
+
+      expect(consoleSpy).toHaveBeenCalled()
+      consoleSpy.mockRestore()
     })
   })
 })
@@ -347,6 +529,171 @@ describe("SettingsStore - 设定筛选", () => {
       const prompt = useSettingsStore.getState().getSettingPromptByCategory("style")
 
       expect(prompt).toBeUndefined()
+    })
+  })
+})
+
+// ========== 筛选和排序测试 ==========
+
+describe("SettingsStore - 筛选和排序", () => {
+  beforeEach(() => {
+    const now = new Date()
+    const settings = [
+      createMockSetting({ 
+        id: "1", 
+        category: "character", 
+        name: "张三", 
+        enabled: true,
+        created_at: new Date(now.getTime() - 3000).toISOString(),
+        updated_at: new Date(now.getTime() - 1000).toISOString(),
+      }),
+      createMockSetting({ 
+        id: "2", 
+        category: "character", 
+        name: "李四", 
+        enabled: false,
+        created_at: new Date(now.getTime() - 2000).toISOString(),
+        updated_at: new Date(now.getTime() - 3000).toISOString(),
+      }),
+      createMockSetting({ 
+        id: "3", 
+        category: "character", 
+        name: "王五", 
+        enabled: true,
+        created_at: new Date(now.getTime() - 1000).toISOString(),
+        updated_at: new Date(now.getTime() - 2000).toISOString(),
+      }),
+      createMockSetting({ 
+        id: "4", 
+        category: "worldview", 
+        name: "世界观A", 
+        enabled: true,
+        created_at: now.toISOString(),
+        updated_at: now.toISOString(),
+      }),
+    ]
+    useSettingsStore.setState({
+      settings,
+      settingPrompts: [],
+      currentProjectId: "project-1",
+      loading: false,
+    })
+  })
+
+  describe("getFilteredAndSortedSettings", () => {
+    it("应该按分类筛选", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "character", "all", "name", "asc"
+      )
+
+      expect(result).toHaveLength(3)
+      expect(result.every((s) => s.category === "character")).toBe(true)
+    })
+
+    it("应该筛选启用的设定", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "character", "enabled", "name", "asc"
+      )
+
+      expect(result).toHaveLength(2)
+      expect(result.every((s) => s.enabled)).toBe(true)
+    })
+
+    it("应该筛选禁用的设定", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "character", "disabled", "name", "asc"
+      )
+
+      expect(result).toHaveLength(1)
+      expect(result[0].enabled).toBe(false)
+      expect(result[0].name).toBe("李四")
+    })
+
+    it("应该按名称升序排序", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "character", "all", "name", "asc"
+      )
+
+      expect(result[0].name).toBe("李四")
+      expect(result[1].name).toBe("王五")
+      expect(result[2].name).toBe("张三")
+    })
+
+    it("应该按名称降序排序", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "character", "all", "name", "desc"
+      )
+
+      expect(result[0].name).toBe("张三")
+      expect(result[1].name).toBe("王五")
+      expect(result[2].name).toBe("李四")
+    })
+
+    it("应该按创建时间升序排序", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "character", "all", "created_at", "asc"
+      )
+
+      expect(result[0].name).toBe("张三")  // 最早创建
+      expect(result[1].name).toBe("李四")
+      expect(result[2].name).toBe("王五")  // 最晚创建
+    })
+
+    it("应该按创建时间降序排序", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "character", "all", "created_at", "desc"
+      )
+
+      expect(result[0].name).toBe("王五")  // 最晚创建
+      expect(result[1].name).toBe("李四")
+      expect(result[2].name).toBe("张三")  // 最早创建
+    })
+
+    it("应该按更新时间升序排序", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "character", "all", "updated_at", "asc"
+      )
+
+      expect(result[0].name).toBe("李四")  // 更新时间最早
+      expect(result[1].name).toBe("王五")
+      expect(result[2].name).toBe("张三")  // 更新时间最晚
+    })
+
+    it("应该按更新时间降序排序", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "character", "all", "updated_at", "desc"
+      )
+
+      expect(result[0].name).toBe("张三")  // 更新时间最晚
+      expect(result[1].name).toBe("王五")
+      expect(result[2].name).toBe("李四")  // 更新时间最早
+    })
+
+    it("应该同时应用筛选和排序", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "character", "enabled", "name", "desc"
+      )
+
+      expect(result).toHaveLength(2)
+      expect(result[0].name).toBe("张三")
+      expect(result[1].name).toBe("王五")
+    })
+
+    it("应该返回空数组当没有匹配的设定时", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "outline", "all", "name", "asc"
+      )
+
+      expect(result).toHaveLength(0)
+    })
+
+    it("应该处理全部禁用的分类", () => {
+      const result = useSettingsStore.getState().getFilteredAndSortedSettings(
+        "character", "enabled", "name", "asc"
+      )
+      
+      // 只有 2 个启用的 character 设定
+      expect(result).toHaveLength(2)
     })
   })
 })

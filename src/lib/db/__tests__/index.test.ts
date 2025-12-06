@@ -358,3 +358,393 @@ describe("lib/db - 工作流版本", () => {
   })
 })
 
+describe("lib/db - 分支覆盖率增强", () => {
+  it("updateProject 应支持单独更新 name 或 description", async () => {
+    const project = await db.createProject("项目", "描述")
+    
+    // 只更新 name
+    await db.updateProject(project.id, { name: "新名字" })
+    let saved = await db.getProject(project.id)
+    expect(saved?.name).toBe("新名字")
+    expect(saved?.description).toBe("描述")
+    
+    // 只更新 description
+    await db.updateProject(project.id, { description: "新描述" })
+    saved = await db.getProject(project.id)
+    expect(saved?.description).toBe("新描述")
+    
+    // 设置 description 为空字符串
+    await db.updateProject(project.id, { description: "" })
+    saved = await db.getProject(project.id)
+    expect(saved?.description).toBeNull()
+  })
+
+  it("updateWorkflow 应支持单独更新各字段", async () => {
+    const project = await db.createProject("项目")
+    const workflow = await db.createWorkflow(project.id, "流程", "描述")
+    
+    // 只更新 name
+    await db.updateWorkflow(workflow.id, { name: "新流程" })
+    let saved = await db.getWorkflow(workflow.id)
+    expect(saved?.name).toBe("新流程")
+    
+    // 只更新 description
+    await db.updateWorkflow(workflow.id, { description: "新描述" })
+    saved = await db.getWorkflow(workflow.id)
+    expect(saved?.description).toBe("新描述")
+    
+    // 只更新 loop_max_count
+    await db.updateWorkflow(workflow.id, { loop_max_count: 50 })
+    saved = await db.getWorkflow(workflow.id)
+    expect(saved?.loop_max_count).toBe(50)
+    
+    // 只更新 timeout_seconds
+    await db.updateWorkflow(workflow.id, { timeout_seconds: 600 })
+    saved = await db.getWorkflow(workflow.id)
+    expect(saved?.timeout_seconds).toBe(600)
+    
+    // 设置 description 为空字符串
+    await db.updateWorkflow(workflow.id, { description: "" })
+    saved = await db.getWorkflow(workflow.id)
+    expect(saved?.description).toBeNull()
+  })
+
+  it("updateNode 应支持单独更新各字段", async () => {
+    const project = await db.createProject("项目")
+    const workflow = await db.createWorkflow(project.id, "流程")
+    const node = await db.createNode(workflow.id, "ai_chat", "节点")
+    
+    // 只更新 name
+    await db.updateNode(node.id, { name: "新节点名" })
+    let saved = await db.getNode(node.id)
+    expect(saved?.name).toBe("新节点名")
+    
+    // 只更新 config
+    await db.updateNode(node.id, { config: { key: "value" } })
+    saved = await db.getNode(node.id)
+    expect(saved?.config).toEqual({ key: "value" })
+    
+    // 只更新 block_id
+    await db.updateNode(node.id, { block_id: "block-123" })
+    saved = await db.getNode(node.id)
+    expect(saved?.block_id).toBe("block-123")
+    
+    // 只更新 parent_block_id
+    await db.updateNode(node.id, { parent_block_id: "parent-123" })
+    saved = await db.getNode(node.id)
+    expect(saved?.parent_block_id).toBe("parent-123")
+    
+    // 清除 block_id
+    await db.updateNode(node.id, { block_id: "" })
+    saved = await db.getNode(node.id)
+    expect(saved?.block_id).toBeUndefined()
+  })
+
+  it("updateSetting 应支持单独更新各字段", async () => {
+    const project = await db.createProject("项目")
+    const setting = await db.createSetting(project.id, "character", "角色", "内容")
+    
+    // 只更新 name
+    await db.updateSetting(setting.id, { name: "新角色" })
+    let settings = await db.getSettings(project.id)
+    expect(settings.find(s => s.id === setting.id)?.name).toBe("新角色")
+    
+    // 只更新 content
+    await db.updateSetting(setting.id, { content: "新内容" })
+    settings = await db.getSettings(project.id)
+    expect(settings.find(s => s.id === setting.id)?.content).toBe("新内容")
+    
+    // 只更新 enabled
+    await db.updateSetting(setting.id, { enabled: false })
+    settings = await db.getSettings(project.id)
+    expect(settings.find(s => s.id === setting.id)?.enabled).toBe(false)
+  })
+
+  it("updateSettingPrompt 应支持单独更新各字段且空更新不报错", async () => {
+    const project = await db.createProject("项目")
+    const prompt = await db.createSettingPrompt(project.id, "character", "模板")
+    
+    // 只更新 prompt_template
+    await db.updateSettingPrompt(prompt.id, { prompt_template: "新模板" })
+    let saved = await db.getSettingPrompt(project.id, "character")
+    expect(saved?.prompt_template).toBe("新模板")
+    
+    // 只更新 enabled
+    await db.updateSettingPrompt(prompt.id, { enabled: false })
+    saved = await db.getSettingPrompt(project.id, "character")
+    expect(saved?.enabled).toBe(false)
+    
+    // 空更新不应该报错
+    await db.updateSettingPrompt(prompt.id, {})
+    saved = await db.getSettingPrompt(project.id, "character")
+    expect(saved).toBeDefined()
+  })
+
+  it("updateGlobalConfig 应支持单独更新各字段且空更新不报错", async () => {
+    // 只更新 theme
+    await db.updateGlobalConfig({ theme: "light" })
+    let config = await db.getGlobalConfig()
+    expect(config.theme).toBe("light")
+    
+    // 只更新 default_loop_max
+    await db.updateGlobalConfig({ default_loop_max: 30 })
+    config = await db.getGlobalConfig()
+    expect(config.default_loop_max).toBe(30)
+    
+    // 只更新 default_timeout
+    await db.updateGlobalConfig({ default_timeout: 500 })
+    config = await db.getGlobalConfig()
+    expect(config.default_timeout).toBe(500)
+    
+    // 空更新不应该报错
+    await db.updateGlobalConfig({})
+    config = await db.getGlobalConfig()
+    expect(config).toBeDefined()
+  })
+
+  it("updateExecution 应支持单独更新各字段", async () => {
+    const project = await db.createProject("项目")
+    const workflow = await db.createWorkflow(project.id, "流程")
+    const execution = await db.createExecution(workflow.id, "输入")
+    
+    // 只更新 status
+    await db.updateExecution(execution.id, { status: "paused" })
+    let executions = await db.getExecutions(workflow.id)
+    expect(executions[0].status).toBe("paused")
+    
+    // 只更新 final_output
+    await db.updateExecution(execution.id, { final_output: "输出" })
+    executions = await db.getExecutions(workflow.id)
+    expect(executions[0].final_output).toBe("输出")
+    
+    // 只更新 variables_snapshot
+    await db.updateExecution(execution.id, { variables_snapshot: { a: 1 } })
+    executions = await db.getExecutions(workflow.id)
+    expect(executions[0].variables_snapshot).toEqual({ a: 1 })
+    
+    // 只更新 finished_at
+    const finishTime = new Date().toISOString()
+    await db.updateExecution(execution.id, { finished_at: finishTime })
+    executions = await db.getExecutions(workflow.id)
+    expect(executions[0].finished_at).toBe(finishTime)
+    
+    // 清除 final_output
+    await db.updateExecution(execution.id, { final_output: "" })
+    executions = await db.getExecutions(workflow.id)
+    expect(executions[0].final_output).toBeNull()
+  })
+
+  it("updateNodeResult 应支持单独更新各字段", async () => {
+    const project = await db.createProject("项目")
+    const workflow = await db.createWorkflow(project.id, "流程")
+    const execution = await db.createExecution(workflow.id)
+    const startNode = (await db.getNodes(workflow.id))[0]
+    const nodeResult = await db.createNodeResult(execution.id, startNode.id)
+    
+    // 只更新 input
+    await db.updateNodeResult(nodeResult.id, { input: "测试输入" })
+    let results = await db.getNodeResults(execution.id)
+    expect(results[0].input).toBe("测试输入")
+    
+    // 只更新 output
+    await db.updateNodeResult(nodeResult.id, { output: "测试输出" })
+    results = await db.getNodeResults(execution.id)
+    expect(results[0].output).toBe("测试输出")
+    
+    // 只更新 status
+    await db.updateNodeResult(nodeResult.id, { status: "completed" })
+    results = await db.getNodeResults(execution.id)
+    expect(results[0].status).toBe("completed")
+    
+    // 只更新 finished_at
+    const finishTime = new Date().toISOString()
+    await db.updateNodeResult(nodeResult.id, { finished_at: finishTime })
+    results = await db.getNodeResults(execution.id)
+    expect(results[0].finished_at).toBe(finishTime)
+    
+    // 只更新 resolved_config
+    await db.updateNodeResult(nodeResult.id, { resolved_config: { prompt: "测试" } })
+    results = await db.getNodeResults(execution.id)
+    expect(results[0].resolved_config).toEqual({ prompt: "测试" })
+    
+    // 清除 input
+    await db.updateNodeResult(nodeResult.id, { input: "" })
+    results = await db.getNodeResults(execution.id)
+    expect(results[0].input).toBeNull()
+  })
+
+  it("getNode 应返回 null 当节点不存在时", async () => {
+    const node = await db.getNode("non-existent-id")
+    expect(node).toBeNull()
+  })
+
+  it("getSettingPrompt 应返回 null 当提示词不存在时", async () => {
+    const project = await db.createProject("项目")
+    const prompt = await db.getSettingPrompt(project.id, "character")
+    expect(prompt).toBeNull()
+  })
+
+  it("createNode 应支持自定义 id", async () => {
+    const project = await db.createProject("项目")
+    const workflow = await db.createWorkflow(project.id, "流程")
+    const customId = "custom-node-id-123"
+    
+    const node = await db.createNode(workflow.id, "ai_chat", "节点", {}, { id: customId })
+    expect(node.id).toBe(customId)
+    
+    const saved = await db.getNode(customId)
+    expect(saved?.id).toBe(customId)
+  })
+
+  it("createExecution 应支持不传入 input", async () => {
+    const project = await db.createProject("项目")
+    const workflow = await db.createWorkflow(project.id, "流程")
+    
+    const execution = await db.createExecution(workflow.id)
+    expect(execution.input).toBeUndefined()
+    
+    const executions = await db.getExecutions(workflow.id)
+    // 数据库返回 null，而不是 undefined
+    expect(executions[0].input).toBeNull()
+  })
+
+  it("importSettings merge 模式应跳过已存在的提示词", async () => {
+    const projectA = await db.createProject("项目A")
+    await db.createSettingPrompt(projectA.id, "character", "原始模板")
+    
+    const exportData = {
+      version: "1.0.0",
+      exported_at: new Date().toISOString(),
+      settings: [
+        { category: "character" as const, name: "角色", content: "内容", enabled: true },
+      ],
+      setting_prompts: [
+        { category: "character" as const, prompt_template: "新模板", enabled: true },
+      ],
+    }
+    
+    // merge 模式应跳过已存在的提示词
+    await db.importSettings(projectA.id, exportData, "merge")
+    
+    const prompts = await db.getSettingPrompts(projectA.id)
+    expect(prompts[0].prompt_template).toBe("原始模板") // 保持原有
+  })
+
+  it("importSettings 应处理没有 setting_prompts 的数据", async () => {
+    const project = await db.createProject("项目")
+    
+    const exportData = {
+      version: "1.0.0",
+      exported_at: new Date().toISOString(),
+      settings: [
+        { category: "character" as const, name: "角色", content: "内容", enabled: true },
+      ],
+      // 没有 setting_prompts 字段
+    }
+    
+    await db.importSettings(project.id, exportData as any, "replace")
+    
+    const settings = await db.getSettings(project.id)
+    expect(settings).toHaveLength(1)
+  })
+
+  it("deleteWorkflow 应正常删除工作流", async () => {
+    const project = await db.createProject("项目")
+    const workflow = await db.createWorkflow(project.id, "流程")
+    
+    await db.deleteWorkflow(workflow.id)
+    
+    const deleted = await db.getWorkflow(workflow.id)
+    expect(deleted).toBeNull()
+  })
+
+  it("deleteNode 应正常删除节点", async () => {
+    const project = await db.createProject("项目")
+    const workflow = await db.createWorkflow(project.id, "流程")
+    const node = await db.createNode(workflow.id, "ai_chat", "节点")
+    
+    await db.deleteNode(node.id)
+    
+    const deleted = await db.getNode(node.id)
+    expect(deleted).toBeNull()
+  })
+
+  it("deleteSettingPrompt 应正常删除提示词", async () => {
+    const project = await db.createProject("项目")
+    const prompt = await db.createSettingPrompt(project.id, "character", "模板")
+    
+    await db.deleteSettingPrompt(prompt.id)
+    
+    const deleted = await db.getSettingPrompt(project.id, "character")
+    expect(deleted).toBeNull()
+  })
+
+  it("getProjects 应返回按更新时间倒序的项目列表", async () => {
+    await db.createProject("项目1")
+    await new Promise(r => setTimeout(r, 10))
+    await db.createProject("项目2")
+    
+    const projects = await db.getProjects()
+    expect(projects.length).toBeGreaterThanOrEqual(2)
+    expect(projects[0].name).toBe("项目2")
+  })
+
+  it("exportWorkflow 应返回 null 当工作流不存在时", async () => {
+    const exported = await db.exportWorkflow("non-existent-id")
+    expect(exported).toBeNull()
+  })
+
+  it("exportProject 应返回 null 当项目不存在时", async () => {
+    const exported = await db.exportProject("non-existent-id")
+    expect(exported).toBeNull()
+  })
+
+  it("reorderNodes 应处理没有开始节点的情况", async () => {
+    const project = await db.createProject("项目")
+    const workflow = await db.createWorkflow(project.id, "流程")
+    
+    // 获取当前节点（包含自动创建的开始节点）
+    const nodes = await db.getNodes(workflow.id)
+    const startNode = nodes[0]
+    
+    // 先删除开始节点
+    await db.deleteNode(startNode.id)
+    
+    // 创建一些普通节点
+    const node1 = await db.createNode(workflow.id, "ai_chat", "节点1")
+    const node2 = await db.createNode(workflow.id, "output", "节点2")
+    
+    // 重排序
+    await db.reorderNodes(workflow.id, [node2.id, node1.id])
+    
+    const reordered = await db.getNodes(workflow.id)
+    expect(reordered[0].id).toBe(node2.id)
+    expect(reordered[1].id).toBe(node1.id)
+  })
+
+  it("getWorkflowVersion 应返回 null 当版本不存在时", async () => {
+    const version = await db.getWorkflowVersion("non-existent-id")
+    expect(version).toBeNull()
+  })
+
+  it("getGlobalConfig 应为旧配置添加默认模型列表", async () => {
+    // 模拟旧配置（没有 enabled_models）
+    const db2 = await db.getDatabase()
+    await db2.execute(
+      `UPDATE global_config SET ai_providers = ? WHERE id = 1`,
+      [JSON.stringify({
+        openai: { api_key: "sk-test", enabled: true },
+        gemini: { api_key: "", enabled: false },
+        claude: { api_key: "", enabled: false },
+      })]
+    )
+    
+    const config = await db.getGlobalConfig()
+    
+    // 应该为旧配置添加了默认模型列表
+    expect(config.ai_providers.openai.enabled_models?.length).toBeGreaterThan(0)
+    expect(config.ai_providers.gemini.enabled_models?.length).toBeGreaterThan(0)
+    expect(config.ai_providers.claude.enabled_models?.length).toBeGreaterThan(0)
+  })
+})
+

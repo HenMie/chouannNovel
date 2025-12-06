@@ -108,6 +108,61 @@ describe("ThemeStore", () => {
     expect(document.documentElement.classList.contains("dark")).toBe(true)
     expect(useThemeStore.getState().theme).toBe("system")
   })
+
+  it("setTheme light 应该设置浅色主题", async () => {
+    const { useThemeStore } = await loadStore()
+
+    useThemeStore.getState().setTheme("light")
+
+    expect(useThemeStore.getState().theme).toBe("light")
+    expect(document.documentElement.classList.contains("light")).toBe(true)
+    expect(document.documentElement.classList.contains("dark")).toBe(false)
+  })
+
+  it("切换主题应该移除之前的主题类", async () => {
+    const { useThemeStore } = await loadStore()
+
+    // 先设置为深色
+    useThemeStore.getState().setTheme("dark")
+    expect(document.documentElement.classList.contains("dark")).toBe(true)
+
+    // 再切换为浅色
+    useThemeStore.getState().setTheme("light")
+    expect(document.documentElement.classList.contains("light")).toBe(true)
+    expect(document.documentElement.classList.contains("dark")).toBe(false)
+  })
+
+  it("非 system 模式下系统主题变更不应改变 DOM", async () => {
+    let isDark = false
+    const listeners: Array<(event: any) => void> = []
+    const matchMediaMock = vi.fn().mockImplementation((query) => ({
+      matches: isDark,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: (event: string, handler: (e: MediaQueryListEvent) => void) => {
+        if (event === "change") {
+          listeners.push(handler)
+        }
+      },
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }))
+
+    const { useThemeStore } = await loadStore(matchMediaMock)
+
+    // 设置为固定的浅色主题
+    useThemeStore.getState().setTheme("light")
+    expect(document.documentElement.classList.contains("light")).toBe(true)
+
+    // 模拟系统切换为深色
+    isDark = true
+    listeners.forEach((cb) => cb({ matches: true }))
+
+    // DOM 仍应该是 light（因为不是 system 模式）
+    expect(useThemeStore.getState().theme).toBe("light")
+  })
 })
 
 

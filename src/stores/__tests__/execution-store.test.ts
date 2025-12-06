@@ -1038,5 +1038,52 @@ describe("ExecutionStore - 执行完成后数据库更新", () => {
       })
     )
   })
+
+  it("应该保存变量快照到数据库", async () => {
+    const workflow = createMockWorkflow({ id: "workflow-1" })
+    const nodes = [createMockNode()]
+    const globalConfig = createMockGlobalConfig()
+    const execution = { id: "execution-1", workflow_id: "workflow-1", status: "running", started_at: new Date().toISOString() }
+
+    vi.mocked(db.createExecution).mockResolvedValue(execution as any)
+    vi.mocked(db.updateExecution).mockResolvedValue()
+    mockExecutorInstance.execute.mockResolvedValue({
+      status: "completed",
+      output: "最终输出",
+      nodeStates: [],
+      elapsedSeconds: 10,
+    })
+
+    await useExecutionStore.getState().startExecution(workflow, nodes, globalConfig)
+
+    expect(db.updateExecution).toHaveBeenCalledWith(
+      "execution-1",
+      expect.objectContaining({
+        variables_snapshot: expect.anything(),
+      })
+    )
+  })
+
+  it("执行结果 error 字段应该传递到 state", async () => {
+    const workflow = createMockWorkflow()
+    const nodes = [createMockNode()]
+    const globalConfig = createMockGlobalConfig()
+    const execution = { id: "execution-1", workflow_id: "workflow-1", status: "running", started_at: new Date().toISOString() }
+
+    vi.mocked(db.createExecution).mockResolvedValue(execution as any)
+    mockExecutorInstance.execute.mockResolvedValue({
+      status: "failed",
+      output: "",
+      nodeStates: [],
+      elapsedSeconds: 5,
+      error: "具体错误信息",
+    })
+
+    await useExecutionStore.getState().startExecution(workflow, nodes, globalConfig)
+
+    const state = useExecutionStore.getState()
+    expect(state.status).toBe("failed")
+    expect(state.error).toBe("具体错误信息")
+  })
 })
 
