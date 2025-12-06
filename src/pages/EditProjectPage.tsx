@@ -110,6 +110,7 @@ export function EditProjectPage({ projectId, onNavigate }: EditProjectPageProps)
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       autoFocus
+                      autoComplete="off"
                     />
                   </div>
 
@@ -121,6 +122,7 @@ export function EditProjectPage({ projectId, onNavigate }: EditProjectPageProps)
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       rows={3}
+                      autoComplete="off"
                     />
                   </div>
 

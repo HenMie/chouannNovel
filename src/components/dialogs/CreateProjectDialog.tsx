@@ -86,6 +86,7 @@ export function CreateProjectDialog({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoFocus
+                autoComplete="off"
               />
             </div>
 
@@ -97,6 +98,7 @@ export function CreateProjectDialog({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
+                autoComplete="off"
               />
             </div>
           </div>

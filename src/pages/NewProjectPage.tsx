@@ -77,6 +77,7 @@ export function NewProjectPage({ onNavigate }: NewProjectPageProps) {
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       autoFocus
+                      autoComplete="off"
                     />
                   </div>
 
@@ -88,6 +89,7 @@ export function NewProjectPage({ onNavigate }: NewProjectPageProps) {
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       rows={3}
+                      autoComplete="off"
                     />
                   </div>
 

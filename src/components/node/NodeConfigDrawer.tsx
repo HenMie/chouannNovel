@@ -234,6 +234,7 @@ export function NodeConfigDrawer({
                 onChange={(e) =>
                   setConfig({ ...config, default_value: e.target.value })
                 }
+                autoComplete="off"
               />
             </div>
             
@@ -275,11 +276,13 @@ export function NodeConfigDrawer({
                           placeholder="变量名"
                           value={variable.name}
                           onChange={(e) => updateCustomVariable(index, 'name', e.target.value)}
+                          autoComplete="off"
                         />
                         <Input
                           placeholder="默认值（可选）"
                           value={variable.default_value}
                           onChange={(e) => updateCustomVariable(index, 'default_value', e.target.value)}
+                          autoComplete="off"
                         />
                       </div>
                       <Button
@@ -560,6 +563,7 @@ export function NodeConfigDrawer({
                 onChange={(e) => setName(e.target.value)}
                 placeholder="给节点起一个容易识别的名字"
                 className="font-medium"
+                autoComplete="off"
               />
             </div>
 

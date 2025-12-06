@@ -173,6 +173,7 @@ export function EditWorkflowPage({ projectId, workflowId, onNavigate }: EditWork
                         onChange={(e) => setName(e.target.value)}
                         placeholder="请输入工作流名称"
                         disabled={isSaving}
+                        autoComplete="off"
                       />
                     </div>
 
@@ -185,6 +186,7 @@ export function EditWorkflowPage({ projectId, workflowId, onNavigate }: EditWork
                         placeholder="用于帮助团队了解流程意图"
                         rows={3}
                         disabled={isSaving}
+                        autoComplete="off"
                       />
                     </div>
 

@@ -95,6 +95,7 @@ export function NewWorkflowPage({ projectId, onNavigate }: NewWorkflowPageProps)
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       autoFocus
+                      autoComplete="off"
                     />
                   </div>
 
@@ -106,6 +107,7 @@ export function NewWorkflowPage({ projectId, onNavigate }: NewWorkflowPageProps)
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       rows={3}
+                      autoComplete="off"
                     />
                   </div>
 

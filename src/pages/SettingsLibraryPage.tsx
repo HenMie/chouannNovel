@@ -961,6 +961,7 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                 placeholder="输入名称..."
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
+                autoComplete="off"
               />
             </div>
             <div className="space-y-2">

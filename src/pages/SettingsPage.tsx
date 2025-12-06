@@ -546,6 +546,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                                 updateProviderConfig(provider.id, 'api_key', e.target.value)
                               }
                               className="pr-10 font-mono text-sm"
+                              autoComplete="off"
                             />
                             <Button
                               type="button"
@@ -591,6 +592,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                             updateProviderConfig(provider.id, 'base_url', e.target.value)
                           }
                           className="font-mono text-sm"
+                          autoComplete="off"
                         />
                         <p className="text-[10px] text-muted-foreground">
                           默认: {provider.defaultBaseUrl}
@@ -701,6 +703,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                                     }))
                                   }
                                   className="flex-1 font-mono text-sm"
+                                  autoComplete="off"
                                 />
                                 <Input
                                   placeholder="显示名称"
@@ -712,6 +715,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                                     }))
                                   }
                                   className="flex-1"
+                                  autoComplete="off"
                                 />
                                 <Button
                                   variant="outline"
