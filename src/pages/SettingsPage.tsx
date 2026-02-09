@@ -37,7 +37,7 @@ import { Header } from '@/components/layout/Header'
 import { toast } from 'sonner'
 import * as db from '@/lib/db'
 import type { GlobalConfig, AIProvider, CustomModel, Theme } from '@/types'
-import { getBuiltinModelsByProvider } from '@/lib/ai'
+import { getBuiltinModelsByProvider, testProviderConnection } from '@/lib/ai'
 import { cn } from '@/lib/utils'
 import { getErrorMessage, handleAppError } from '@/lib/errors'
 import { useThemeStore } from '@/stores/theme-store'
@@ -263,13 +263,24 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
     toast.success('已复制到剪贴板')
   }
 
-  const testConnection = async (providerId: string) => {
-    setIsTestingConnection(providerId)
-    // 模拟连接测试
-    setTimeout(() => {
+  const testConnection = async (provider: { id: AIProvider; name: string }) => {
+    if (!config) return
+
+    setIsTestingConnection(provider.id)
+    try {
+      const providerConfig = config.ai_providers[provider.id]
+      const result = await testProviderConnection(provider.id, providerConfig)
+
+      if (result.success) {
+        toast.success(`${provider.name} 连接成功 (延迟: ${result.latency}ms)`)
+      } else {
+        toast.error(`${provider.name} 连接失败: ${result.message}`)
+      }
+    } catch (error) {
+      toast.error(`${provider.name} 连接失败: ${getErrorMessage(error)}`)
+    } finally {
       setIsTestingConnection(null)
-      toast.success(`${providerId} 连接测试成功 (模拟)`)
-    }, 1500)
+    }
   }
 
   // 切换内置模型的启用状态
@@ -494,10 +505,10 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                            <Button
                               variant="ghost"
                               size="sm"
-                              disabled={!config?.ai_providers[provider.id]?.api_key}
-                              onClick={() => testConnection(provider.name)}
+                              disabled={!config?.ai_providers[provider.id]?.api_key || isTestingConnection === provider.id}
+                              onClick={() => testConnection(provider)}
                            >
-                              {isTestingConnection === provider.name ? (
+                              {isTestingConnection === provider.id ? (
                                 <div className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
                               ) : (
                                 <Wifi className="h-4 w-4 mr-1" />

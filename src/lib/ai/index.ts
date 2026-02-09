@@ -5,7 +5,7 @@ import { createOpenAI } from '@ai-sdk/openai'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import type { AIRequestOptions, AIResponse, StreamChunk, Message, ThinkingConfig } from './types'
-import type { AIProvider, GlobalConfig } from '@/types'
+import type { AIProvider, AIProviderConfig, GlobalConfig } from '@/types'
 
 // 导出类型
 export type { AIRequestOptions, AIResponse, StreamChunk, Message, ThinkingConfig }
@@ -446,4 +446,104 @@ export async function* chatStreamIterable(
   }
 
   yield { content: '', done: true }
+}
+
+// 每个提供商用于连接测试的轻量模型
+const TEST_MODELS: Record<AIProvider, string> = {
+  openai: 'gpt-4o-mini',
+  gemini: 'gemini-2.0-flash',
+  claude: 'claude-haiku-4-5-20251001',
+}
+
+/**
+ * 解析 API 错误为友好的中文提示
+ */
+function parseConnectionError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const lowerMsg = message.toLowerCase()
+
+  // HTTP 状态码匹配
+  if (lowerMsg.includes('401') || lowerMsg.includes('unauthorized') || lowerMsg.includes('invalid api key') || lowerMsg.includes('incorrect api key')) {
+    return 'API Key 无效或已过期'
+  }
+  if (lowerMsg.includes('403') || lowerMsg.includes('forbidden')) {
+    return 'API Key 权限不足'
+  }
+  if (lowerMsg.includes('402') || lowerMsg.includes('429') || lowerMsg.includes('rate limit') || lowerMsg.includes('quota') || lowerMsg.includes('billing')) {
+    return '账户余额不足或请求频率超限'
+  }
+  if (lowerMsg.includes('404') || lowerMsg.includes('not found') || lowerMsg.includes('does not exist')) {
+    return '连接成功但测试模型不可用（不影响其他模型使用）'
+  }
+  if (lowerMsg.includes('timeout') || lowerMsg.includes('timed out') || lowerMsg.includes('aborted')) {
+    return '连接超时，请检查网络或代理地址'
+  }
+  if (lowerMsg.includes('econnrefused') || lowerMsg.includes('enotfound') || lowerMsg.includes('network') || lowerMsg.includes('fetch failed') || lowerMsg.includes('failed to fetch')) {
+    return '无法连接到服务器，请检查网络或代理地址'
+  }
+
+  return message
+}
+
+/**
+ * 测试 AI 提供商连接
+ * 发送一个最小化请求来验证 API Key 和连接
+ */
+export async function testProviderConnection(
+  provider: AIProvider,
+  providerConfig: AIProviderConfig
+): Promise<{ success: boolean; message: string; latency?: number }> {
+  if (!providerConfig.api_key) {
+    return { success: false, message: '请先填写 API Key' }
+  }
+
+  const testModelId = TEST_MODELS[provider]
+  const startTime = Date.now()
+
+  try {
+    // 创建对应提供商的客户端
+    let model
+    switch (provider) {
+      case 'openai': {
+        const openai = createOpenAI({
+          apiKey: providerConfig.api_key,
+          baseURL: providerConfig.base_url || undefined,
+        })
+        model = openai(testModelId)
+        break
+      }
+      case 'gemini': {
+        const google = createGoogleGenerativeAI({
+          apiKey: providerConfig.api_key,
+          baseURL: providerConfig.base_url || undefined,
+        })
+        model = google(testModelId)
+        break
+      }
+      case 'claude': {
+        const anthropic = createAnthropic({
+          apiKey: providerConfig.api_key,
+          baseURL: providerConfig.base_url || undefined,
+        })
+        model = anthropic(testModelId)
+        break
+      }
+      default:
+        return { success: false, message: `不支持的提供商: ${provider}` }
+    }
+
+    // 发送最小化请求
+    await generateText({
+      model,
+      messages: [{ role: 'user', content: 'hi' }],
+      maxOutputTokens: 1,
+    })
+
+    const latency = Date.now() - startTime
+    return { success: true, message: '连接成功', latency }
+  } catch (error) {
+    const latency = Date.now() - startTime
+    const friendlyMessage = parseConnectionError(error)
+    return { success: false, message: friendlyMessage, latency }
+  }
 }

@@ -11,6 +11,7 @@ import {
   chat,
   chatStream,
   chatStreamIterable,
+  testProviderConnection,
   type StreamChunk,
 } from "../index"
 import { generateText, streamText } from "ai"
@@ -825,6 +826,163 @@ describe("AI 模块 - chatStreamIterable 功能", () => {
         providerOptions: { anthropic: { effort: "medium" } },
       }),
     )
+  })
+})
+
+// ========== testProviderConnection 功能测试 ==========
+
+describe("AI 模块 - testProviderConnection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it("应该在 API Key 为空时返回错误", async () => {
+    const result = await testProviderConnection("openai", {
+      api_key: "",
+      enabled: true,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("请先填写 API Key")
+  })
+
+  it("OpenAI 连接成功时应返回 success 和延迟", async () => {
+    const openaiModel = vi.fn()
+    vi.mocked(createOpenAI).mockReturnValue(openaiModel as any)
+    vi.mocked(generateText).mockResolvedValue({ text: "h" } as any)
+
+    const result = await testProviderConnection("openai", {
+      api_key: "sk-test",
+      base_url: "https://api.openai.com/v1",
+      enabled: true,
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.message).toBe("连接成功")
+    expect(result.latency).toBeGreaterThanOrEqual(0)
+    expect(createOpenAI).toHaveBeenCalledWith({
+      apiKey: "sk-test",
+      baseURL: "https://api.openai.com/v1",
+    })
+    expect(generateText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ role: "user", content: "hi" }],
+        maxOutputTokens: 1,
+      })
+    )
+  })
+
+  it("Gemini 连接成功时应正确创建客户端", async () => {
+    const geminiModel = vi.fn()
+    vi.mocked(createGoogleGenerativeAI).mockReturnValue(geminiModel as any)
+    vi.mocked(generateText).mockResolvedValue({ text: "h" } as any)
+
+    const result = await testProviderConnection("gemini", {
+      api_key: "gemini-key",
+      enabled: true,
+    })
+
+    expect(result.success).toBe(true)
+    expect(createGoogleGenerativeAI).toHaveBeenCalledWith({
+      apiKey: "gemini-key",
+      baseURL: undefined,
+    })
+  })
+
+  it("Claude 连接成功时应正确创建客户端", async () => {
+    const claudeModel = vi.fn()
+    vi.mocked(createAnthropic).mockReturnValue(claudeModel as any)
+    vi.mocked(generateText).mockResolvedValue({ text: "h" } as any)
+
+    const result = await testProviderConnection("claude", {
+      api_key: "claude-key",
+      base_url: "https://api.anthropic.com",
+      enabled: true,
+    })
+
+    expect(result.success).toBe(true)
+    expect(createAnthropic).toHaveBeenCalledWith({
+      apiKey: "claude-key",
+      baseURL: "https://api.anthropic.com",
+    })
+  })
+
+  it("API Key 无效 (401) 时应返回友好错误", async () => {
+    vi.mocked(createOpenAI).mockReturnValue(vi.fn() as any)
+    vi.mocked(generateText).mockRejectedValue(new Error("401 Unauthorized - Invalid API key"))
+
+    const result = await testProviderConnection("openai", {
+      api_key: "sk-invalid",
+      enabled: true,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("API Key 无效或已过期")
+  })
+
+  it("余额不足 (429) 时应返回友好错误", async () => {
+    vi.mocked(createOpenAI).mockReturnValue(vi.fn() as any)
+    vi.mocked(generateText).mockRejectedValue(new Error("429 Rate limit exceeded"))
+
+    const result = await testProviderConnection("openai", {
+      api_key: "sk-test",
+      enabled: true,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("账户余额不足或请求频率超限")
+  })
+
+  it("网络不可达时应返回友好错误", async () => {
+    vi.mocked(createGoogleGenerativeAI).mockReturnValue(vi.fn() as any)
+    vi.mocked(generateText).mockRejectedValue(new Error("fetch failed: ECONNREFUSED"))
+
+    const result = await testProviderConnection("gemini", {
+      api_key: "gemini-key",
+      enabled: true,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("无法连接到服务器，请检查网络或代理地址")
+  })
+
+  it("超时时应返回友好错误", async () => {
+    vi.mocked(createAnthropic).mockReturnValue(vi.fn() as any)
+    vi.mocked(generateText).mockRejectedValue(new Error("The operation was aborted due to timeout"))
+
+    const result = await testProviderConnection("claude", {
+      api_key: "claude-key",
+      enabled: true,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("连接超时，请检查网络或代理地址")
+  })
+
+  it("模型不存在 (404) 时应返回提示信息", async () => {
+    vi.mocked(createOpenAI).mockReturnValue(vi.fn() as any)
+    vi.mocked(generateText).mockRejectedValue(new Error("404 Not Found - model does not exist"))
+
+    const result = await testProviderConnection("openai", {
+      api_key: "sk-test",
+      enabled: true,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("连接成功但测试模型不可用（不影响其他模型使用）")
+  })
+
+  it("未知错误应返回原始消息", async () => {
+    vi.mocked(createOpenAI).mockReturnValue(vi.fn() as any)
+    vi.mocked(generateText).mockRejectedValue(new Error("Something unexpected happened"))
+
+    const result = await testProviderConnection("openai", {
+      api_key: "sk-test",
+      enabled: true,
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.message).toBe("Something unexpected happened")
   })
 })
 
