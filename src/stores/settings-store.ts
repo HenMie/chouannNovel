@@ -17,34 +17,41 @@ export type SettingFilterStatus = 'all' | 'enabled' | 'disabled'
 export type SettingSortBy = 'name' | 'created_at' | 'updated_at'
 export type SettingSortOrder = 'asc' | 'desc'
 
+// 设定树节点（用于 UI 树形展示）
+export interface SettingTreeNode {
+  setting: Setting
+  children: SettingTreeNode[]
+}
+
 interface SettingsState {
   // 设定数据
   settings: Setting[]
   settingPrompts: SettingPrompt[]
   currentProjectId: string | null
-  
+
   // 加载状态
   loading: boolean
-  
+
   // 操作
   loadSettings: (projectId: string, query?: string) => Promise<void>
-  addSetting: (category: SettingCategory, name: string, content: string) => Promise<Setting | null>
-  editSetting: (id: string, data: Partial<Pick<Setting, 'name' | 'content' | 'enabled'>>) => Promise<void>
+  addSetting: (category: SettingCategory, name: string, content: string, parentId?: string | null) => Promise<Setting | null>
+  editSetting: (id: string, data: Partial<Pick<Setting, 'name' | 'content' | 'enabled' | 'parent_id' | 'order_index'>>) => Promise<void>
   removeSetting: (id: string) => Promise<void>
   toggleSetting: (id: string) => Promise<void>
-  
+
   // 批量操作
   batchToggleSettings: (ids: string[], enabled: boolean) => Promise<void>
   batchRemoveSettings: (ids: string[]) => Promise<void>
-  
+
   // 设定提示词操作
   saveSettingPrompt: (category: SettingCategory, promptTemplate: string) => Promise<void>
-  
+
   // 获取器
   getSettingsByCategory: (category: SettingCategory) => Setting[]
   getEnabledSettings: (category?: SettingCategory) => Setting[]
   getSettingPromptByCategory: (category: SettingCategory) => SettingPrompt | undefined
-  
+  getSettingTree: (category: SettingCategory) => SettingTreeNode[]
+
   // 筛选和排序获取器
   getFilteredAndSortedSettings: (
     category: SettingCategory,
@@ -75,12 +82,20 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
 
-  addSetting: async (category, name, content) => {
+  addSetting: async (category, name, content, parentId) => {
     const { currentProjectId, settings } = get()
     if (!currentProjectId) return null
-    
+
     try {
-      const newSetting = await createSetting(currentProjectId, category, name, content)
+      // 计算同级下一个 order_index
+      const siblings = settings.filter(
+        (s) => s.category === category && s.parent_id === (parentId ?? null)
+      )
+      const nextOrder = siblings.length > 0
+        ? Math.max(...siblings.map((s) => s.order_index)) + 1
+        : 0
+
+      const newSetting = await createSetting(currentProjectId, category, name, content, parentId, nextOrder)
       set({ settings: [...settings, newSetting] })
       return newSetting
     } catch (error) {
@@ -107,7 +122,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const { settings } = get()
     try {
       await deleteSetting(id)
-      set({ settings: settings.filter((s) => s.id !== id) })
+      // 同时移除所有子设定（递归）
+      const idsToRemove = new Set<string>()
+      function collectChildren(parentId: string) {
+        idsToRemove.add(parentId)
+        settings.filter((s) => s.parent_id === parentId).forEach((s) => collectChildren(s.id))
+      }
+      collectChildren(id)
+      set({ settings: settings.filter((s) => !idsToRemove.has(s.id)) })
     } catch (error) {
       logError({ error, context: '删除设定' })
     }
@@ -117,7 +139,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     const { settings } = get()
     const setting = settings.find((s) => s.id === id)
     if (!setting) return
-    
+
     try {
       await updateSetting(id, { enabled: !setting.enabled })
       set({
@@ -133,7 +155,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   batchToggleSettings: async (ids, enabled) => {
     const { settings } = get()
     if (ids.length === 0) return
-    
+
     try {
       // 并发执行所有更新
       await Promise.all(ids.map((id) => updateSetting(id, { enabled })))
@@ -150,7 +172,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   batchRemoveSettings: async (ids) => {
     const { settings } = get()
     if (ids.length === 0) return
-    
+
     try {
       // 并发执行所有删除
       await Promise.all(ids.map((id) => deleteSetting(id)))
@@ -163,13 +185,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   saveSettingPrompt: async (category, promptTemplate) => {
     const { currentProjectId, settingPrompts } = get()
     if (!currentProjectId) return
-    
+
     try {
       const prompt = await upsertSettingPrompt(currentProjectId, category, promptTemplate)
       const existingIndex = settingPrompts.findIndex(
         (p) => p.project_id === currentProjectId && p.category === category
       )
-      
+
       if (existingIndex >= 0) {
         const newPrompts = [...settingPrompts]
         newPrompts[existingIndex] = prompt
@@ -195,20 +217,37 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     return get().settingPrompts.find((p) => p.category === category)
   },
 
+  getSettingTree: (category) => {
+    const { settings } = get()
+    const categorySettings = settings.filter((s) => s.category === category)
+
+    function buildTree(parentId: string | null): SettingTreeNode[] {
+      return categorySettings
+        .filter((s) => (s.parent_id ?? null) === parentId)
+        .sort((a, b) => a.order_index - b.order_index)
+        .map((setting) => ({
+          setting,
+          children: buildTree(setting.id),
+        }))
+    }
+
+    return buildTree(null)
+  },
+
   getFilteredAndSortedSettings: (category, filterStatus, sortBy, sortOrder) => {
     let filtered = get().settings.filter((s) => s.category === category)
-    
+
     // 状态筛选
     if (filterStatus === 'enabled') {
       filtered = filtered.filter((s) => s.enabled)
     } else if (filterStatus === 'disabled') {
       filtered = filtered.filter((s) => !s.enabled)
     }
-    
+
     // 排序
     filtered.sort((a, b) => {
       let comparison = 0
-      
+
       if (sortBy === 'name') {
         comparison = a.name.localeCompare(b.name, 'zh-CN')
       } else if (sortBy === 'created_at') {
@@ -216,11 +255,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       } else if (sortBy === 'updated_at') {
         comparison = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()
       }
-      
+
       return sortOrder === 'asc' ? comparison : -comparison
     })
-    
+
     return filtered
   },
 }))
-

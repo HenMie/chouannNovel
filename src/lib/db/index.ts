@@ -460,29 +460,33 @@ export async function getSettings(
     params.push(`%${query}%`, `%${query}%`)
   }
 
-  sql += ' ORDER BY category, name'
+  sql += ' ORDER BY category, order_index, name'
 
   const settings = await db.select<Array<Omit<Setting, 'enabled'> & { enabled: number }>>(
     sql,
     params
   )
-  return settings.map((s) => ({ ...s, enabled: Boolean(s.enabled) }))
+  return settings.map((s) => ({ ...s, enabled: Boolean(s.enabled), parent_id: s.parent_id ?? null, order_index: s.order_index ?? 0 }))
 }
 
 export async function createSetting(
   projectId: string,
   category: Setting['category'],
   name: string,
-  content: string
+  content: string,
+  parentId?: string | null,
+  orderIndex?: number
 ): Promise<Setting> {
   const db = await getDatabase()
   const id = generateId()
   const now = new Date().toISOString()
+  const pId = parentId ?? null
+  const oIdx = orderIndex ?? 0
 
   await db.execute(
-    `INSERT INTO settings (id, project_id, category, name, content, enabled, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-    [id, projectId, category, name, content, now, now]
+    `INSERT INTO settings (id, project_id, category, name, content, enabled, parent_id, order_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+    [id, projectId, category, name, content, pId, oIdx, now, now]
   )
 
   return {
@@ -492,6 +496,8 @@ export async function createSetting(
     name,
     content,
     enabled: true,
+    parent_id: pId,
+    order_index: oIdx,
     created_at: now,
     updated_at: now,
   }
@@ -499,7 +505,7 @@ export async function createSetting(
 
 export async function updateSetting(
   id: string,
-  data: Partial<Pick<Setting, 'name' | 'content' | 'enabled'>>
+  data: Partial<Pick<Setting, 'name' | 'content' | 'enabled' | 'parent_id' | 'order_index'>>
 ): Promise<void> {
   const db = await getDatabase()
   const updates: string[] = []
@@ -516,6 +522,14 @@ export async function updateSetting(
   if (data.enabled !== undefined) {
     updates.push('enabled = ?')
     values.push(data.enabled ? 1 : 0)
+  }
+  if (data.parent_id !== undefined) {
+    updates.push('parent_id = ?')
+    values.push(data.parent_id)
+  }
+  if (data.order_index !== undefined) {
+    updates.push('order_index = ?')
+    values.push(data.order_index)
   }
 
   updates.push('updated_at = ?')
@@ -1079,6 +1093,8 @@ export async function exportSettings(projectId: string): Promise<ExportedSetting
       name: s.name,
       content: s.content,
       enabled: s.enabled,
+      parent_id: s.parent_id,
+      order_index: s.order_index,
     })),
     setting_prompts: prompts.map((p) => ({
       category: p.category,
@@ -1185,6 +1201,8 @@ export async function exportProject(projectId: string): Promise<ExportedProject 
       name: s.name,
       content: s.content,
       enabled: s.enabled,
+      parent_id: s.parent_id,
+      order_index: s.order_index,
     })),
     setting_prompts: prompts.map((p) => ({
       category: p.category,

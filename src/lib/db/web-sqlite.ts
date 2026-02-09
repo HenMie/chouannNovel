@@ -167,6 +167,8 @@ const MIGRATION_SQL = `
     name TEXT NOT NULL,
     content TEXT NOT NULL,
     enabled INTEGER DEFAULT 1,
+    parent_id TEXT DEFAULT NULL,
+    order_index INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE

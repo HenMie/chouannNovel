@@ -157,6 +157,16 @@ pub fn run() {
             CREATE INDEX IF NOT EXISTS idx_workflow_versions_number ON workflow_versions(workflow_id, version_number DESC);
         "#,
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 2,
+        description: "add_settings_hierarchy",
+        sql: r#"
+            ALTER TABLE settings ADD COLUMN parent_id TEXT DEFAULT NULL;
+            ALTER TABLE settings ADD COLUMN order_index INTEGER DEFAULT 0;
+            CREATE INDEX IF NOT EXISTS idx_settings_parent_id ON settings(parent_id);
+        "#,
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()

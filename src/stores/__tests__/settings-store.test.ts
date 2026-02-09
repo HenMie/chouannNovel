@@ -29,6 +29,8 @@ function createMockSetting(overrides?: Partial<Setting>): Setting {
     name: "测试角色",
     content: "角色描述内容",
     enabled: true,
+    parent_id: null,
+    order_index: 0,
     created_at: now,
     updated_at: now,
     ...overrides,
@@ -128,7 +130,7 @@ describe("SettingsStore - 设定操作", () => {
 
       const result = await useSettingsStore.getState().addSetting("character", "新角色", "角色内容")
 
-      expect(db.createSetting).toHaveBeenCalledWith("project-1", "character", "新角色", "角色内容")
+      expect(db.createSetting).toHaveBeenCalledWith("project-1", "character", "新角色", "角色内容", undefined, 0)
       expect(result).toEqual(newSetting)
       expect(useSettingsStore.getState().settings).toContainEqual(newSetting)
     })

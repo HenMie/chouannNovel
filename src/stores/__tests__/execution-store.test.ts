@@ -224,6 +224,8 @@ describe("ExecutionStore - 执行控制", () => {
           name: "角色1",
           content: "角色描述",
           enabled: true,
+          parent_id: null,
+          order_index: 0,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },

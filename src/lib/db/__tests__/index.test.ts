@@ -616,28 +616,28 @@ describe("lib/db - 分支覆盖率增强", () => {
       version: "1.0.0",
       exported_at: new Date().toISOString(),
       settings: [
-        { category: "character" as const, name: "角色", content: "内容", enabled: true },
+        { category: "character" as const, name: "角色", content: "内容", enabled: true, parent_id: null, order_index: 0 },
       ],
       setting_prompts: [
         { category: "character" as const, prompt_template: "新模板", enabled: true },
       ],
     }
-    
+
     // merge 模式应跳过已存在的提示词
     await db.importSettings(projectA.id, exportData, "merge")
-    
+
     const prompts = await db.getSettingPrompts(projectA.id)
     expect(prompts[0].prompt_template).toBe("原始模板") // 保持原有
   })
 
   it("importSettings 应处理没有 setting_prompts 的数据", async () => {
     const project = await db.createProject("项目")
-    
+
     const exportData = {
       version: "1.0.0",
       exported_at: new Date().toISOString(),
       settings: [
-        { category: "character" as const, name: "角色", content: "内容", enabled: true },
+        { category: "character" as const, name: "角色", content: "内容", enabled: true, parent_id: null, order_index: 0 },
       ],
       // 没有 setting_prompts 字段
     }

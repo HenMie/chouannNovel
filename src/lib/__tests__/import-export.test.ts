@@ -87,12 +87,16 @@ const validExportedSettings: ExportedSettings = {
       name: '主角',
       content: '勇敢的冒险者',
       enabled: true,
+      parent_id: null,
+      order_index: 0,
     },
     {
       category: 'worldview',
       name: '世界观',
       content: '魔法世界',
       enabled: true,
+      parent_id: null,
+      order_index: 0,
     },
   ],
   setting_prompts: [
@@ -136,6 +140,8 @@ const validExportedProject: ExportedProject = {
       name: '角色',
       content: '内容',
       enabled: true,
+      parent_id: null,
+      order_index: 0,
     },
   ],
   setting_prompts: [
@@ -294,10 +300,10 @@ describe('validateExportedSettings - 设定库导出数据验证', () => {
     const dataWithAllCategories: ExportedSettings = {
       ...validExportedSettings,
       settings: [
-        { category: 'character', name: '角色', content: '内容', enabled: true },
-        { category: 'worldview', name: '世界观', content: '内容', enabled: true },
-        { category: 'style', name: '风格', content: '内容', enabled: false },
-        { category: 'outline', name: '大纲', content: '内容', enabled: true },
+        { category: 'character', name: '角色', content: '内容', enabled: true, parent_id: null, order_index: 0 },
+        { category: 'worldview', name: '世界观', content: '内容', enabled: true, parent_id: null, order_index: 0 },
+        { category: 'style', name: '风格', content: '内容', enabled: false, parent_id: null, order_index: 0 },
+        { category: 'outline', name: '大纲', content: '内容', enabled: true, parent_id: null, order_index: 0 },
       ],
     }
     expect(validateExportedSettings(dataWithAllCategories)).toBe(true)
@@ -767,6 +773,8 @@ describe('边界情况测试', () => {
             name: '🎭 主角',
             content: '这是一个包含 emoji 😀 和特殊字符的设定：αβγδ',
             enabled: true,
+            parent_id: null,
+            order_index: 0,
           },
         ],
       }
@@ -798,6 +806,8 @@ describe('边界情况测试', () => {
         name: `角色${i}`,
         content: `这是角色${i}的详细设定，包含大量文本内容...`.repeat(10),
         enabled: true,
+        parent_id: null,
+        order_index: 0,
       }))
       
       const largeSettings: ExportedSettings = {

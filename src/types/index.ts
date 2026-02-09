@@ -281,6 +281,8 @@ export interface Setting {
   name: string
   content: string
   enabled: boolean
+  parent_id: string | null
+  order_index: number
   created_at: string
   updated_at: string
 }
