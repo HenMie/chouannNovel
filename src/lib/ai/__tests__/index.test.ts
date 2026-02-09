@@ -12,6 +12,7 @@ import {
   chatStream,
   chatStreamIterable,
   testProviderConnection,
+  normalizeBaseUrl,
   type StreamChunk,
 } from "../index"
 import { generateText, streamText } from "ai"
@@ -629,7 +630,7 @@ describe("AI 模块 - chat 功能", () => {
 
     expect(createOpenAI).toHaveBeenCalledWith({
       apiKey: "openai-key",
-      baseURL: "https://api.openai.com",
+      baseURL: "https://api.openai.com/v1",
     })
     expect(openaiModel).toHaveBeenCalledWith("gpt-5")
     expect(generateText).toHaveBeenCalledWith(
@@ -903,7 +904,7 @@ describe("AI 模块 - testProviderConnection", () => {
     expect(result.success).toBe(true)
     expect(createAnthropic).toHaveBeenCalledWith({
       apiKey: "claude-key",
-      baseURL: "https://api.anthropic.com",
+      baseURL: "https://api.anthropic.com/v1",
     })
   })
 
@@ -983,6 +984,71 @@ describe("AI 模块 - testProviderConnection", () => {
 
     expect(result.success).toBe(false)
     expect(result.message).toBe("Something unexpected happened")
+  })
+
+  it("应该支持用户指定的测试模型", async () => {
+    const openaiModel = vi.fn()
+    vi.mocked(createOpenAI).mockReturnValue(openaiModel as any)
+    vi.mocked(generateText).mockResolvedValue({ text: "h" } as any)
+
+    const result = await testProviderConnection("openai", {
+      api_key: "sk-test",
+      enabled: true,
+    }, "gpt-5")
+
+    expect(result.success).toBe(true)
+    expect(openaiModel).toHaveBeenCalledWith("gpt-5")
+  })
+
+  it("未指定模型时应使用默认测试模型", async () => {
+    const geminiModel = vi.fn()
+    vi.mocked(createGoogleGenerativeAI).mockReturnValue(geminiModel as any)
+    vi.mocked(generateText).mockResolvedValue({ text: "h" } as any)
+
+    await testProviderConnection("gemini", {
+      api_key: "gemini-key",
+      enabled: true,
+    })
+
+    expect(geminiModel).toHaveBeenCalledWith("gemini-2.0-flash")
+  })
+})
+
+// ========== normalizeBaseUrl 功能测试 ==========
+
+describe("AI 模块 - normalizeBaseUrl", () => {
+  it("空值应返回 undefined", () => {
+    expect(normalizeBaseUrl("openai", undefined)).toBeUndefined()
+    expect(normalizeBaseUrl("openai", "")).toBeUndefined()
+  })
+
+  it("OpenAI: 无后缀应补全 /v1", () => {
+    expect(normalizeBaseUrl("openai", "https://my-proxy.com")).toBe("https://my-proxy.com/v1")
+  })
+
+  it("OpenAI: 已有 /v1 不重复追加", () => {
+    expect(normalizeBaseUrl("openai", "https://api.openai.com/v1")).toBe("https://api.openai.com/v1")
+  })
+
+  it("OpenAI: 尾部斜杠应被清理", () => {
+    expect(normalizeBaseUrl("openai", "https://my-proxy.com/")).toBe("https://my-proxy.com/v1")
+    expect(normalizeBaseUrl("openai", "https://api.openai.com/v1/")).toBe("https://api.openai.com/v1")
+  })
+
+  it("Gemini: 无后缀应补全 /v1beta", () => {
+    expect(normalizeBaseUrl("gemini", "https://my-proxy.com")).toBe("https://my-proxy.com/v1beta")
+  })
+
+  it("Gemini: 已有 /v1beta 不重复追加", () => {
+    expect(normalizeBaseUrl("gemini", "https://generativelanguage.googleapis.com/v1beta")).toBe("https://generativelanguage.googleapis.com/v1beta")
+  })
+
+  it("Claude: 无后缀应补全 /v1", () => {
+    expect(normalizeBaseUrl("claude", "https://api.anthropic.com")).toBe("https://api.anthropic.com/v1")
+  })
+
+  it("Claude: 已有 /v1 不重复追加", () => {
+    expect(normalizeBaseUrl("claude", "https://api.anthropic.com/v1")).toBe("https://api.anthropic.com/v1")
   })
 })
 

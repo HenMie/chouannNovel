@@ -256,21 +256,21 @@ function createModel(
     case 'openai': {
       const openai = createOpenAI({
         apiKey: providerConfig.api_key,
-        baseURL: providerConfig.base_url || undefined,
+        baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
       })
       return openai(modelId)
     }
     case 'gemini': {
       const google = createGoogleGenerativeAI({
         apiKey: providerConfig.api_key,
-        baseURL: providerConfig.base_url || undefined,
+        baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
       })
       return google(modelId)
     }
     case 'claude': {
       const anthropic = createAnthropic({
         apiKey: providerConfig.api_key,
-        baseURL: providerConfig.base_url || undefined,
+        baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
       })
       return anthropic(modelId)
     }
@@ -448,8 +448,27 @@ export async function* chatStreamIterable(
   yield { content: '', done: true }
 }
 
-// 每个提供商用于连接测试的轻量模型
-const TEST_MODELS: Record<AIProvider, string> = {
+// 每个提供商的默认 API 路径后缀
+const PROVIDER_URL_SUFFIXES: Record<AIProvider, string> = {
+  openai: '/v1',
+  gemini: '/v1beta',
+  claude: '/v1',
+}
+
+/**
+ * 智能补全 Base URL 的版本路径后缀
+ * 用户填写 `https://my-proxy.com` 或 `https://my-proxy.com/v1` 均可正常工作
+ */
+export function normalizeBaseUrl(provider: AIProvider, baseUrl: string | undefined): string | undefined {
+  if (!baseUrl) return undefined
+  const trimmed = baseUrl.replace(/\/+$/, '')
+  const suffix = PROVIDER_URL_SUFFIXES[provider]
+  if (trimmed.endsWith(suffix)) return trimmed
+  return trimmed + suffix
+}
+
+// 每个提供商用于连接测试的默认轻量模型
+const DEFAULT_TEST_MODELS: Record<AIProvider, string> = {
   openai: 'gpt-4o-mini',
   gemini: 'gemini-2.0-flash',
   claude: 'claude-haiku-4-5-20251001',
@@ -488,16 +507,18 @@ function parseConnectionError(error: unknown): string {
 /**
  * 测试 AI 提供商连接
  * 发送一个最小化请求来验证 API Key 和连接
+ * @param modelId 可选，用户指定的测试模型，默认使用各提供商的轻量模型
  */
 export async function testProviderConnection(
   provider: AIProvider,
-  providerConfig: AIProviderConfig
+  providerConfig: AIProviderConfig,
+  modelId?: string
 ): Promise<{ success: boolean; message: string; latency?: number }> {
   if (!providerConfig.api_key) {
     return { success: false, message: '请先填写 API Key' }
   }
 
-  const testModelId = TEST_MODELS[provider]
+  const testModelId = modelId || DEFAULT_TEST_MODELS[provider]
   const startTime = Date.now()
 
   try {
@@ -507,7 +528,7 @@ export async function testProviderConnection(
       case 'openai': {
         const openai = createOpenAI({
           apiKey: providerConfig.api_key,
-          baseURL: providerConfig.base_url || undefined,
+          baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
         })
         model = openai(testModelId)
         break
@@ -515,7 +536,7 @@ export async function testProviderConnection(
       case 'gemini': {
         const google = createGoogleGenerativeAI({
           apiKey: providerConfig.api_key,
-          baseURL: providerConfig.base_url || undefined,
+          baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
         })
         model = google(testModelId)
         break
@@ -523,7 +544,7 @@ export async function testProviderConnection(
       case 'claude': {
         const anthropic = createAnthropic({
           apiKey: providerConfig.api_key,
-          baseURL: providerConfig.base_url || undefined,
+          baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
         })
         model = anthropic(testModelId)
         break

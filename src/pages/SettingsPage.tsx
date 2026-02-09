@@ -32,6 +32,13 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { TypographyH3, TypographyMuted } from '@/components/ui/typography'
 import { Header } from '@/components/layout/Header'
 import { toast } from 'sonner'
@@ -172,6 +179,12 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
     claude: false,
   })
   const [isTestingConnection, setIsTestingConnection] = useState<string | null>(null)
+  // 连接测试使用的模型（每个提供商独立）
+  const [testModelIds, setTestModelIds] = useState<Record<AIProvider, string>>({
+    openai: '',
+    gemini: '',
+    claude: '',
+  })
   // 模型配置展开状态
   const [expandedModels, setExpandedModels] = useState<Record<AIProvider, boolean>>({
     openai: false,
@@ -269,7 +282,8 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
     setIsTestingConnection(provider.id)
     try {
       const providerConfig = config.ai_providers[provider.id]
-      const result = await testProviderConnection(provider.id, providerConfig)
+      const selectedModel = testModelIds[provider.id] || undefined
+      const result = await testProviderConnection(provider.id, providerConfig, selectedModel)
 
       if (result.success) {
         toast.success(`${provider.name} 连接成功 (延迟: ${result.latency}ms)`)
@@ -502,6 +516,30 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                           <Select
+                              value={testModelIds[provider.id]}
+                              onValueChange={(value) =>
+                                setTestModelIds((prev) => ({ ...prev, [provider.id]: value }))
+                              }
+                           >
+                              <SelectTrigger className="h-8 w-[160px] text-xs">
+                                <SelectValue placeholder="默认测试模型" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {getBuiltinModelsByProvider(provider.id).map((m) => (
+                                  <SelectItem key={m.id} value={m.id} className="text-xs">
+                                    {m.name}
+                                  </SelectItem>
+                                ))}
+                                {(config?.ai_providers[provider.id]?.custom_models || [])
+                                  .filter((m) => m.enabled)
+                                  .map((m) => (
+                                    <SelectItem key={m.id} value={m.id} className="text-xs">
+                                      {m.name} (自定义)
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                           </Select>
                            <Button
                               variant="ghost"
                               size="sm"
@@ -513,7 +551,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                               ) : (
                                 <Wifi className="h-4 w-4 mr-1" />
                               )}
-                              <span className="text-xs">测试连接</span>
+                              <span className="text-xs">测试</span>
                            </Button>
                            <Separator orientation="vertical" className="h-6" />
                            <Button
