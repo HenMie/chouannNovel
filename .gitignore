@@ -61,3 +61,7 @@ test-results
 # Tool state
 .omc/
 .zcf/
+.claude/
+
+# Windows artifacts
+nul
