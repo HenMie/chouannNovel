@@ -768,7 +768,7 @@ describe("AI 模块 - chatStream 功能", () => {
     expect(chunks).toEqual([
       { content: "a", done: false },
       { content: "b", done: false },
-      { content: "", done: true },
+      { content: "", done: true, usage: undefined },
     ])
     expect(streamText).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -820,7 +820,7 @@ describe("AI 模块 - chatStreamIterable 功能", () => {
 
     expect(received).toEqual([
       { content: "chunk", done: false },
-      { content: "", done: true },
+      { content: "", done: true, usage: undefined },
     ])
     expect(streamText).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1051,4 +1051,8 @@ describe("AI 模块 - normalizeBaseUrl", () => {
     expect(normalizeBaseUrl("claude", "https://api.anthropic.com/v1")).toBe("https://api.anthropic.com/v1")
   })
 })
+
+
+
+
 

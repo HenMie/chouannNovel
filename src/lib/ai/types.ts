@@ -45,6 +45,7 @@ export interface AIRequestOptions {
   maxTokens?: number
   topP?: number
   stream?: boolean
+  signal?: AbortSignal
   /**
    * Gemini 模型的 thinking 配置
    */
@@ -65,6 +66,11 @@ export interface AIResponse {
 export interface StreamChunk {
   content: string
   done: boolean
+  usage?: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+  }
 }
 
 // 提供商配置

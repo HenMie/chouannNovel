@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
@@ -11,6 +11,7 @@ import {
   Play,
   FileDown,
   FileText,
+  FileJson,
   ChevronDown,
   ChevronRight,
   ArrowLeft,
@@ -19,6 +20,8 @@ import {
   Check,
   Settings2,
   Trash2,
+  Search,
+  Filter,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -53,6 +56,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import * as db from '@/lib/db'
 import { getErrorMessage, handleAppError } from '@/lib/errors'
+import { estimateTokenCost, formatCost } from '@/lib/ai'
 import type { Execution, NodeResult, WorkflowNode, ExecutionStatus } from '@/types'
 
 interface ExecutionHistoryPageProps {
@@ -85,6 +89,11 @@ function formatTime(date: string): string {
   })
 }
 
+function formatTokenCount(value?: number): string {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '-'
+  return value.toLocaleString('zh-CN')
+}
+
 // 计算执行时长
 function formatDuration(startedAt: string, finishedAt?: string): string {
   const start = new Date(startedAt).getTime()
@@ -106,7 +115,7 @@ function VirtualExecutionList({
 }: {
   executions: Execution[]
   onItemClick: (execution: Execution) => void
-  onExport: (execution: Execution, format: 'txt' | 'md') => void
+  onExport: (execution: Execution, format: 'txt' | 'md' | 'json') => void
   onDelete: (execution: Execution) => void
 }) {
   const parentRef = useRef<HTMLDivElement>(null)
@@ -170,7 +179,7 @@ function ExecutionListItem({
 }: {
   execution: Execution
   onClick: () => void
-  onExport: (format: 'txt' | 'md') => void
+  onExport: (format: 'txt' | 'md' | 'json') => void
   onDelete: () => void
 }) {
   const status = statusConfig[execution.status]
@@ -225,6 +234,10 @@ function ExecutionListItem({
               <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onExport('md'); }}>
                 <FileText className="mr-2 h-4 w-4" />
                 导出为 Markdown
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onExport('json'); }}>
+                <FileJson className="mr-2 h-4 w-4" />
+                导出为 JSON
               </DropdownMenuItem>
             </DropdownMenuContent>
          </DropdownMenu>
@@ -305,8 +318,28 @@ function NodeResultItem({
             </AnimatePresence>
           </div>
         )}
-        
-        {/* 输出内容 */}
+
+        {result.token_usage && (
+          <div className="px-3 py-2 border-b bg-muted/20">
+            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+              <span>输入 Token: {formatTokenCount(result.token_usage.promptTokens)}</span>
+              <span>输出 Token: {formatTokenCount(result.token_usage.completionTokens)}</span>
+              <span>总计 Token: {formatTokenCount(result.token_usage.totalTokens)}</span>
+              {result.resolved_config?.model && (() => {
+                const cost = estimateTokenCost(
+                  result.resolved_config!.model!,
+                  result.token_usage!.promptTokens,
+                  result.token_usage!.completionTokens
+                )
+                return cost !== null ? (
+                  <span className="text-emerald-600 dark:text-emerald-400">
+                    估算费用: {formatCost(cost)}
+                  </span>
+                ) : null
+              })()}
+            </div>
+          </div>
+        )}
         {result.output && (
           <StreamingOutput content={result.output} className="max-h-[300px] text-sm" />
         )}
@@ -463,6 +496,25 @@ export function ExecutionHistoryPage({
   const [selectedExecution, setSelectedExecution] = useState<Execution | null>(null)
   const [executionToDelete, setExecutionToDelete] = useState<Execution | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<ExecutionStatus | 'all'>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // 过滤后的执行记录
+  const filteredExecutions = useMemo(() => {
+    let result = executions
+    if (statusFilter !== 'all') {
+      result = result.filter(e => e.status === statusFilter)
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase()
+      result = result.filter(e =>
+        (e.final_output && e.final_output.toLowerCase().includes(q)) ||
+        (e.input && e.input.toLowerCase().includes(q)) ||
+        formatTime(e.started_at).includes(q)
+      )
+    }
+    return result
+  }, [executions, statusFilter, searchQuery])
 
   // 加载数据
   useEffect(() => {
@@ -490,7 +542,7 @@ export function ExecutionHistoryPage({
   }, [workflowId])
 
   // 导出功能
-  const handleExport = async (execution: Execution, format: 'txt' | 'md') => {
+  const handleExport = async (execution: Execution, format: 'txt' | 'md' | 'json') => {
     try {
       const nodeResults = await db.getNodeResults(execution.id)
       let content = ''
@@ -509,6 +561,27 @@ export function ExecutionHistoryPage({
           if (result.output) content += `\`\`\`\n${result.output}\n\`\`\`\n\n`
         })
         if (execution.final_output) content += `## 最终输出\n\n\`\`\`\n${execution.final_output}\n\`\`\`\n`
+      } else if (format === 'json') {
+        const jsonData = {
+          workflow: workflowName,
+          execution: {
+            id: execution.id,
+            status: execution.status,
+            started_at: execution.started_at,
+            finished_at: execution.finished_at,
+            duration: formatDuration(execution.started_at, execution.finished_at),
+            input: execution.input || null,
+            final_output: execution.final_output || null,
+          },
+          node_results: nodeResults.map((result, index) => ({
+            index: index + 1,
+            node_name: nodes.find(n => n.id === result.node_id)?.name || '未知节点',
+            status: result.status,
+            output: result.output || null,
+            token_usage: result.token_usage || null,
+          })),
+        }
+        content = JSON.stringify(jsonData, null, 2)
       } else {
         content = `${workflowName} - 执行记录\n`
         content += `${'='.repeat(50)}\n\n`
@@ -525,7 +598,8 @@ export function ExecutionHistoryPage({
         if (execution.final_output) content += `${'-'.repeat(40)}\n【最终输出】\n${execution.final_output}\n`
       }
 
-      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+      const mimeType = format === 'json' ? 'application/json;charset=utf-8' : 'text/plain;charset=utf-8'
+      const blob = new Blob([content], { type: mimeType })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -597,6 +671,46 @@ export function ExecutionHistoryPage({
               <Badge variant="outline">{executions.length} 条记录</Badge>
            </div>
         </div>
+        {/* 筛选栏 */}
+        {executions.length > 0 && (
+          <div className="px-4 py-2 border-b">
+            <div className="flex items-center gap-3 max-w-5xl mx-auto w-full">
+              <div className="relative flex-1 max-w-xs">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="搜索输入/输出内容..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full rounded-md border bg-background px-8 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Filter className="h-4 w-4 text-muted-foreground" />
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as ExecutionStatus | 'all')}
+                  className="rounded-md border bg-background px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="all">全部状态</option>
+                  <option value="completed">已完成</option>
+                  <option value="failed">执行失败</option>
+                  <option value="cancelled">已取消</option>
+                  <option value="timeout">已超时</option>
+                  <option value="running">执行中</option>
+                  <option value="paused">已暂停</option>
+                </select>
+              </div>
+              {(statusFilter !== 'all' || searchQuery) && (
+                <span className="text-xs text-muted-foreground">
+                  {filteredExecutions.length} / {executions.length} 条
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex-1 overflow-hidden">
           <div className="max-w-5xl mx-auto w-full h-full p-4">
             {isLoading ? (
@@ -620,6 +734,12 @@ export function ExecutionHistoryPage({
                   </div>
                 ))}
               </div>
+            ) : filteredExecutions.length === 0 && executions.length > 0 ? (
+              <EmptyState
+                icon={Search}
+                title="无匹配结果"
+                description="尝试调整筛选条件或搜索关键词"
+              />
             ) : executions.length === 0 ? (
               <EmptyState
                 icon={History}
@@ -628,7 +748,7 @@ export function ExecutionHistoryPage({
               />
             ) : (
               <VirtualExecutionList
-                executions={executions}
+                executions={filteredExecutions}
                 onItemClick={setSelectedExecution}
                 onExport={handleExport}
                 onDelete={setExecutionToDelete}
@@ -669,4 +789,7 @@ export function ExecutionHistoryPage({
     </div>
   )
 }
+
+
+
 

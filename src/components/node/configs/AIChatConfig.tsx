@@ -1,7 +1,7 @@
 // AI 对话节点配置表单
 
-import React, { useEffect, useState } from 'react'
-import { Users, Globe, Palette, FileText, Check, Settings2, ChevronDown, ChevronRight } from 'lucide-react'
+import React, { useEffect, useState, useMemo } from 'react'
+import { Users, Globe, Palette, FileText, Check, Settings2, ChevronDown, ChevronRight, AlertTriangle, Sparkles, Scale, Target } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { PromptInputField, type PromptInputMode } from '@/components/ui/prompt-input-field'
@@ -58,10 +58,44 @@ const defaultConfig: AIChatConfigType = {
   user_prompt_variable: '',
   temperature: 1,
   top_p: 0.95,
+  retry_count: 3,
   // max_tokens 默认不启用，用户在高级设置中手动开启
   enable_history: false,
   history_count: 5,
   setting_ids: [],
+}
+
+// AI 参数预设模式
+interface AIPreset {
+  label: string
+  icon: React.ElementType
+  description: string
+  temperature: number
+  top_p: number
+}
+
+const AI_PRESETS: Record<string, AIPreset> = {
+  creative: {
+    label: '创意模式',
+    icon: Sparkles,
+    description: '高随机性，适合头脑风暴、创意写作',
+    temperature: 1.5,
+    top_p: 0.95,
+  },
+  balanced: {
+    label: '平衡模式',
+    icon: Scale,
+    description: '默认参数，兼顾创意与一致性',
+    temperature: 1.0,
+    top_p: 0.95,
+  },
+  precise: {
+    label: '精确模式',
+    icon: Target,
+    description: '低随机性，适合事实性内容、格式化输出',
+    temperature: 0.3,
+    top_p: 0.8,
+  },
 }
 
 const normalizeMode = (mode?: PromptInputMode): PromptInputMode =>
@@ -116,6 +150,23 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
   // 获取可用模型列表
   const availableModels = globalConfig ? getAvailableModels(globalConfig) : []
   const currentModelConfig = getModelConfig(currentConfig.model, globalConfig ?? undefined)
+
+  // Task #8: 节点配置预验证
+  const validationWarnings = useMemo(() => {
+    const warnings: string[] = []
+    if (!globalConfig) return warnings
+    const provider = currentConfig.provider
+    const providerConfig = globalConfig.ai_providers[provider]
+    if (!providerConfig?.enabled) {
+      warnings.push(`提供商 ${provider} 未启用，请在全局设置中启用`)
+    } else if (!providerConfig.api_key) {
+      warnings.push(`提供商 ${provider} 未配置 API Key`)
+    }
+    if (!currentConfig.system_prompt && !currentConfig.user_prompt) {
+      warnings.push('系统提示词和用户问题不能同时为空')
+    }
+    return warnings
+  }, [globalConfig, currentConfig.provider, currentConfig.system_prompt, currentConfig.user_prompt])
 
   // 按提供商分组模型
   const modelsByProvider = availableModels.reduce(
@@ -269,6 +320,44 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
           </SelectContent>
         </Select>
       </div>
+
+      {/* 配置预验证警告 */}
+      {validationWarnings.length > 0 && (
+        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 p-3 space-y-1">
+          {validationWarnings.map((warning, i) => (
+            <div key={i} className="flex items-start gap-2 text-xs text-yellow-600 dark:text-yellow-400">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+              <span>{warning}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* AI 参数预设 */}
+      {currentModelConfig?.supportsTemperature && (
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">参数预设</Label>
+          <div className="grid grid-cols-3 gap-2">
+            {Object.entries(AI_PRESETS).map(([key, preset]) => {
+              const isActive = currentConfig.temperature === preset.temperature && currentConfig.top_p === preset.top_p
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={cn(
+                    "flex flex-col items-center gap-1 rounded-lg border p-2.5 text-xs transition-all hover:bg-accent/50",
+                    isActive && "border-primary bg-primary/5 ring-1 ring-primary/20"
+                  )}
+                  onClick={() => updateConfig({ temperature: preset.temperature, top_p: preset.top_p })}
+                >
+                  <preset.icon className={cn("h-4 w-4", isActive ? "text-primary" : "text-muted-foreground")} />
+                  <span className={cn("font-medium", isActive && "text-primary")}>{preset.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <PromptInputField
         id="system_prompt"
@@ -459,7 +548,6 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
                   />
                 </div>
               )}
-
               {/* Max Tokens (可选) */}
               {currentModelConfig?.supportsMaxTokens && (
                 <div className="space-y-2">
@@ -493,6 +581,28 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
                 </div>
               )}
 
+              {/* Retry Count */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="retry_count" className="text-xs">
+                    失败重试次数
+                  </Label>
+                  <span className="text-xs text-muted-foreground">
+                    {currentConfig.retry_count ?? 3} 次
+                  </span>
+                </div>
+                <Slider
+                  id="retry_count"
+                  min={0}
+                  max={10}
+                  step={1}
+                  value={[currentConfig.retry_count ?? 3]}
+                  onValueChange={([value]) => updateConfig({ retry_count: value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  AI 请求失败时自动重试，0 表示不重试
+                </p>
+              </div>
               {/* Thinking Level (Gemini 3 Pro) */}
               {currentModelConfig?.thinkingMode === 'thinkingLevel' && (
                 <div className="space-y-2">
@@ -595,3 +705,4 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
     </div>
   )
 }
+

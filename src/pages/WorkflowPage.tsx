@@ -1203,17 +1203,17 @@ export function WorkflowPage({ projectId, workflowId, onNavigate }: WorkflowPage
                       <DropdownMenuItem onClick={() => handleAddBlock('loop')}>
                         <Repeat className="mr-2 h-4 w-4 text-pink-500" />
                         <span>for 循环</span>
-                        <span className="ml-auto text-xs text-muted-foreground">开始...结束</span>
+                        <span className="ml-auto flex items-center gap-1"><span className="text-[10px] text-emerald-500 font-medium">推荐</span><span className="text-xs text-muted-foreground">开始...结束</span></span>
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleAddBlock('condition')}>
                         <GitBranch className="mr-2 h-4 w-4 text-yellow-500" />
                         <span>if 条件分支</span>
-                        <span className="ml-auto text-xs text-muted-foreground">if...else...end</span>
+                        <span className="ml-auto flex items-center gap-1"><span className="text-[10px] text-emerald-500 font-medium">推荐</span><span className="text-xs text-muted-foreground">if...else...end</span></span>
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleAddBlock('parallel')}>
                         <Layers className="mr-2 h-4 w-4 text-indigo-500" />
                         <span>并发执行</span>
-                        <span className="ml-auto text-xs text-muted-foreground">开始...结束</span>
+                        <span className="ml-auto flex items-center gap-1"><span className="text-[10px] text-emerald-500 font-medium">推荐</span><span className="text-xs text-muted-foreground">开始...结束</span></span>
                       </DropdownMenuItem>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>

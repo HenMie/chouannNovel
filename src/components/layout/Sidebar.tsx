@@ -16,6 +16,7 @@ import {
   ChevronsUp,
   Keyboard,
   GraduationCap,
+  Copy,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,6 +48,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { CreateProjectDialog, CreateWorkflowDialog } from '@/components/dialogs'
+import { toast } from 'sonner'
 
 interface SidebarProps {
   onNavigate: (path: string) => void
@@ -293,6 +295,23 @@ export function Sidebar({ onNavigate, currentPath }: SidebarProps) {
                         >
                           <Pencil className="mr-2 h-4 w-4" />
                           编辑
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            try {
+                              const { duplicateProject } = await import('@/lib/db')
+                              await duplicateProject(project.id)
+                              const { loadProjects } = useProjectStore.getState()
+                              await loadProjects()
+                              toast.success('项目已复制')
+                            } catch {
+                              toast.error('复制项目失败')
+                            }
+                          }}
+                        >
+                          <Copy className="mr-2 h-4 w-4" />
+                          复制
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive"

@@ -132,6 +132,47 @@ export class ExecutionContext {
     })
   }
 
+  /**
+   * 严格变量插值
+   * - 任一占位符无法解析时抛出错误
+   */
+  interpolateStrict(template: string): string {
+    const unresolved: string[] = []
+
+    const output = template.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
+      let trimmedName = varName.trim()
+
+      if (trimmedName.startsWith('@')) {
+        let nodeId = trimmedName.slice(1)
+        if (nodeId.includes('>')) {
+          nodeId = nodeId.split('>')[0].trim()
+        }
+
+        const nodeOutput = this.nodeOutputs.get(nodeId)
+        if (nodeOutput !== undefined) {
+          return nodeOutput
+        }
+
+        unresolved.push(trimmedName)
+        return match
+      }
+
+      const variable = this.variables.get(trimmedName)
+      if (variable !== undefined) {
+        return variable
+      }
+
+      unresolved.push(trimmedName)
+      return match
+    })
+
+    if (unresolved.length > 0) {
+      throw new Error(`变量未定义: ${unresolved.join(', ')}`)
+    }
+
+    return output
+  }
+
   // ========== 对话历史操作 ==========
 
   /**
@@ -395,4 +436,3 @@ export class ExecutionContext {
     return ctx
   }
 }
-

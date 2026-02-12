@@ -10,6 +10,7 @@ import {
   Download,
   ArrowUpDown,
   Clock,
+  Copy,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -321,6 +322,22 @@ export function HomePage({ onNavigate }: HomePageProps) {
                             >
                               <Pencil className="mr-2 h-4 w-4" />
                               重命名
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                try {
+                                  const { duplicateProject } = await import('@/lib/db')
+                                  await duplicateProject(project.id)
+                                  await loadProjects()
+                                  toast.success('项目已复制')
+                                } catch {
+                                  toast.error('复制项目失败')
+                                }
+                              }}
+                            >
+                              <Copy className="mr-2 h-4 w-4" />
+                              复制
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive"

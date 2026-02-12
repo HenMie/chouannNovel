@@ -18,10 +18,11 @@ import type {
   Setting,
   SettingPrompt,
   ResolvedNodeConfig,
+  TokenUsage,
 } from '@/types'
 import type { Message } from '@/lib/ai/types'
 import { chatStream } from '@/lib/ai'
-import { logError } from '@/lib/errors'
+import { getErrorMessage, logError } from '@/lib/errors'
 import { ExecutionContext, NodeExecutionState } from './context'
 
 // 执行器状态
@@ -49,6 +50,7 @@ export interface ExecutionEvent {
   nodeName?: string
   nodeType?: string
   content?: string
+  usage?: TokenUsage
   error?: string
   resolvedConfig?: ResolvedNodeConfig  // 解析后的节点配置
   timestamp: Date
@@ -102,6 +104,11 @@ export class WorkflowExecutor {
   
   // 流式输出 AbortController
   private abortController: AbortController | null = null
+  // 最近完成节点的 token 使用量（仅 AI 节点）
+  private lastNodeTokenUsage: TokenUsage | undefined
+
+  // 暂停触发的流中断标记
+  private isPauseAborting: boolean = false
   
   // 流程控制
   private shouldEnd: boolean = false        // 是否结束工作流
@@ -133,6 +140,13 @@ export class WorkflowExecutor {
    */
   private emit(event: Omit<ExecutionEvent, 'timestamp'>): void {
     this.onEvent?.({ ...event, timestamp: new Date() })
+  }
+
+  /**
+   * 统一提取错误消息
+   */
+  private toErrorMessage(error: unknown): string {
+    return getErrorMessage(error)
   }
 
   /**
@@ -221,8 +235,26 @@ export class WorkflowExecutor {
             }
           }
         } catch (error) {
+          const errorMessage = this.toErrorMessage(error)
+
+          // 暂停触发的流中断不视为失败，等待继续执行
+          if (errorMessage === '执行已暂停' && this.status === 'paused') {
+            continue
+          }
+
+          // 节点内超时检测
+          if (errorMessage === '执行超时') {
+            this.status = 'timeout'
+            this.emit({ type: 'execution_timeout' })
+            return {
+              status: this.status,
+              error: '执行超时',
+              nodeStates: this.context.getAllNodeStates(),
+              elapsedSeconds: this.context.getElapsedSeconds(),
+            }
+          }
+
           // 节点执行失败
-          const errorMessage = error instanceof Error ? error.message : String(error)
           this.context.updateNodeState(node.id, {
             status: 'failed',
             error: errorMessage,
@@ -261,7 +293,7 @@ export class WorkflowExecutor {
         elapsedSeconds: this.context.getElapsedSeconds(),
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
+          const errorMessage = this.toErrorMessage(error)
       this.status = 'failed'
       this.emit({ type: 'execution_failed', error: errorMessage })
       
@@ -293,6 +325,7 @@ export class WorkflowExecutor {
 
     let output: string = ''
     let resolvedConfig: ResolvedNodeConfig = {}
+    this.lastNodeTokenUsage = undefined
 
     // 根据节点类型执行
     switch (node.type) {
@@ -306,6 +339,7 @@ export class WorkflowExecutor {
         const result = await this.executeAIChatNode(node)
         output = result.output
         resolvedConfig = result.resolvedConfig
+        this.lastNodeTokenUsage = result.usage
         break
       }
       case 'var_update': {
@@ -330,12 +364,14 @@ export class WorkflowExecutor {
         const result = await this.executeConditionNode(node)
         output = result.output
         resolvedConfig = result.resolvedConfig
+        this.lastNodeTokenUsage = undefined
         break
       }
       case 'loop': {
         const result = await this.executeLoopNode(node)
         output = result.output
         resolvedConfig = result.resolvedConfig
+        this.lastNodeTokenUsage = undefined
         break
       }
       // 新的块结构节点
@@ -343,28 +379,35 @@ export class WorkflowExecutor {
         const result = await this.executeLoopStartNode(node)
         output = result.output
         resolvedConfig = result.resolvedConfig
+        this.lastNodeTokenUsage = undefined
         break
       }
       case 'loop_end':
         output = await this.executeLoopEndNode(node)
+        this.lastNodeTokenUsage = undefined
         break
       case 'parallel_start':
         output = await this.executeParallelStartNode(node)
+        this.lastNodeTokenUsage = undefined
         break
       case 'parallel_end':
         output = await this.executeParallelEndNode(node)
+        this.lastNodeTokenUsage = undefined
         break
       case 'condition_if': {
         const result = await this.executeConditionIfNode(node)
         output = result.output
         resolvedConfig = result.resolvedConfig
+        this.lastNodeTokenUsage = undefined
         break
       }
       case 'condition_else':
         output = await this.executeConditionElseNode(node)
+        this.lastNodeTokenUsage = undefined
         break
       case 'condition_end':
         output = await this.executeConditionEndNode(node)
+        this.lastNodeTokenUsage = undefined
         break
       default:
         // 未实现的节点类型，跳过
@@ -397,6 +440,7 @@ export class WorkflowExecutor {
       nodeName: node.name,
       nodeType: node.type,
       content: output,
+      usage: this.lastNodeTokenUsage,
       resolvedConfig,
     })
   }
@@ -423,7 +467,7 @@ export class WorkflowExecutor {
     if (config.custom_variables) {
       for (const variable of config.custom_variables) {
         // 默认值支持变量插值
-        const defaultValue = this.context.interpolate(variable.default_value)
+        const defaultValue = this.context.interpolateStrict(variable.default_value)
         this.context.setVariable(variable.name, defaultValue)
       }
     }
@@ -514,7 +558,7 @@ export class WorkflowExecutor {
   /**
    * 执行 AI 对话节点
    */
-  private async executeAIChatNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig }> {
+  private async executeAIChatNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig; usage?: TokenUsage }> {
     const config = node.config as AIChatConfig
     const legacyConfig = node.config as any  // 兼容旧版配置
     
@@ -526,7 +570,7 @@ export class WorkflowExecutor {
 
     // 构建系统提示词（变量插值），兼容旧版 prompt 字段
     const systemPromptRaw = config.system_prompt ?? legacyConfig.prompt ?? ''
-    let systemPrompt = systemPromptRaw ? this.context.interpolate(systemPromptRaw) : ''
+    let systemPrompt = systemPromptRaw ? this.context.interpolateStrict(systemPromptRaw) : ''
 
     // 注入设定到系统提示词
     const settingsInjection = this.generateSettingsInjection(config.setting_ids || [])
@@ -535,7 +579,7 @@ export class WorkflowExecutor {
     }
 
     // 构建用户问题（变量插值）
-    const userPrompt = config.user_prompt ? this.context.interpolate(config.user_prompt) : ''
+    const userPrompt = config.user_prompt ? this.context.interpolateStrict(config.user_prompt) : ''
     
     // 更新节点输入（显示用户问题）
     this.context.updateNodeState(node.id, { input: userPrompt })
@@ -561,51 +605,26 @@ export class WorkflowExecutor {
       throw new Error('AI 对话节点需要系统提示词或用户问题')
     }
 
-    // 创建 AbortController
-    this.abortController = new AbortController()
-
-    // 流式输出
-    let fullOutput = ''
-    
-    try {
-      await chatStream(
-        {
-          provider: config.provider,
-          model: config.model,
-          messages,
-          temperature: config.temperature,
-          maxTokens: config.max_tokens,
-          topP: config.top_p,
-          // 传递 thinking/reasoning 配置
-          thinkingConfig: {
-            thinkingLevel: config.thinking_level,
-            thinkingBudget: config.thinking_budget,
-            effort: config.effort,
-          },
+    const retryCount = Math.max(0, config.retry_count ?? 3)
+    const aiResult = await this.executeAIChatWithRetry(
+      node,
+      {
+        provider: config.provider,
+        model: config.model,
+        messages,
+        temperature: config.temperature,
+        maxTokens: config.max_tokens,
+        topP: config.top_p,
+        thinkingConfig: {
+          thinkingLevel: config.thinking_level,
+          thinkingBudget: config.thinking_budget,
+          effort: config.effort,
         },
-        this.globalConfig,
-        (chunk) => {
-          if (this.isCancelled) {
-            throw new Error('执行已取消')
-          }
-          
-          if (!chunk.done) {
-            fullOutput += chunk.content
-            
-            // 发送流式事件
-            this.emit({
-              type: 'node_streaming',
-              nodeId: node.id,
-              nodeName: node.name,
-              nodeType: node.type,
-              content: fullOutput,
-            })
-          }
-        }
-      )
-    } finally {
-      this.abortController = null
-    }
+      },
+      retryCount
+    )
+
+    const fullOutput = aiResult.output
 
     // 保存到对话历史
     if (config.enable_history) {
@@ -622,6 +641,7 @@ export class WorkflowExecutor {
 
     return {
       output: fullOutput,
+      usage: aiResult.usage,
       resolvedConfig: {
         // 基本配置
         provider: config.provider,
@@ -633,6 +653,7 @@ export class WorkflowExecutor {
         temperature: config.temperature,
         maxTokens: config.max_tokens,
         topP: config.top_p,
+        tokenUsage: aiResult.usage,
         // 对话历史
         enableHistory: config.enable_history,
         historyCount: config.history_count,
@@ -640,6 +661,98 @@ export class WorkflowExecutor {
         settingNames: settingNames.length > 0 ? settingNames : undefined,
       },
     }
+  }
+
+  private async executeAIChatWithRetry(
+    node: WorkflowNode,
+    requestOptions: {
+      provider: AIChatConfig['provider']
+      model: string
+      messages: Message[]
+      temperature?: number
+      maxTokens?: number
+      topP?: number
+      thinkingConfig?: {
+        thinkingLevel?: 'low' | 'high'
+        thinkingBudget?: number
+        effort?: 'low' | 'medium' | 'high'
+      }
+    },
+    retryCount: number
+  ): Promise<{ output: string; usage?: TokenUsage }> {
+    let lastError: unknown = null
+
+    for (let attempt = 0; attempt <= retryCount; attempt++) {
+      this.abortController = new AbortController()
+      let fullOutput = ''
+      let usage: TokenUsage | undefined
+
+      try {
+        await chatStream({
+          ...requestOptions,
+          signal: this.abortController.signal,
+        }, this.globalConfig, (chunk) => {
+          if (this.isCancelled) {
+            throw new Error('执行已取消')
+          }
+
+          if (this.isPauseAborting) {
+            throw new Error('执行已暂停')
+          }
+
+          // 节点内超时检测
+          if (this.context.isTimeout()) {
+            this.abortController?.abort()
+            throw new Error('执行超时')
+          }
+
+          if (!chunk.done) {
+            fullOutput += chunk.content
+            this.emit({
+              type: 'node_streaming',
+              nodeId: node.id,
+              nodeName: node.name,
+              nodeType: node.type,
+              content: fullOutput,
+            })
+          } else if (chunk.usage) {
+            usage = chunk.usage
+          }
+        })
+
+        return { output: fullOutput, usage }
+      } catch (error) {
+        lastError = error
+
+        if (this.isPauseAborting) {
+          this.isPauseAborting = false
+          throw new Error('执行已暂停')
+        }
+
+        if (this.isCancelled) {
+          throw new Error('执行已取消')
+        }
+
+        const message = this.toErrorMessage(error)
+        const isLastAttempt = attempt >= retryCount
+
+        if (isLastAttempt) {
+          logError({
+            error,
+            context: `AI 节点 ${node.name} 执行失败（第 ${attempt + 1}/${retryCount + 1} 次）`,
+          })
+          throw new Error(`AI 节点 ${node.name} 执行失败（重试 ${retryCount} 次后仍失败）: ${message}`)
+        }
+
+        const delayMs = Math.min(2000, 300 * (2 ** attempt))
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+      } finally {
+        this.abortController = null
+      }
+    }
+
+    const fallbackMessage = this.toErrorMessage(lastError)
+    throw new Error(`AI 节点 ${node.name} 执行失败: ${fallbackMessage}`)
   }
 
   /**
@@ -656,7 +769,7 @@ export class WorkflowExecutor {
     }
     
     // 使用变量插值处理新值
-    const newValue = this.context.interpolate(config.value_template)
+    const newValue = this.context.interpolateStrict(config.value_template)
     
     // 更新变量
     this.context.setVariable(config.variable_name, newValue)
@@ -682,7 +795,7 @@ export class WorkflowExecutor {
       // 根据输入模式处理
       if (config.input_mode === 'manual') {
         // 手动输入模式：支持变量插值
-        input = this.context.interpolate(config.input_variable)
+        input = this.context.interpolateStrict(config.input_variable)
       } else {
         // 变量引用模式（默认）：优先从节点输出中获取
         input = this.context.getNodeOutput(config.input_variable) 
@@ -907,7 +1020,7 @@ export class WorkflowExecutor {
       } else if (isManualMode) {
         // 手动输入模式：支持变量插值
         const content = source.manual ?? source.custom ?? ''
-        value = content ? this.context.interpolate(content) : ''
+        value = content ? this.context.interpolateStrict(content) : ''
       }
       
       parts.push(value)
@@ -1349,19 +1462,21 @@ ${input}`
         lastError = error
         const currentAttempt = attempt + 1
         const totalAttempt = retryCount + 1
-        logError({
-          error,
-          context: `并发执行节点 ${node.name} 失败（第 ${currentAttempt}/${totalAttempt} 次）`,
-        })
+        if (attempt === retryCount) {
+          logError({
+            error,
+            context: `并发执行节点 ${node.name} 失败（第 ${currentAttempt}/${totalAttempt} 次）`,
+          })
+        }
 
         if (attempt === retryCount) {
-          const errorMessage = error instanceof Error ? error.message : String(error)
+          const errorMessage = this.toErrorMessage(error)
           throw new Error(`并发节点 ${node.name} 执行失败（重试 ${retryCount} 次后仍失败）: ${errorMessage}`)
         }
       }
     }
 
-    const fallbackMessage = lastError instanceof Error ? lastError.message : String(lastError)
+    const fallbackMessage = this.toErrorMessage(lastError)
     throw new Error(`并发节点 ${node.name} 执行失败: ${fallbackMessage}`)
   }
 
@@ -1492,6 +1607,11 @@ ${input}`
    */
   pause(): void {
     if (this.status !== 'running') return
+
+    if (this.abortController) {
+      this.isPauseAborting = true
+      this.abortController.abort()
+    }
     
     this.status = 'paused'
     this.pausePromise = new Promise(resolve => {
@@ -1508,6 +1628,7 @@ ${input}`
     if (this.status !== 'paused') return
     
     this.status = 'running'
+    this.isPauseAborting = false
     
     if (this.pauseResolve) {
       this.pauseResolve()
@@ -1523,6 +1644,7 @@ ${input}`
    */
   cancel(): void {
     this.isCancelled = true
+    this.isPauseAborting = false
     
     // 如果正在暂停，先恢复
     if (this.status === 'paused') {
@@ -1589,3 +1711,4 @@ export function executorStatusToDbStatus(status: ExecutorStatus): ExecutionStatu
       return 'running'
   }
 }
+

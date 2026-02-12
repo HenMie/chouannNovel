@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, lazy, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Copy, Check, Edit2, Save, X, ChevronDown, ChevronRight, Settings2 } from 'lucide-react'
+import { Copy, Check, Edit2, Save, X, ChevronDown, ChevronRight, Settings2, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
@@ -28,6 +28,39 @@ export function StreamingOutput({
 }: StreamingOutputProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [copied, setCopied] = useState(false)
+  const [isStalled, setIsStalled] = useState(false)
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 流式输出时节流渲染 Markdown，避免每个 chunk 都全量重渲染
+  const [throttledContent, setThrottledContent] = useState(content)
+  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (!isStreaming) {
+      // 非流式状态，直接同步内容
+      setThrottledContent(content)
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current)
+        throttleTimerRef.current = null
+      }
+      return
+    }
+
+    // 流式状态：节流更新（每 150ms 最多渲染一次）
+    if (!throttleTimerRef.current) {
+      throttleTimerRef.current = setTimeout(() => {
+        setThrottledContent(content)
+        throttleTimerRef.current = null
+      }, 150)
+    }
+
+    return () => {
+      if (throttleTimerRef.current) {
+        clearTimeout(throttleTimerRef.current)
+        throttleTimerRef.current = null
+      }
+    }
+  }, [content, isStreaming])
 
   // 自动滚动到底部
   useEffect(() => {
@@ -35,6 +68,31 @@ export function StreamingOutput({
       const scrollContainer = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]')
       if (scrollContainer) {
         scrollContainer.scrollTop = scrollContainer.scrollHeight
+      }
+    }
+  }, [content, isStreaming])
+
+  // 流式输出停滞检测（30 秒无新内容则警告）
+  useEffect(() => {
+    if (isStreaming) {
+      if (stallTimerRef.current) {
+        clearTimeout(stallTimerRef.current)
+      }
+      setIsStalled(false)
+      stallTimerRef.current = setTimeout(() => {
+        setIsStalled(true)
+      }, 30000)
+    } else {
+      if (stallTimerRef.current) {
+        clearTimeout(stallTimerRef.current)
+        stallTimerRef.current = null
+      }
+      setIsStalled(false)
+    }
+    return () => {
+      if (stallTimerRef.current) {
+        clearTimeout(stallTimerRef.current)
+        stallTimerRef.current = null
       }
     }
   }, [content, isStreaming])
@@ -71,11 +129,17 @@ export function StreamingOutput({
               <Skeleton className="h-4 w-4/6" />
             </div>
           }>
-            <MarkdownRenderer 
-              content={content + (isStreaming ? ' ▍' : '')} 
+            <MarkdownRenderer
+              content={throttledContent + (isStreaming ? ' ▍' : '')}
             />
           </Suspense>
         </div>
+        {isStalled && (
+          <div className="flex items-center gap-2 px-4 py-2 text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 dark:text-amber-400 border-t">
+            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+            <span>流式输出已停滞超过 30 秒，可能存在网络问题或 API 响应中断</span>
+          </div>
+        )}
       </ScrollArea>
 
       {/* 复制按钮 */}

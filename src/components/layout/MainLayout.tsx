@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Sidebar } from './Sidebar'
 import { Toaster } from '@/components/ui/sonner'
+import { toast } from 'sonner'
 import { ShortcutsDialog } from '@/components/help/ShortcutsDialog'
 import { useHotkey } from '@/lib/hooks'
 
@@ -21,6 +22,74 @@ export function MainLayout() {
   const [currentPath, setCurrentPath] = useState('/')
   const [workflowNames, setWorkflowNames] = useState<Record<string, string>>({})
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [sidebarOverlayVisible, setSidebarOverlayVisible] = useState(false)
+  const overlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 判断是否为项目页面（需要自动隐藏侧边栏）
+  const isProjectPage = useMemo(() => {
+    const pathname = currentPath.split('?')[0]
+    return pathname.startsWith('/project/')
+  }, [currentPath])
+
+  // 鼠标进入热区时显示 overlay
+  const handleHotZoneEnter = useCallback(() => {
+    if (overlayTimeoutRef.current) {
+      clearTimeout(overlayTimeoutRef.current)
+      overlayTimeoutRef.current = null
+    }
+    setSidebarOverlayVisible(true)
+  }, [])
+
+  // 鼠标离开 overlay 区域时延迟隐藏（防止误触）
+  const handleOverlayLeave = useCallback(() => {
+    overlayTimeoutRef.current = setTimeout(() => {
+      setSidebarOverlayVisible(false)
+    }, 200)
+  }, [])
+
+  // 鼠标重新进入 overlay 区域时取消隐藏
+  const handleOverlayEnter = useCallback(() => {
+    if (overlayTimeoutRef.current) {
+      clearTimeout(overlayTimeoutRef.current)
+      overlayTimeoutRef.current = null
+    }
+  }, [])
+
+  // 路由变化时关闭 overlay
+  useEffect(() => {
+    setSidebarOverlayVisible(false)
+  }, [currentPath])
+
+  // 清理 timeout
+  useEffect(() => {
+    return () => {
+      if (overlayTimeoutRef.current) clearTimeout(overlayTimeoutRef.current)
+    }
+  }, [])
+
+  // 启动时静默检查更新
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return
+    const timer = setTimeout(async () => {
+      try {
+        const { check } = await import('@tauri-apps/plugin-updater')
+        const update = await check()
+        if (update) {
+          toast.info(`发现新版本 v${update.version}`, {
+            description: '前往设置页面下载更新',
+            action: {
+              label: '前往更新',
+              onClick: () => setCurrentPath('/settings'),
+            },
+            duration: 10000,
+          })
+        }
+      } catch {
+        // 静默失败，不打扰用户
+      }
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [])
 
   const navigate = useCallback((path: string) => {
     setCurrentPath(path)
@@ -135,8 +204,35 @@ export function MainLayout() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background">
-      {/* 侧边栏 */}
-      <Sidebar onNavigate={navigate} currentPath={currentPath} />
+      {/* 侧边栏：非项目页面正常显示 */}
+      {!isProjectPage && (
+        <Sidebar onNavigate={navigate} currentPath={currentPath} />
+      )}
+
+      {/* 项目页面：左侧热区 + overlay 侧边栏 */}
+      {isProjectPage && (
+        <>
+          {/* 不可见热区：鼠标贴左边缘时触发 */}
+          {!sidebarOverlayVisible && (
+            <div
+              className="fixed left-0 top-0 h-full w-2 z-40"
+              onMouseEnter={handleHotZoneEnter}
+            />
+          )}
+
+          {/* Overlay 侧边栏 */}
+          <div
+            className="fixed left-0 top-0 h-full z-50 transition-transform duration-200 ease-in-out"
+            style={{ transform: sidebarOverlayVisible ? 'translateX(0)' : 'translateX(-100%)' }}
+            onMouseLeave={handleOverlayLeave}
+            onMouseEnter={handleOverlayEnter}
+          >
+            <div className="h-full shadow-xl">
+              <Sidebar onNavigate={navigate} currentPath={currentPath} />
+            </div>
+          </div>
+        </>
+      )}
 
       {/* 主内容区 */}
       <main className="flex flex-1 flex-col overflow-hidden">

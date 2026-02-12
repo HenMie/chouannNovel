@@ -434,5 +434,16 @@ describe("ExecutionContext - 执行上下文", () => {
       expect(restoredCtx.getLastOutput()).toBe("")
     })
   })
-})
 
+  describe("严格变量插值", () => {
+    it("interpolateStrict 应在变量存在时正常替换", () => {
+      ctx.setVariable("name", "张三")
+      const result = ctx.interpolateStrict("你好，{{name}}")
+      expect(result).toBe("你好，张三")
+    })
+
+    it("interpolateStrict 应在变量未定义时抛错", () => {
+      expect(() => ctx.interpolateStrict("你好，{{unknown}}")).toThrow("变量未定义")
+    })
+  })
+})

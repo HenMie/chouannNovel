@@ -136,6 +136,7 @@ export interface AIChatConfig {
   temperature?: number
   max_tokens?: number
   top_p?: number
+  retry_count?: number
   /**
    * Gemini 3 Pro 使用的思考深度参数
    * - 'low': 浅层思考（快速响应）
@@ -159,6 +160,12 @@ export interface AIChatConfig {
   enable_history: boolean
   history_count: number
   setting_ids: string[]
+}
+
+export interface TokenUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
 }
 
 // 条件节点配置
@@ -398,6 +405,7 @@ export interface NodeResult {
   iteration: number
   input?: string
   output?: string
+  token_usage?: TokenUsage
   resolved_config?: ResolvedNodeConfig  // 解析后的节点配置
   status: 'pending' | 'running' | 'completed' | 'failed'
   started_at: string

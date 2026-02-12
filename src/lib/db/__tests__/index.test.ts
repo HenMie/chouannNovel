@@ -229,9 +229,10 @@ describe("lib/db - 执行与节点结果", () => {
       input: "in",
       output: "out",
       resolved_config: { prompt: "p" },
-        status: "completed",
-        finished_at: new Date().toISOString(),
-      })
+      token_usage: { promptTokens: 10, completionTokens: 6, totalTokens: 16 },
+      status: "completed",
+      finished_at: new Date().toISOString(),
+    })
 
     const executions = await db.getExecutions(workflow.id)
     expect(executions[0].variables_snapshot).toEqual({ x: 1 })
@@ -239,6 +240,7 @@ describe("lib/db - 执行与节点结果", () => {
     const results = await db.getNodeResults(execution.id)
     expect(results[0].iteration).toBe(2)
     expect(results[0].resolved_config).toEqual({ prompt: "p" })
+    expect(results[0].token_usage).toEqual({ promptTokens: 10, completionTokens: 6, totalTokens: 16 })
 
     await db.deleteExecution(execution.id)
     expect(await db.getExecutions(workflow.id)).toHaveLength(0)
@@ -786,4 +788,5 @@ describe("lib/db - 分支覆盖率增强", () => {
     expect(config.ai_providers.claude.enabled_models?.length).toBeGreaterThan(0)
   })
 })
+
 

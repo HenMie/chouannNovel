@@ -126,10 +126,12 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
       settings,
       settingPrompts,
       onEvent: (event) => {
-        // 异步处理事件，不阻塞执行器
-        handleExecutionEvent(event, get, set).catch(error =>
-          logError({ error, context: '处理执行事件' })
-        )
+        // 优先同步处理纯 UI 更新事件（减少延迟）
+        const handled = handleExecutionEventSync(event, get, set)
+        if (!handled) {
+          // 需要数据库操作的事件通过队列串行处理，避免竞态
+          enqueueEvent(() => handleExecutionEvent(event, get, set))
+        }
       },
     })
 
@@ -201,6 +203,17 @@ export const useExecutionStore = create<ExecutionState>((set, get) => ({
           status: 'cancelled',
           finished_at: new Date().toISOString(),
         })
+
+        // 清理孤儿节点结果：将所有未完成的 node_results 标记为 failed
+        for (const [, resultId] of nodeResultIds) {
+          db.updateNodeResult(resultId, {
+            status: 'failed',
+            finished_at: new Date().toISOString(),
+          }).catch(error =>
+            logError({ error, context: '清理取消的节点结果' })
+          )
+        }
+        nodeResultIds.clear()
       }
     }
   },
@@ -290,18 +303,6 @@ async function handleExecutionEvent(
       break
     }
 
-    case 'node_streaming':
-      // 流式输出更新
-      set({
-        streamingContent: event.content || '',
-        nodeOutputs: nodeOutputs.map(o =>
-          o.nodeId === event.nodeId
-            ? { ...o, output: event.content || '', isStreaming: true }
-            : o
-        ),
-      })
-      break
-
     case 'node_completed': {
       // 节点执行完成
       set({
@@ -330,6 +331,7 @@ async function handleExecutionEvent(
               status: 'completed',
               finished_at: new Date().toISOString(),
               resolved_config: event.resolvedConfig,
+              token_usage: event.usage,
             })
           } catch (error) {
             logError({ error, context: '更新节点结果' })
@@ -382,14 +384,6 @@ async function handleExecutionEvent(
       break
     }
 
-    case 'execution_paused':
-      set({ status: 'paused' })
-      break
-
-    case 'execution_resumed':
-      set({ status: 'running' })
-      break
-
     case 'execution_completed':
       // 清空节点结果 ID 映射
       nodeResultIds.clear()
@@ -435,3 +429,59 @@ async function handleExecutionEvent(
   }
 }
 
+// 同步处理 UI 状态更新（不涉及数据库操作的事件）
+function handleExecutionEventSync(
+  event: ExecutionEvent,
+  get: () => ExecutionState,
+  set: (state: Partial<ExecutionState>) => void
+): boolean {
+  const { nodeOutputs } = get()
+
+  switch (event.type) {
+    case 'node_streaming':
+      set({
+        streamingContent: event.content || '',
+        nodeOutputs: nodeOutputs.map(o =>
+          o.nodeId === event.nodeId
+            ? { ...o, output: event.content || '', isStreaming: true }
+            : o
+        ),
+      })
+      return true // 已处理
+
+    case 'execution_paused':
+      set({ status: 'paused' })
+      return true
+
+    case 'execution_resumed':
+      set({ status: 'running' })
+      return true
+
+    default:
+      return false // 未处理，需要异步处理
+  }
+}
+
+// 异步事件队列：串行处理数据库操作，避免竞态条件
+let eventQueue: Array<() => Promise<void>> = []
+let isProcessingQueue = false
+
+function enqueueEvent(handler: () => Promise<void>) {
+  eventQueue.push(handler)
+  if (!isProcessingQueue) {
+    processEventQueue()
+  }
+}
+
+async function processEventQueue() {
+  isProcessingQueue = true
+  while (eventQueue.length > 0) {
+    const handler = eventQueue.shift()!
+    try {
+      await handler()
+    } catch (error) {
+      logError({ error, context: '处理执行事件' })
+    }
+  }
+  isProcessingQueue = false
+}

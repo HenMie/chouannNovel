@@ -54,3 +54,10 @@ test-results
 .eslintcache
 .turbo
 *.cache
+
+# Signing keys
+.tauri/
+
+# Tool state
+.omc/
+.zcf/

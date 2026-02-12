@@ -157,6 +157,42 @@ export const BUILTIN_MODELS: ModelConfig[] = [
 // 兼容旧版本：MODELS 指向 BUILTIN_MODELS
 export const MODELS = BUILTIN_MODELS
 
+// 模型定价（每百万 Token，单位: USD）
+// 注意: 价格为估算值，实际价格请参考各提供商官网
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  // OpenAI
+  'gpt-5.1': { input: 5, output: 15 },
+  'gpt-5': { input: 3, output: 12 },
+  'gpt-5-mini': { input: 0.3, output: 1.2 },
+  // Gemini
+  'gemini-3-pro-preview': { input: 2.5, output: 10 },
+  'gemini-2.5-pro': { input: 2.5, output: 10 },
+  'gemini-2.5-flash': { input: 0.15, output: 0.6 },
+  // Claude
+  'claude-opus-4-5-20251101': { input: 15, output: 75 },
+  'claude-sonnet-4-5-20250929': { input: 3, output: 15 },
+  'claude-haiku-4-5-20251001': { input: 0.8, output: 4 },
+}
+
+// 估算 Token 成本（返回 USD）
+export function estimateTokenCost(
+  modelId: string,
+  promptTokens: number,
+  completionTokens: number
+): number | null {
+  const pricing = MODEL_PRICING[modelId]
+  if (!pricing) return null
+  return (promptTokens * pricing.input + completionTokens * pricing.output) / 1_000_000
+}
+
+// 格式化成本显示
+export function formatCost(cost: number | null): string {
+  if (cost === null) return '-'
+  if (cost < 0.001) return '< $0.001'
+  if (cost < 0.01) return `$${cost.toFixed(4)}`
+  return `$${cost.toFixed(3)}`
+}
+
 /**
  * 获取指定提供商的内置模型列表
  */
@@ -240,9 +276,30 @@ export function getModelProvider(modelId: string, globalConfig?: GlobalConfig): 
 }
 
 /**
+ * 获取适用于当前环境的 fetch 函数
+ * Tauri 环境使用 plugin-http 的 fetch（绕过 CORS），Web 环境使用原生 fetch
+ */
+let tauriFetch: typeof globalThis.fetch | null = null
+let tauriFetchLoaded = false
+
+async function getCustomFetch(): Promise<typeof globalThis.fetch | undefined> {
+  if (tauriFetchLoaded) return tauriFetch ?? undefined
+  tauriFetchLoaded = true
+  try {
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      const mod = await import('@tauri-apps/plugin-http')
+      tauriFetch = mod.fetch as typeof globalThis.fetch
+    }
+  } catch {
+    // 非 Tauri 环境，使用默认 fetch
+  }
+  return tauriFetch ?? undefined
+}
+
+/**
  * 创建 AI 模型实例
  */
-function createModel(
+async function createModel(
   provider: AIProvider,
   modelId: string,
   globalConfig: GlobalConfig
@@ -252,11 +309,14 @@ function createModel(
     throw new Error(`提供商 ${provider} 未配置或未启用`)
   }
 
+  const customFetch = await getCustomFetch()
+
   switch (provider) {
     case 'openai': {
       const openai = createOpenAI({
         apiKey: providerConfig.api_key,
         baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
+        fetch: customFetch,
       })
       return openai(modelId)
     }
@@ -264,6 +324,7 @@ function createModel(
       const google = createGoogleGenerativeAI({
         apiKey: providerConfig.api_key,
         baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
+        fetch: customFetch,
       })
       return google(modelId)
     }
@@ -271,6 +332,7 @@ function createModel(
       const anthropic = createAnthropic({
         apiKey: providerConfig.api_key,
         baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
+        fetch: customFetch,
       })
       return anthropic(modelId)
     }
@@ -357,7 +419,7 @@ export async function chat(
   options: AIRequestOptions,
   globalConfig: GlobalConfig
 ): Promise<AIResponse> {
-  const model = createModel(options.provider, options.model, globalConfig)
+  const model = await createModel(options.provider, options.model, globalConfig)
   const modelConfig = getModelConfig(options.model)
 
   // 构建提供商特定选项
@@ -393,11 +455,14 @@ export async function chatStream(
   globalConfig: GlobalConfig,
   onChunk: (chunk: StreamChunk) => void
 ): Promise<void> {
-  const model = createModel(options.provider, options.model, globalConfig)
+  const model = await createModel(options.provider, options.model, globalConfig)
   const modelConfig = getModelConfig(options.model)
 
   // 构建提供商特定选项
   const providerOptions = buildProviderOptions(options.thinkingConfig, modelConfig)
+
+  // 捕获流式过程中的错误（Vercel AI SDK 默认只 console.error 不抛出）
+  let streamError: Error | null = null
 
   const result = streamText({
     model,
@@ -405,8 +470,12 @@ export async function chatStream(
     temperature: modelConfig?.supportsTemperature ? options.temperature : undefined,
     maxOutputTokens: modelConfig?.supportsMaxTokens ? options.maxTokens : undefined,
     topP: modelConfig?.supportsTopP ? options.topP : undefined,
+    abortSignal: options.signal,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     providerOptions: providerOptions as any,
+    onError: ({ error }) => {
+      streamError = error instanceof Error ? error : new Error(String(error))
+    },
   })
 
   // 处理流式响应
@@ -414,8 +483,23 @@ export async function chatStream(
     onChunk({ content: textPart, done: false })
   }
 
+  // 如果流式过程中发生了错误，抛出而非静默忽略
+  if (streamError) {
+    throw streamError
+  }
+
   // 流结束
-  onChunk({ content: '', done: true })
+  onChunk({
+    content: '',
+    done: true,
+    usage: result.usage
+      ? {
+          promptTokens: result.usage.inputTokens ?? 0,
+          completionTokens: result.usage.outputTokens ?? 0,
+          totalTokens: result.usage.totalTokens ?? 0,
+        }
+      : undefined,
+  })
 }
 
 /**
@@ -425,11 +509,14 @@ export async function* chatStreamIterable(
   options: AIRequestOptions,
   globalConfig: GlobalConfig
 ): AsyncGenerator<StreamChunk> {
-  const model = createModel(options.provider, options.model, globalConfig)
+  const model = await createModel(options.provider, options.model, globalConfig)
   const modelConfig = getModelConfig(options.model)
 
   // 构建提供商特定选项
   const providerOptions = buildProviderOptions(options.thinkingConfig, modelConfig)
+
+  // 捕获流式过程中的错误（Vercel AI SDK 默认只 console.error 不抛出）
+  let streamError: Error | null = null
 
   const result = streamText({
     model,
@@ -437,15 +524,34 @@ export async function* chatStreamIterable(
     temperature: modelConfig?.supportsTemperature ? options.temperature : undefined,
     maxOutputTokens: modelConfig?.supportsMaxTokens ? options.maxTokens : undefined,
     topP: modelConfig?.supportsTopP ? options.topP : undefined,
+    abortSignal: options.signal,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     providerOptions: providerOptions as any,
+    onError: ({ error }) => {
+      streamError = error instanceof Error ? error : new Error(String(error))
+    },
   })
 
   for await (const textPart of result.textStream) {
     yield { content: textPart, done: false }
   }
 
-  yield { content: '', done: true }
+  // 如果流式过程中发生了错误，抛出而非静默忽略
+  if (streamError) {
+    throw streamError
+  }
+
+  yield {
+    content: '',
+    done: true,
+    usage: result.usage
+      ? {
+          promptTokens: result.usage.inputTokens ?? 0,
+          completionTokens: result.usage.outputTokens ?? 0,
+          totalTokens: result.usage.totalTokens ?? 0,
+        }
+      : undefined,
+  }
 }
 
 // 每个提供商的默认 API 路径后缀
@@ -522,6 +628,8 @@ export async function testProviderConnection(
   const startTime = Date.now()
 
   try {
+    const customFetch = await getCustomFetch()
+
     // 创建对应提供商的客户端
     let model
     switch (provider) {
@@ -529,6 +637,7 @@ export async function testProviderConnection(
         const openai = createOpenAI({
           apiKey: providerConfig.api_key,
           baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
+          fetch: customFetch,
         })
         model = openai(testModelId)
         break
@@ -537,6 +646,7 @@ export async function testProviderConnection(
         const google = createGoogleGenerativeAI({
           apiKey: providerConfig.api_key,
           baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
+          fetch: customFetch,
         })
         model = google(testModelId)
         break
@@ -545,6 +655,7 @@ export async function testProviderConnection(
         const anthropic = createAnthropic({
           apiKey: providerConfig.api_key,
           baseURL: normalizeBaseUrl(provider, providerConfig.base_url),
+          fetch: customFetch,
         })
         model = anthropic(testModelId)
         break

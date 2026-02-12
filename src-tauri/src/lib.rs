@@ -167,9 +167,24 @@ pub fn run() {
             CREATE INDEX IF NOT EXISTS idx_settings_parent_id ON settings(parent_id);
         "#,
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 3,
+        description: "add_token_usage_to_node_results",
+        sql: r#"
+            ALTER TABLE node_results ADD COLUMN token_usage TEXT;
+        "#,
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()
+        .setup(|app| {
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            Ok(())
+        })
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_dialog::init())

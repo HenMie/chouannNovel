@@ -2394,6 +2394,7 @@ describe("WorkflowExecutor - 工作流执行器", () => {
           temperature: 0.7,
           max_tokens: 100,
           top_p: 1,
+          retry_count: 0,
           enable_history: false,
           history_count: 0,
           setting_ids: [],
@@ -2414,6 +2415,150 @@ describe("WorkflowExecutor - 工作流执行器", () => {
       expect(result.error).toContain("重试 3 次后仍失败")
     })
   })
+
+    it("AI 节点未配置 retry_count 时默认重试 3 次", async () => {
+      let attempts = 0
+
+      mockChatStream.mockImplementation(async () => {
+        attempts++
+        throw new Error("持续失败")
+      })
+
+      const config: AIChatConfig = {
+        provider: "openai",
+        model: "gpt-4",
+        system_prompt: "",
+        user_prompt: "测试",
+        temperature: 0.7,
+        max_tokens: 100,
+        top_p: 1,
+        enable_history: false,
+        history_count: 0,
+        setting_ids: [],
+      }
+
+      const nodes = [
+        createTestNode("start", "开始", {}, { order_index: 0 }),
+        createTestNode("ai_chat", "AI对话", config, { order_index: 1 }),
+      ]
+
+      const executor = new WorkflowExecutor({ workflow, nodes, globalConfig })
+      const result = await executor.execute()
+
+      expect(result.status).toBe("failed")
+      expect(attempts).toBe(4)
+      expect(result.error).toContain("重试 3 次后仍失败")
+    })
+
+    it("未定义变量应触发严格插值失败", async () => {
+      const nodes = [
+        createTestNode("start", "开始", {}, { order_index: 0 }),
+        createTestNode("ai_chat", "AI对话", {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "",
+          user_prompt: "{{不存在变量}}",
+          temperature: 0.7,
+          max_tokens: 100,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: [],
+        } as AIChatConfig, { order_index: 1 }),
+      ]
+
+      const executor = new WorkflowExecutor({ workflow, nodes, globalConfig })
+      const result = await executor.execute()
+
+      expect(result.status).toBe("failed")
+      expect(result.error).toContain("变量未定义")
+    })
+
+    it("AI 节点完成事件应携带 token usage", async () => {
+      let completedEvent: any = null
+
+      mockChatStream.mockImplementation(async (_options, _config, onChunk) => {
+        onChunk({ content: "结果", done: false })
+        onChunk({
+          content: "",
+          done: true,
+          usage: { promptTokens: 11, completionTokens: 7, totalTokens: 18 },
+        })
+      })
+
+      const nodes = [
+        createTestNode("start", "开始", {}, { order_index: 0 }),
+        createTestNode("ai_chat", "AI对话", {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "",
+          user_prompt: "测试",
+          temperature: 0.7,
+          max_tokens: 100,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: [],
+        } as AIChatConfig, { order_index: 1 }),
+      ]
+
+      const executor = new WorkflowExecutor({
+        workflow,
+        nodes,
+        globalConfig,
+        onEvent: (event) => {
+          if (event.type === "node_completed" && event.nodeType === "ai_chat") {
+            completedEvent = event
+          }
+        },
+      })
+
+      const result = await executor.execute()
+
+      expect(result.status).toBe("completed")
+      expect(completedEvent?.usage).toEqual({ promptTokens: 11, completionTokens: 7, totalTokens: 18 })
+    })
+
+    it("暂停中断 AI 流后继续执行不应失败", async () => {
+      vi.useFakeTimers()
+
+      mockChatStream.mockImplementation(async (_options, _config, onChunk) => {
+        onChunk({ content: "片", done: false })
+        await new Promise((resolve) => setTimeout(resolve, 80))
+        onChunk({ content: "段", done: false })
+        onChunk({ content: "", done: true })
+      })
+
+      const nodes = [
+        createTestNode("start", "开始", {}, { order_index: 0 }),
+        createTestNode("ai_chat", "AI对话", {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "",
+          user_prompt: "测试",
+          temperature: 0.7,
+          max_tokens: 100,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: [],
+        } as AIChatConfig, { order_index: 1 }),
+      ]
+
+      const executor = new WorkflowExecutor({ workflow, nodes, globalConfig })
+      const executePromise = executor.execute()
+
+      await vi.advanceTimersByTimeAsync(10)
+      executor.pause()
+      expect(executor.getStatus()).toBe("paused")
+
+      await vi.advanceTimersByTimeAsync(20)
+      executor.resume()
+
+      await vi.runAllTimersAsync()
+      const result = await executePromise
+      expect(result.status).toBe("completed")
+    })
 
   // ========== 超时测试 ==========
 
@@ -2959,4 +3104,6 @@ describe("WorkflowExecutor - 工作流执行器", () => {
   })
 
 })
+
+
 

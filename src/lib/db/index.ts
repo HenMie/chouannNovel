@@ -830,14 +830,17 @@ export async function deleteExecution(id: string): Promise<void> {
 
 export async function getNodeResults(executionId: string): Promise<NodeResult[]> {
   const db = await getDatabase()
-  const results = await db.select<Array<NodeResult & { resolved_config?: string }>>(
+  const results = await db.select<Array<NodeResult & { resolved_config?: string; token_usage?: string }>>(
     'SELECT * FROM node_results WHERE execution_id = ? ORDER BY started_at ASC',
     [executionId]
   )
   
-  // 解析 resolved_config JSON 字符串
+  // 解析 resolved_config 与 token_usage JSON 字符串
   return results.map(result => ({
     ...result,
+    token_usage: result.token_usage
+      ? JSON.parse(result.token_usage as string)
+      : undefined,
     resolved_config: result.resolved_config 
       ? JSON.parse(result.resolved_config as string) 
       : undefined,
@@ -864,6 +867,7 @@ export async function createNodeResult(
     execution_id: executionId,
     node_id: nodeId,
     iteration,
+    token_usage: undefined,
     status: 'running',
     started_at: now,
   }
@@ -871,7 +875,7 @@ export async function createNodeResult(
 
 export async function updateNodeResult(
   id: string,
-  data: Partial<Pick<NodeResult, 'input' | 'output' | 'status' | 'finished_at' | 'resolved_config'>>
+  data: Partial<Pick<NodeResult, 'input' | 'output' | 'status' | 'finished_at' | 'resolved_config' | 'token_usage'>>
 ): Promise<void> {
   const db = await getDatabase()
   const updates: string[] = []
@@ -896,6 +900,10 @@ export async function updateNodeResult(
   if (data.resolved_config !== undefined) {
     updates.push('resolved_config = ?')
     values.push(data.resolved_config ? JSON.stringify(data.resolved_config) : null)
+  }
+  if (data.token_usage !== undefined) {
+    updates.push('token_usage = ?')
+    values.push(data.token_usage ? JSON.stringify(data.token_usage) : null)
   }
 
   values.push(id)
@@ -1190,6 +1198,14 @@ export async function importSettings(
 }
 
 // ========== 项目备份与恢复 ==========
+
+// 复制项目（含工作流、节点、设定）
+export async function duplicateProject(projectId: string): Promise<Project> {
+  const exported = await exportProject(projectId)
+  if (!exported) throw new Error('项目不存在')
+  const originalName = exported.project.name
+  return importProject(exported, `${originalName} (副本)`)
+}
 
 /**
  * 导出完整项目数据

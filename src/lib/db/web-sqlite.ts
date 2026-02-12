@@ -213,6 +213,7 @@ const MIGRATION_SQL = `
     iteration INTEGER DEFAULT 1,
     input TEXT,
     output TEXT,
+    token_usage TEXT,
     resolved_config TEXT,
     status TEXT NOT NULL,
     started_at DATETIME DEFAULT CURRENT_TIMESTAMP,

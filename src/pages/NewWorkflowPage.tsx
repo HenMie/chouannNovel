@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -23,7 +23,7 @@ export function NewWorkflowPage({ projectId, onNavigate }: NewWorkflowPageProps)
   const [isCreating, setIsCreating] = useState(false)
 
   // 确保当前项目已设置
-  useState(() => {
+  useEffect(() => {
     if (!currentProject) {
       const { projects } = useProjectStore.getState()
       const project = projects.find((p) => p.id === projectId)
@@ -31,7 +31,7 @@ export function NewWorkflowPage({ projectId, onNavigate }: NewWorkflowPageProps)
         setCurrentProject(project)
       }
     }
-  })
+  }, [currentProject, projectId, setCurrentProject])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

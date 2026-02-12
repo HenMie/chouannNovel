@@ -82,7 +82,7 @@ import { SETTINGS_TOUR_STEPS } from '@/tours'
 import { useDebouncedValue, cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { SettingCategory, Setting } from '@/types'
-import { parseContentToSections, extractHeadings, type ContentSection } from '@/lib/markdown-headings'
+import { parseContentToSections, type ContentSection } from '@/lib/markdown-headings'
 
 interface SettingsLibraryPageProps {
   projectId: string
@@ -168,88 +168,70 @@ function SettingContentTree({ content }: { content: string }) {
   )
 }
 
-// TOC 导航组件
-function SettingTOC({
-  content,
-  onScrollTo,
-}: {
-  content: string
-  onScrollTo: (id: string) => void
-}) {
-  const sections = useMemo(() => parseContentToSections(content), [content])
-  const headings = useMemo(() => extractHeadings(sections), [sections])
-
-  if (headings.length === 0) return null
-
-  // 计算最小层级用于缩进归一化
-  const minLevel = Math.min(...headings.map(h => h.level))
-
-  return (
-    <nav className="space-y-0.5 text-xs">
-      {headings.map((heading) => (
-        <button
-          key={heading.id}
-          className="block w-full text-left truncate py-0.5 px-2 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          style={{ paddingLeft: `${(heading.level - minLevel) * 12 + 8}px` }}
-          onClick={() => onScrollTo(heading.id)}
-        >
-          {heading.title}
-        </button>
-      ))}
-    </nav>
-  )
-}
-
 // 设定树形项组件（用于层级展示）
 function SettingTreeItem({
   node,
   depth,
   selectionMode,
   selectedIds,
+  selectedSettingId,
   onEdit,
   onDelete,
   onToggle,
   onSelect,
   onShiftSelect,
   onAddChild,
+  onSelectSetting,
 }: {
   node: SettingTreeNode
   depth: number
   selectionMode: boolean
   selectedIds: Set<string>
+  selectedSettingId: string | null
   onEdit: (setting: Setting) => void
   onDelete: (setting: Setting) => void
   onToggle: (id: string) => void
   onSelect: (id: string, selected: boolean) => void
   onShiftSelect: (id: string) => void
   onAddChild: (parentId: string) => void
+  onSelectSetting: (id: string) => void
 }) {
-  const [isExpanded, setIsExpanded] = useState(true)
   const [childrenCollapsed, setChildrenCollapsed] = useState(false)
   const { setting, children } = node
   const isSelected = selectedIds.has(setting.id)
+  const isActive = selectedSettingId === setting.id
   const hasChildren = children.length > 0
 
   const handleCardClick = (e: React.MouseEvent) => {
     if (selectionMode && e.shiftKey) {
       e.preventDefault()
       onShiftSelect(setting.id)
+    } else {
+      onSelectSetting(setting.id)
     }
   }
 
   return (
-    <div style={{ paddingLeft: depth > 0 ? `${depth * 24}px` : undefined }}>
+    <div className="relative" style={{ paddingLeft: depth > 0 ? `${depth * 16}px` : undefined }}>
+      {/* 连接细线 */}
+      {depth > 0 && (
+        <div
+          className="absolute top-0 bottom-0 border-l border-border/50"
+          style={{ left: `${(depth - 1) * 16 + 7}px` }}
+        />
+      )}
       <ContextMenu>
         <ContextMenuTrigger className="block">
           <Card
             className={cn(
-              'transition-colors hover:border-primary/50 mb-2',
+              'transition-colors hover:border-primary/50 mb-1.5 py-0 gap-0',
               !setting.enabled && 'opacity-60',
-              isSelected && 'border-primary ring-1 ring-primary/30 bg-primary/5'
+              isSelected && 'border-primary ring-1 ring-primary/30 bg-primary/5',
+              isActive && !isSelected && 'border-primary/60 bg-primary/5'
             )}
             onClick={handleCardClick}
           >
-            <CardHeader className="pb-2 py-3">
+            <CardHeader className="pb-0 pt-1.5 px-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {selectionMode && (
@@ -270,14 +252,6 @@ function SettingTreeItem({
                       {childrenCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                     </Button>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0"
-                    onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded) }}
-                  >
-                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                  </Button>
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-sm font-semibold">{setting.name}</CardTitle>
                     {!setting.enabled && (
@@ -313,18 +287,9 @@ function SettingTreeItem({
                 </div>
               </div>
             </CardHeader>
-            {isExpanded && (
-              <CardContent className="pt-0 pb-3 px-3 ml-9">
-                <div className="rounded bg-muted/30 p-3">
-                  <SettingContentTree content={setting.content} />
-                </div>
-              </CardContent>
-            )}
-            {!isExpanded && (
-              <CardContent className="pt-0 pb-3 px-3 ml-9">
-                <p className="line-clamp-1 text-xs text-muted-foreground">{setting.content}</p>
-              </CardContent>
-            )}
+            <CardContent className="pt-0 pb-1.5 px-3 ml-5">
+              <p className="line-clamp-2 text-xs text-muted-foreground">{setting.content}</p>
+            </CardContent>
           </Card>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-48">
@@ -366,15 +331,69 @@ function SettingTreeItem({
           depth={depth + 1}
           selectionMode={selectionMode}
           selectedIds={selectedIds}
+          selectedSettingId={selectedSettingId}
           onEdit={onEdit}
           onDelete={onDelete}
           onToggle={onToggle}
           onSelect={onSelect}
           onShiftSelect={onShiftSelect}
           onAddChild={onAddChild}
+          onSelectSetting={onSelectSetting}
         />
       ))}
     </div>
+  )
+}
+
+// 左侧导航项
+function NavItem({ setting, depth, isActive, onClick }: {
+  setting: Setting
+  depth: number
+  isActive: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      className={cn(
+        'block w-full text-left text-xs truncate py-1.5 px-2 rounded transition-colors',
+        isActive
+          ? 'bg-primary/10 text-primary font-semibold'
+          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+      )}
+      style={{ paddingLeft: `${depth * 12 + 8}px` }}
+      title={setting.name}
+      onClick={onClick}
+    >
+      {setting.name}
+    </button>
+  )
+}
+
+// 左侧导航树形项（递归）
+function NavTreeItem({ node, depth, selectedSettingId, onSelect }: {
+  node: SettingTreeNode
+  depth: number
+  selectedSettingId: string | null
+  onSelect: (id: string) => void
+}) {
+  return (
+    <>
+      <NavItem
+        setting={node.setting}
+        depth={depth}
+        isActive={selectedSettingId === node.setting.id}
+        onClick={() => onSelect(node.setting.id)}
+      />
+      {node.children.map((child) => (
+        <NavTreeItem
+          key={child.setting.id}
+          node={child}
+          depth={depth + 1}
+          selectedSettingId={selectedSettingId}
+          onSelect={onSelect}
+        />
+      ))}
+    </>
   )
 }
 
@@ -421,47 +440,31 @@ function VirtualSettingsList({
   settings,
   selectedIds,
   selectionMode,
+  selectedSettingId,
   onEdit,
   onDelete,
   onToggle,
   onSelect,
   onShiftSelect,
+  onSelectSetting,
 }: {
   settings: Setting[]
   selectedIds: Set<string>
   selectionMode: boolean
+  selectedSettingId: string | null
   onEdit: (setting: Setting) => void
   onDelete: (setting: Setting) => void
   onToggle: (id: string) => void
   onSelect: (id: string, selected: boolean) => void
   onShiftSelect: (id: string) => void
+  onSelectSetting: (id: string) => void
 }) {
   const parentRef = useRef<HTMLDivElement>(null)
-  // 跟踪展开状态以动态调整高度（默认全展开）
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(settings.map(s => s.id)))
-
-  const toggleExpanded = useCallback((id: string) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-      return next
-    })
-  }, [])
 
   const virtualizer = useVirtualizer({
     count: settings.length,
     getScrollElement: () => parentRef.current,
-    // 根据展开状态动态计算高度
-    estimateSize: useCallback((index: number) => {
-      const setting = settings[index]
-      const isExpanded = expandedIds.has(setting.id)
-      // 基础高度约 70px，展开后根据内容增加
-      return isExpanded ? Math.min(200, 70 + setting.content.length / 3) : 70
-    }, [settings, expandedIds]),
+    estimateSize: () => 80,
     overscan: 5,
     getItemKey: (index) => settings[index].id,
   })
@@ -479,12 +482,14 @@ function VirtualSettingsList({
               setting={setting}
               index={index}
               isSelected={selectedIds.has(setting.id)}
+              isActive={selectedSettingId === setting.id}
               selectionMode={selectionMode}
               onEdit={() => onEdit(setting)}
               onDelete={() => onDelete(setting)}
               onToggle={() => onToggle(setting.id)}
               onSelect={(selected) => onSelect(setting.id, selected)}
               onShiftSelect={() => onShiftSelect(setting.id)}
+              onSelectSetting={() => onSelectSetting(setting.id)}
             />
           ))}
         </AnimatePresence>
@@ -520,19 +525,15 @@ function VirtualSettingsList({
             >
               <SettingCardVirtual
                 setting={setting}
-                isExpanded={expandedIds.has(setting.id)}
                 isSelected={selectedIds.has(setting.id)}
+                isActive={selectedSettingId === setting.id}
                 selectionMode={selectionMode}
-                onToggleExpand={() => {
-                  toggleExpanded(setting.id)
-                  // 重新测量
-                  virtualizer.measureElement(null)
-                }}
                 onEdit={() => onEdit(setting)}
                 onDelete={() => onDelete(setting)}
                 onToggle={() => onToggle(setting.id)}
                 onSelect={(selected) => onSelect(setting.id, selected)}
                 onShiftSelect={() => onShiftSelect(setting.id)}
+                onSelectSetting={() => onSelectSetting(setting.id)}
               />
             </div>
           )
@@ -545,44 +546,47 @@ function VirtualSettingsList({
 // 虚拟列表专用的设定卡片（无动画版本，提高性能）
 function SettingCardVirtual({
   setting,
-  isExpanded,
   isSelected,
+  isActive,
   selectionMode,
-  onToggleExpand,
   onEdit,
   onDelete,
   onToggle,
   onSelect,
   onShiftSelect,
+  onSelectSetting,
 }: {
   setting: Setting
-  isExpanded: boolean
   isSelected: boolean
+  isActive: boolean
   selectionMode: boolean
-  onToggleExpand: () => void
   onEdit: () => void
   onDelete: () => void
   onToggle: () => void
   onSelect: (selected: boolean) => void
   onShiftSelect: () => void
+  onSelectSetting: () => void
 }) {
   // 处理点击卡片（用于 Shift 选择）
   const handleCardClick = (e: React.MouseEvent) => {
     if (selectionMode && e.shiftKey) {
       e.preventDefault()
       onShiftSelect()
+    } else {
+      onSelectSetting()
     }
   }
   const cardContent = (
-    <Card 
+    <Card
       className={cn(
-        'transition-colors hover:border-primary/50',
+        'transition-colors hover:border-primary/50 py-0 gap-0',
         !setting.enabled && 'opacity-60',
-        isSelected && 'border-primary ring-1 ring-primary/30 bg-primary/5'
+        isSelected && 'border-primary ring-1 ring-primary/30 bg-primary/5',
+        isActive && !isSelected && 'border-primary/60 bg-primary/5'
       )}
       onClick={handleCardClick}
     >
-      <CardHeader className="pb-2 py-3">
+      <CardHeader className="pb-0 pt-1.5 px-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {selectionMode && (
@@ -593,21 +597,6 @@ function SettingCardVirtual({
                 className="h-4 w-4"
               />
             )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0"
-              onClick={(e) => {
-                e.stopPropagation()
-                onToggleExpand()
-              }}
-            >
-              {isExpanded ? (
-                <ChevronDown className="h-4 w-4" />
-              ) : (
-                <ChevronRight className="h-4 w-4" />
-              )}
-            </Button>
             <div className="flex items-center gap-2">
                <CardTitle className="text-sm font-semibold">{setting.name}</CardTitle>
                {!setting.enabled && (
@@ -637,19 +626,11 @@ function SettingCardVirtual({
           </div>
         </div>
       </CardHeader>
-      {isExpanded ? (
-        <CardContent className={cn("pt-0 pb-3 px-3", selectionMode ? "ml-[52px]" : "ml-9")}>
-          <div className="rounded bg-muted/30 p-3">
-            <SettingContentTree content={setting.content} />
-          </div>
-        </CardContent>
-      ) : (
-        <CardContent className={cn("pt-0 pb-3 px-3", selectionMode ? "ml-[52px]" : "ml-9")}>
-          <p className="line-clamp-1 text-xs text-muted-foreground">
-            {setting.content}
-          </p>
-        </CardContent>
-      )}
+      <CardContent className={cn("pt-0 pb-1.5 px-3", selectionMode ? "ml-[52px]" : "ml-3")}>
+        <p className="line-clamp-2 text-xs text-muted-foreground">
+          {setting.content}
+        </p>
+      </CardContent>
     </Card>
   )
 
@@ -712,6 +693,7 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
   const [isPromptSheetOpen, setIsPromptSheetOpen] = useState(false)
   const [promptTemplate, setPromptTemplate] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedSettingId, setSelectedSettingId] = useState<string | null>(null)
 
   // 批量选择状态
   const [selectionMode, setSelectionMode] = useState(false)
@@ -764,6 +746,12 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
   
   const currentCategory = CATEGORIES.find((c) => c.key === activeTab)
 
+  // 当前选中的设定（用于右侧详情面板）
+  const selectedSetting = useMemo(() => {
+    if (!selectedSettingId) return null
+    return settings.find(s => s.id === selectedSettingId) ?? null
+  }, [selectedSettingId, settings])
+
   // 是否使用搜索/筛选模式（使用扁平列表）还是树形模式
   const isFilterMode = !!debouncedSearchQuery || filterStatus !== 'all'
 
@@ -774,10 +762,25 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, isFilterMode, getSettingTree, settings])
 
+  // 构建设定面包屑路径
+  const breadcrumbPath = useMemo(() => {
+    if (!selectedSetting || !selectedSetting.parent_id) return []
+    const path: Setting[] = []
+    let currentId: string | null = selectedSetting.parent_id
+    while (currentId) {
+      const parent = settings.find(s => s.id === currentId)
+      if (!parent) break
+      path.unshift(parent)
+      currentId = parent.parent_id
+    }
+    return path
+  }, [selectedSetting, settings])
+
   // 切换分类时清空选择
   useEffect(() => {
     setSelectedIds(new Set())
     setLastSelectedId(null)
+    setSelectedSettingId(null)
   }, [activeTab])
 
   // 退出选择模式时清空选择
@@ -1231,7 +1234,37 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                       </CardContent>
                     </Card>
                   ) : (
-                    <div className="flex gap-4">
+                    <div className="flex gap-3">
+                      {/* 左侧：标题导航 */}
+                      <div className="w-44 shrink-0">
+                        <div className="sticky top-4 max-h-[calc(100vh-280px)] overflow-y-auto rounded-lg border bg-card p-3">
+                          <p className="text-xs font-medium text-muted-foreground mb-2">标题导航</p>
+                          {isFilterMode ? (
+                            /* 搜索/筛选模式：扁平列表 */
+                            currentCategorySettings.map((setting) => (
+                              <NavItem
+                                key={setting.id}
+                                setting={setting}
+                                depth={0}
+                                isActive={selectedSettingId === setting.id}
+                                onClick={() => setSelectedSettingId(setting.id)}
+                              />
+                            ))
+                          ) : (
+                            /* 默认模式：树形导航 */
+                            currentSettingTree.map((node) => (
+                              <NavTreeItem
+                                key={node.setting.id}
+                                node={node}
+                                depth={0}
+                                selectedSettingId={selectedSettingId}
+                                onSelect={setSelectedSettingId}
+                              />
+                            ))
+                          )}
+                        </div>
+                      </div>
+                      {/* 中间：设定列表 */}
                       <div className="flex-1 min-w-0" data-tour="settings-list" ref={containerRef}>
                         {isFilterMode ? (
                           /* 筛选/搜索模式：扁平列表 */
@@ -1239,11 +1272,13 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                             settings={currentCategorySettings}
                             selectedIds={selectedIds}
                             selectionMode={selectionMode}
+                            selectedSettingId={selectedSettingId}
                             onEdit={handleEdit}
                             onDelete={setDeletingSetting}
                             onToggle={toggleSetting}
                             onSelect={handleSelect}
                             onShiftSelect={handleShiftSelect}
+                            onSelectSetting={setSelectedSettingId}
                           />
                         ) : (
                           /* 默认模式：树形展示 */
@@ -1255,39 +1290,61 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                                 depth={0}
                                 selectionMode={selectionMode}
                                 selectedIds={selectedIds}
+                                selectedSettingId={selectedSettingId}
                                 onEdit={handleEdit}
                                 onDelete={setDeletingSetting}
                                 onToggle={toggleSetting}
                                 onSelect={handleSelect}
                                 onShiftSelect={handleShiftSelect}
                                 onAddChild={(parentId) => handleAdd(parentId)}
+                                onSelectSetting={setSelectedSettingId}
                               />
                             ))}
                           </div>
                         )}
                       </div>
-                      {/* TOC 侧边栏导航 */}
-                      {currentCategorySettings.length > 0 && (
-                        <div className="hidden lg:block w-48 shrink-0">
-                          <div className="sticky top-4 max-h-[calc(100vh-280px)] overflow-y-auto rounded-lg border bg-card p-3">
-                            <p className="text-xs font-medium text-muted-foreground mb-2">标题导航</p>
-                            {currentCategorySettings.map((setting) => (
-                              <div key={setting.id} className="mb-2">
-                                <p className="text-xs font-semibold truncate mb-1" title={setting.name}>
-                                  {setting.name}
-                                </p>
-                                <SettingTOC
-                                  content={setting.content}
-                                  onScrollTo={(id) => {
-                                    const el = document.getElementById(id)
-                                    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                                  }}
-                                />
+                      {/* 右侧：详情面板 */}
+                      <div className="w-80 shrink-0">
+                        <div className="sticky top-4 max-h-[calc(100vh-280px)] overflow-y-auto rounded-lg border bg-card p-2.5">
+                          {selectedSetting ? (
+                            <div>
+                              {breadcrumbPath.length > 0 && (
+                                <div className="flex items-center gap-1 mb-1.5 text-[10px] text-muted-foreground flex-wrap">
+                                  {breadcrumbPath.map((ancestor, i) => (
+                                    <span key={ancestor.id} className="flex items-center gap-1">
+                                      {i > 0 && <ChevronRight className="h-2.5 w-2.5" />}
+                                      <button
+                                        type="button"
+                                        className="hover:text-foreground transition-colors hover:underline"
+                                        onClick={() => setSelectedSettingId(ancestor.id)}
+                                      >
+                                        {ancestor.name}
+                                      </button>
+                                    </span>
+                                  ))}
+                                  <ChevronRight className="h-2.5 w-2.5" />
+                                </div>
+                              )}
+                              <div className="flex items-center justify-between mb-2">
+                                <h3 className="text-sm font-semibold truncate" title={selectedSetting.name}>
+                                  {selectedSetting.name}
+                                </h3>
+                                {!selectedSetting.enabled && (
+                                  <span className="text-[10px] bg-muted px-1.5 rounded text-muted-foreground shrink-0 ml-2">已禁用</span>
+                                )}
                               </div>
-                            ))}
-                          </div>
+                              <div className="rounded bg-muted/30 p-2">
+                                <SettingContentTree content={selectedSetting.content} />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center py-8 text-center">
+                              <FileText className="mb-3 h-8 w-8 text-muted-foreground/40" />
+                              <p className="text-xs text-muted-foreground">点击左侧设定查看详情</p>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
                 </TabsContent>
@@ -1501,35 +1558,38 @@ interface SettingCardProps {
   setting: Setting
   index: number
   isSelected: boolean
+  isActive: boolean
   selectionMode: boolean
   onEdit: () => void
   onDelete: () => void
   onToggle: () => void
   onSelect: (selected: boolean) => void
   onShiftSelect: () => void
+  onSelectSetting: () => void
 }
 
-function SettingCard({ setting, index, isSelected, selectionMode, onEdit, onDelete, onToggle, onSelect, onShiftSelect }: SettingCardProps) {
-  const [isExpanded, setIsExpanded] = useState(true)
-
+function SettingCard({ setting, index, isSelected, isActive, selectionMode, onEdit, onDelete, onToggle, onSelect, onShiftSelect, onSelectSetting }: SettingCardProps) {
   // 处理点击卡片（用于 Shift 选择）
   const handleCardClick = (e: React.MouseEvent) => {
     if (selectionMode && e.shiftKey) {
       e.preventDefault()
       onShiftSelect()
+    } else {
+      onSelectSetting()
     }
   }
 
   const cardContent = (
-    <Card 
+    <Card
       className={cn(
-        'transition-colors hover:border-primary/50',
+        'transition-colors hover:border-primary/50 py-0 gap-0',
         !setting.enabled && 'opacity-60',
-        isSelected && 'border-primary ring-1 ring-primary/30 bg-primary/5'
+        isSelected && 'border-primary ring-1 ring-primary/30 bg-primary/5',
+        isActive && !isSelected && 'border-primary/60 bg-primary/5'
       )}
       onClick={handleCardClick}
     >
-      <CardHeader className="pb-2 py-3">
+      <CardHeader className="pb-0 pt-1.5 px-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {selectionMode && (
@@ -1540,21 +1600,6 @@ function SettingCard({ setting, index, isSelected, selectionMode, onEdit, onDele
                 className="h-4 w-4"
               />
             )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 w-6 p-0"
-              onClick={(e) => {
-                e.stopPropagation()
-                setIsExpanded(!isExpanded)
-              }}
-            >
-              {isExpanded ? (
-                <ChevronDown className="h-4 w-4" />
-              ) : (
-                <ChevronRight className="h-4 w-4" />
-              )}
-            </Button>
             <div className="flex items-center gap-2">
                 <CardTitle className="text-sm font-semibold">{setting.name}</CardTitle>
                 {!setting.enabled && (
@@ -1584,29 +1629,11 @@ function SettingCard({ setting, index, isSelected, selectionMode, onEdit, onDele
           </div>
         </div>
       </CardHeader>
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <CardContent className={cn("pt-0 pb-3 px-3", selectionMode ? "ml-[52px]" : "ml-9")}>
-              <div className="rounded bg-muted/30 p-3">
-                <SettingContentTree content={setting.content} />
-              </div>
-            </CardContent>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      {!isExpanded && (
-        <CardContent className={cn("pt-0 pb-3 px-3", selectionMode ? "ml-[52px]" : "ml-9")}>
-          <p className="line-clamp-1 text-xs text-muted-foreground">
-            {setting.content}
-          </p>
-        </CardContent>
-      )}
+      <CardContent className={cn("pt-0 pb-1.5 px-3", selectionMode ? "ml-[52px]" : "ml-3")}>
+        <p className="line-clamp-2 text-xs text-muted-foreground">
+          {setting.content}
+        </p>
+      </CardContent>
     </Card>
   )
 

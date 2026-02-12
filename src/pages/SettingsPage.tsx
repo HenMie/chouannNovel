@@ -17,6 +17,9 @@ import {
   Sun,
   Moon,
   Monitor,
+  RefreshCw,
+  Download,
+  RotateCcw,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -51,6 +54,8 @@ import { useThemeStore } from '@/stores/theme-store'
 import { Tour } from '@/components/help/Tour'
 import { AI_CONFIG_TOUR_STEPS } from '@/tours'
 import { getVersion } from '@tauri-apps/api/app'
+import { check, type Update } from '@tauri-apps/plugin-updater'
+import { relaunch } from '@tauri-apps/plugin-process'
 
 interface SettingsPageProps {
   onNavigate: (path: string) => void
@@ -199,6 +204,13 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
   })
   // 版本信息
   const [appVersion, setAppVersion] = useState<string>('')
+  // 更新相关状态
+  const [updateChecking, setUpdateChecking] = useState(false)
+  const [updateAvailable, setUpdateAvailable] = useState<Update | null>(null)
+  const [updateDownloading, setUpdateDownloading] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState(0)
+  const [downloadTotal, setDownloadTotal] = useState(0)
+  const [updateReady, setUpdateReady] = useState(false)
 
   const loadVersionInfo = useCallback(async () => {
     try {
@@ -207,6 +219,50 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
     } catch {
       // 在非 Tauri 环境下（如开发环境的浏览器）忽略错误
     }
+  }, [])
+
+  const checkForUpdate = useCallback(async () => {
+    setUpdateChecking(true)
+    setUpdateAvailable(null)
+    try {
+      const update = await check()
+      if (update) {
+        setUpdateAvailable(update)
+        toast.success(`发现新版本 v${update.version}`)
+      } else {
+        toast.info('当前已是最新版本')
+      }
+    } catch (e) {
+      toast.error(`检查更新失败: ${getErrorMessage(e)}`)
+    } finally {
+      setUpdateChecking(false)
+    }
+  }, [])
+
+  const downloadAndInstall = useCallback(async () => {
+    if (!updateAvailable) return
+    setUpdateDownloading(true)
+    setDownloadProgress(0)
+    setDownloadTotal(0)
+    try {
+      await updateAvailable.downloadAndInstall((event) => {
+        if (event.event === 'Started' && event.data.contentLength) {
+          setDownloadTotal(event.data.contentLength)
+        } else if (event.event === 'Progress') {
+          setDownloadProgress((prev) => prev + event.data.chunkLength)
+        } else if (event.event === 'Finished') {
+          setUpdateReady(true)
+        }
+      })
+      setUpdateReady(true)
+    } catch (e) {
+      toast.error(`下载更新失败: ${getErrorMessage(e)}`)
+      setUpdateDownloading(false)
+    }
+  }, [updateAvailable])
+
+  const handleRelaunch = useCallback(async () => {
+    await relaunch()
   }, [])
 
   useEffect(() => {
@@ -858,11 +914,78 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                   </CardContent>
                 </Card>
 
-                {/* 版本信息 */}
-                <div className="mt-8 pt-6 border-t border-border/50">
-                  <p className="text-center text-xs text-muted-foreground">
-                    Powered by Chouann {appVersion ? `v${appVersion}` : ''}
-                  </p>
+                {/* 版本与更新 */}
+                <div className="mt-8 pt-6 border-t border-border/50 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      Chouann {appVersion ? `v${appVersion}` : ''}
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={checkForUpdate}
+                      disabled={updateChecking || updateDownloading}
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${updateChecking ? 'animate-spin' : ''}`} />
+                      {updateChecking ? '检查中...' : '检查更新'}
+                    </Button>
+                  </div>
+
+                  {updateAvailable && !updateReady && (
+                    <div className="rounded-lg border bg-card p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium">
+                            新版本 v{updateAvailable.version}
+                          </p>
+                          {updateAvailable.body && (
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-3 whitespace-pre-line">
+                              {updateAvailable.body}
+                            </p>
+                          )}
+                        </div>
+                        {!updateDownloading && (
+                          <Button size="sm" onClick={downloadAndInstall}>
+                            <Download className="h-3.5 w-3.5 mr-1.5" />
+                            下载更新
+                          </Button>
+                        )}
+                      </div>
+                      {updateDownloading && (
+                        <div className="space-y-1.5">
+                          <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                            <div
+                              className="h-full bg-primary rounded-full transition-all duration-300"
+                              style={{
+                                width: downloadTotal > 0
+                                  ? `${Math.min((downloadProgress / downloadTotal) * 100, 100)}%`
+                                  : '0%',
+                              }}
+                            />
+                          </div>
+                          <p className="text-xs text-muted-foreground text-right">
+                            {downloadTotal > 0
+                              ? `${(downloadProgress / 1024 / 1024).toFixed(1)} / ${(downloadTotal / 1024 / 1024).toFixed(1)} MB`
+                              : '准备下载...'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {updateReady && (
+                    <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-green-600 dark:text-green-400">
+                          更新已下载完成，重启应用以完成安装
+                        </p>
+                        <Button size="sm" onClick={handleRelaunch}>
+                          <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                          立即重启
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
