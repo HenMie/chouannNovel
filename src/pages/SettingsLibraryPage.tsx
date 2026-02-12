@@ -383,6 +383,7 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
       await editSetting(editingSetting.id, updates)
       toast.success('设定已更新')
     } else {
+      if (activeTab === 'overview') return
       const newSetting = await addSetting(activeTab, formName.trim(), formContent.trim(), formParentId)
       if (newSetting) {
         // 保存注入相关字段
@@ -803,7 +804,7 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
         setFormKeywords={setFormKeywords}
         formSummary={formSummary}
         setFormSummary={setFormSummary}
-        activeTab={activeTab}
+        activeTab={activeTab === 'overview' ? 'character' : activeTab}
         settings={settings}
         globalConfig={globalConfig}
         onGlobalConfigChange={setGlobalConfig}
