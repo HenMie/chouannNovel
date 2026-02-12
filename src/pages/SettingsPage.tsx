@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
   ArrowLeft,
   Eye,
@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Download,
   RotateCcw,
+  Sparkles,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,6 +32,7 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
@@ -47,7 +49,7 @@ import { Header } from '@/components/layout/Header'
 import { toast } from 'sonner'
 import * as db from '@/lib/db'
 import type { GlobalConfig, AIProvider, CustomModel, Theme } from '@/types'
-import { getBuiltinModelsByProvider, testProviderConnection } from '@/lib/ai'
+import { getBuiltinModelsByProvider, getAvailableModels, testProviderConnection } from '@/lib/ai'
 import { cn } from '@/lib/utils'
 import { getErrorMessage, handleAppError } from '@/lib/errors'
 import { useThemeStore } from '@/stores/theme-store'
@@ -177,7 +179,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
   const [config, setConfig] = useState<GlobalConfig | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [activeTab, setActiveTab] = useState<'ai' | 'general'>('ai')
+  const [activeTab, setActiveTab] = useState<'ai' | 'assistant' | 'general'>('ai')
   const [showApiKeys, setShowApiKeys] = useState<Record<AIProvider, boolean>>({
     openai: false,
     gemini: false,
@@ -211,6 +213,42 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
   const [downloadProgress, setDownloadProgress] = useState(0)
   const [downloadTotal, setDownloadTotal] = useState(0)
   const [updateReady, setUpdateReady] = useState(false)
+
+  // AI 助手配置相关
+  const assistantAvailableModels = useMemo(() => {
+    if (!config) return []
+    return getAvailableModels(config)
+  }, [config])
+
+  const assistantProviders = useMemo(() => {
+    const providers = new Map<AIProvider, string>()
+    const names: Record<AIProvider, string> = { gemini: 'Google Gemini', openai: 'OpenAI', claude: 'Claude' }
+    for (const m of assistantAvailableModels) {
+      if (!providers.has(m.provider)) {
+        providers.set(m.provider, names[m.provider])
+      }
+    }
+    return Array.from(providers.entries())
+  }, [assistantAvailableModels])
+
+  const assistantModelsForProvider = useMemo(() => {
+    if (!config?.setting_assistant?.provider) return []
+    return assistantAvailableModels.filter(m => m.provider === config.setting_assistant!.provider)
+  }, [assistantAvailableModels, config?.setting_assistant?.provider])
+
+  const updateAssistantPrompt = useCallback((action: 'expand' | 'generate' | 'summarize', value: string) => {
+    if (!config?.setting_assistant) return
+    setConfig({
+      ...config,
+      setting_assistant: {
+        ...config.setting_assistant,
+        prompts: {
+          ...config.setting_assistant.prompts,
+          [action]: value || undefined,
+        },
+      },
+    })
+  }, [config])
 
   const loadVersionInfo = useCallback(async () => {
     try {
@@ -295,6 +333,7 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
         theme: config.theme,
         default_loop_max: config.default_loop_max,
         default_timeout: config.default_timeout,
+        setting_assistant: config.setting_assistant,
       })
       toast.success('配置已保存')
     } catch (error) {
@@ -513,6 +552,14 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
               AI 服务
             </Button>
             <Button
+              variant={activeTab === 'assistant' ? 'secondary' : 'ghost'}
+              className="w-full justify-start"
+              onClick={() => setActiveTab('assistant')}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              AI 助手
+            </Button>
+            <Button
               variant={activeTab === 'general' ? 'secondary' : 'ghost'}
               className="w-full justify-start"
               onClick={() => setActiveTab('general')}
@@ -529,12 +576,14 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <TypographyH3>
-                  {activeTab === 'ai' ? 'AI 服务配置' : '通用设置'}
+                  {activeTab === 'ai' ? 'AI 服务配置' : activeTab === 'assistant' ? 'AI 助手' : '通用设置'}
                 </TypographyH3>
                 <TypographyMuted>
                   {activeTab === 'ai'
                     ? '管理 AI 模型提供商的连接和密钥'
-                    : '调整应用的基础行为和默认值'}
+                    : activeTab === 'assistant'
+                      ? '配置设定库 AI 助手的模型与提示词'
+                      : '调整应用的基础行为和默认值'}
                 </TypographyMuted>
               </div>
               <Button onClick={handleSave} disabled={isSaving} data-tour="ai-config-save">
@@ -841,6 +890,149 @@ export function SettingsPage({ onNavigate }: SettingsPageProps) {
                     </CardContent>
                   </Card>
                 ))}
+              </div>
+            )}
+
+            {activeTab === 'assistant' && (
+              <div className="space-y-6">
+                {/* 模型选择 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>模型配置</CardTitle>
+                    <CardDescription>
+                      选择用于设定库 AI 扩展、生成和总结的提供商与模型
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {assistantProviders.length > 0 ? (
+                      <>
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label>提供商</Label>
+                            <Select
+                              value={config?.setting_assistant?.provider || ''}
+                              onValueChange={(v) => {
+                                if (!config) return
+                                setConfig({
+                                  ...config,
+                                  setting_assistant: {
+                                    provider: v as AIProvider,
+                                    model: '',
+                                    prompts: config.setting_assistant?.prompts,
+                                  },
+                                })
+                              }}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="选择提供商" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {assistantProviders.map(([provider, name]) => (
+                                  <SelectItem key={provider} value={provider}>
+                                    {name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>模型</Label>
+                            <Select
+                              value={config?.setting_assistant?.model || ''}
+                              onValueChange={(v) => {
+                                if (!config?.setting_assistant) return
+                                setConfig({
+                                  ...config,
+                                  setting_assistant: {
+                                    ...config.setting_assistant,
+                                    model: v,
+                                  },
+                                })
+                              }}
+                              disabled={!config?.setting_assistant?.provider}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder={config?.setting_assistant?.provider ? '选择模型' : '先选择提供商'} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {assistantModelsForProvider.map((m) => (
+                                  <SelectItem key={m.id} value={m.id}>
+                                    {m.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        {config?.setting_assistant?.provider && config?.setting_assistant?.model && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Check className="h-4 w-4 text-green-500" />
+                            <span>
+                              已选择: {assistantProviders.find(([p]) => p === config.setting_assistant?.provider)?.[1]} / {config.setting_assistant.model}
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        尚未配置可用的 AI 服务。请先在「AI 服务」标签中启用并配置至少一个提供商。
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 自定义提示词 */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>自定义提示词</CardTitle>
+                    <CardDescription>
+                      自定义 AI 助手各功能的系统提示词。留空则使用内置默认提示词（默认提示词会根据设定分类自动调整）
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    {config?.setting_assistant ? (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="prompt-expand">AI 扩展</Label>
+                          <Textarea
+                            id="prompt-expand"
+                            placeholder={"默认提示词: 你是一位专业的小说创作助手。你的任务是基于用户提供的[分类]设定内容，进行丰富和扩展。\n\n要求：\n- 保持原有设定的核心不变\n- 补充更多具体细节，使设定更加立体\n- 使用清晰的 Markdown 格式组织内容\n- 语言风格与原文保持一致\n- 直接输出扩展后的完整内容，不要添加解释性文字"}
+                            value={config.setting_assistant.prompts?.expand || ''}
+                            onChange={(e) => updateAssistantPrompt('expand', e.target.value)}
+                            rows={5}
+                            className="text-sm"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="prompt-generate">AI 生成</Label>
+                          <Textarea
+                            id="prompt-generate"
+                            placeholder={"默认提示词: 你是一位专业的小说创作助手。你的任务是根据给定的名称和分类，从零生成一份完整的[分类]设定。\n\n要求：\n- 内容丰富、具有创意，但保持合理性\n- 使用清晰的 Markdown 格式，适当使用标题分节\n- 涵盖该[分类]的关键要素\n- 直接输出设定内容，不要添加解释性文字"}
+                            value={config.setting_assistant.prompts?.generate || ''}
+                            onChange={(e) => updateAssistantPrompt('generate', e.target.value)}
+                            rows={5}
+                            className="text-sm"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="prompt-summarize">AI 总结</Label>
+                          <Textarea
+                            id="prompt-summarize"
+                            placeholder={"默认提示词: 你是一位专业的小说创作助手。你的任务是为给定的[分类]设定生成一份简短摘要。\n\n要求：\n- 摘要长度控制在 50-100 字以内\n- 提取最核心的特征和信息\n- 适合作为快速浏览的概要\n- 直接输出摘要文本，不要添加标题或前缀"}
+                            value={config.setting_assistant.prompts?.summarize || ''}
+                            onChange={(e) => updateAssistantPrompt('summarize', e.target.value)}
+                            rows={5}
+                            className="text-sm"
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        请先选择 AI 提供商和模型后，再自定义提示词。
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
               </div>
             )}
 
