@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Setting, SettingPrompt, SettingCategory } from '@/types'
+import type { Setting, SettingRelation, SettingPrompt, SettingCategory } from '@/types'
 import {
   getSettings,
   createSetting,
@@ -7,6 +7,9 @@ import {
   deleteSetting,
   getSettingPrompts,
   upsertSettingPrompt,
+  getSettingRelations,
+  createSettingRelation,
+  deleteSettingRelation,
 } from '@/lib/db'
 import { logError } from '@/lib/errors'
 
@@ -27,6 +30,7 @@ interface SettingsState {
   // 设定数据
   settings: Setting[]
   settingPrompts: SettingPrompt[]
+  relations: SettingRelation[]
   currentProjectId: string | null
 
   // 加载状态
@@ -35,7 +39,7 @@ interface SettingsState {
   // 操作
   loadSettings: (projectId: string, query?: string) => Promise<void>
   addSetting: (category: SettingCategory, name: string, content: string, parentId?: string | null) => Promise<Setting | null>
-  editSetting: (id: string, data: Partial<Pick<Setting, 'name' | 'content' | 'enabled' | 'parent_id' | 'order_index'>>) => Promise<void>
+  editSetting: (id: string, data: Partial<Pick<Setting, 'name' | 'content' | 'enabled' | 'parent_id' | 'order_index' | 'injection_mode' | 'priority' | 'keywords' | 'summary'>>) => Promise<void>
   removeSetting: (id: string) => Promise<void>
   toggleSetting: (id: string) => Promise<void>
 
@@ -46,9 +50,16 @@ interface SettingsState {
   // 设定提示词操作
   saveSettingPrompt: (category: SettingCategory, promptTemplate: string) => Promise<void>
 
+  // 关系操作
+  loadRelations: (projectId: string) => Promise<void>
+  getRelationsForSetting: (settingId: string) => SettingRelation[]
+  addRelation: (projectId: string, sourceId: string, targetId: string, label?: string, description?: string) => Promise<SettingRelation>
+  removeRelation: (id: string) => Promise<void>
+
   // 获取器
   getSettingsByCategory: (category: SettingCategory) => Setting[]
   getEnabledSettings: (category?: SettingCategory) => Setting[]
+  getAutoInjectSettings: () => Setting[]
   getSettingPromptByCategory: (category: SettingCategory) => SettingPrompt | undefined
   getSettingTree: (category: SettingCategory) => SettingTreeNode[]
 
@@ -64,6 +75,7 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: [],
   settingPrompts: [],
+  relations: [],
   currentProjectId: null,
   loading: false,
 
@@ -204,6 +216,34 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
 
+  loadRelations: async (projectId: string) => {
+    try {
+      const relations = await getSettingRelations(projectId)
+      set({ relations })
+    } catch (error) {
+      logError({ error, context: '加载设定关系' })
+    }
+  },
+
+  getRelationsForSetting: (settingId: string) => {
+    const { relations } = get()
+    return relations.filter(r =>
+      r.source_id === settingId ||
+      (r.target_id === settingId && r.bidirectional)
+    )
+  },
+
+  addRelation: async (projectId: string, sourceId: string, targetId: string, label?: string, description?: string) => {
+    const relation = await createSettingRelation(projectId, sourceId, targetId, label, description)
+    set(state => ({ relations: [relation, ...state.relations] }))
+    return relation
+  },
+
+  removeRelation: async (id: string) => {
+    await deleteSettingRelation(id)
+    set(state => ({ relations: state.relations.filter(r => r.id !== id) }))
+  },
+
   getSettingsByCategory: (category) => {
     return get().settings.filter((s) => s.category === category)
   },
@@ -211,6 +251,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   getEnabledSettings: (category) => {
     const { settings } = get()
     return settings.filter((s) => s.enabled && (!category || s.category === category))
+  },
+
+  getAutoInjectSettings: () => {
+    const { settings } = get()
+    return settings.filter((s) => s.enabled && s.injection_mode === 'auto')
   },
 
   getSettingPromptByCategory: (category) => {

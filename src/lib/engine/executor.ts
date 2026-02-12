@@ -23,6 +23,7 @@ import type {
 import type { Message } from '@/lib/ai/types'
 import { chatStream } from '@/lib/ai'
 import { getErrorMessage, logError } from '@/lib/errors'
+import { generateSettingsInjection } from '@/lib/settings-injection'
 import { ExecutionContext, NodeExecutionState } from './context'
 
 // 执行器状态
@@ -484,78 +485,6 @@ export class WorkflowExecutor {
   }
 
   /**
-   * 生成设定注入内容
-   */
-  private generateSettingsInjection(settingIds: string[]): string {
-    if (!settingIds || settingIds.length === 0) {
-      return ''
-    }
-
-    // 获取选中的设定，只选择启用的
-    const selectedSettings = this.settings.filter(
-      (s) => settingIds.includes(s.id) && s.enabled
-    )
-
-    if (selectedSettings.length === 0) {
-      return ''
-    }
-
-    // 按分类分组
-    const settingsByCategory: Record<string, Setting[]> = {}
-    selectedSettings.forEach((s) => {
-      if (!settingsByCategory[s.category]) {
-        settingsByCategory[s.category] = []
-      }
-      settingsByCategory[s.category].push(s)
-    })
-
-    // 默认模板
-    const defaultTemplates: Record<string, string> = {
-      character: '【角色设定】\n{{items}}',
-      worldview: '【世界观设定】\n{{items}}',
-      style: '【笔触风格】\n{{items}}',
-      outline: '【故事大纲】\n{{items}}',
-    }
-
-    // 生成各分类的注入内容
-    const parts: string[] = []
-
-    for (const [category, settings] of Object.entries(settingsByCategory)) {
-      // 查找该分类的自定义模板
-      const promptTemplate = this.settingPrompts.find(
-        (p) => p.category === category && p.enabled
-      )
-
-      let template = promptTemplate?.prompt_template || defaultTemplates[category]
-
-      // 生成设定项内容
-      const items = settings.map((s) => `${s.name}：${s.content}`).join('\n\n')
-
-      // 简单的模板替换（支持 {{items}} 和 {{#each items}}...{{/each}}）
-      if (template.includes('{{#each items}}')) {
-        // Handlebars 风格模板
-        const eachMatch = template.match(/\{\{#each items\}\}([\s\S]*?)\{\{\/each\}\}/)
-        if (eachMatch) {
-          const itemTemplate = eachMatch[1]
-          const renderedItems = settings.map((s) => {
-            return itemTemplate
-              .replace(/\{\{name\}\}/g, s.name)
-              .replace(/\{\{content\}\}/g, s.content)
-          }).join('')
-          template = template.replace(eachMatch[0], renderedItems)
-        }
-      } else {
-        // 简单替换
-        template = template.replace(/\{\{items\}\}/g, items)
-      }
-
-      parts.push(template)
-    }
-
-    return parts.join('\n\n')
-  }
-
-  /**
    * 执行 AI 对话节点
    */
   private async executeAIChatNode(node: WorkflowNode): Promise<{ output: string; resolvedConfig: ResolvedNodeConfig; usage?: TokenUsage }> {
@@ -572,8 +501,13 @@ export class WorkflowExecutor {
     const systemPromptRaw = config.system_prompt ?? legacyConfig.prompt ?? ''
     let systemPrompt = systemPromptRaw ? this.context.interpolateStrict(systemPromptRaw) : ''
 
-    // 注入设定到系统提示词
-    const settingsInjection = this.generateSettingsInjection(config.setting_ids || [])
+    // 注入设定到系统提示词（使用智能注入引擎）
+    const settingsInjection = generateSettingsInjection(
+      this.settings,
+      this.settingPrompts,
+      config.setting_ids || [],
+      config.setting_injection_level,
+    )
     if (settingsInjection) {
       systemPrompt = settingsInjection + (systemPrompt ? '\n\n' + systemPrompt : '')
     }

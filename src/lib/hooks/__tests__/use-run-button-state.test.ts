@@ -34,6 +34,7 @@ function createMockGlobalConfig(overrides?: Partial<GlobalConfig>): GlobalConfig
     theme: "system",
     default_loop_max: 10,
     default_timeout: 300,
+    setting_assistant: null,
     ...overrides,
   }
 }
@@ -431,6 +432,7 @@ describe("useRunButtonState - 边界情况", () => {
       theme: "system",
       default_loop_max: 10,
       default_timeout: 300,
+      setting_assistant: null,
     }
 
     const { result } = renderHook(() =>

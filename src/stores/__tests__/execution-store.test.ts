@@ -84,6 +84,7 @@ function createMockGlobalConfig(): GlobalConfig {
     theme: "system",
     default_loop_max: 10,
     default_timeout: 300,
+    setting_assistant: null,
   }
 }
 
@@ -226,6 +227,10 @@ describe("ExecutionStore - 执行控制", () => {
           enabled: true,
           parent_id: null,
           order_index: 0,
+          injection_mode: 'manual',
+          priority: 'medium',
+          keywords: null,
+          summary: null,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },

@@ -68,6 +68,7 @@ function createMockGlobalConfig(overrides?: Partial<GlobalConfig>): GlobalConfig
     theme: "system",
     default_loop_max: 10,
     default_timeout: 300,
+    setting_assistant: null,
     ...overrides,
   }
 }
