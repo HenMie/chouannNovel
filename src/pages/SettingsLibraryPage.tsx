@@ -1,51 +1,27 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ArrowLeft,
   Plus,
-  Users,
-  Globe,
-  Palette,
-  FileText,
   Trash2,
-  Edit2,
-  ChevronDown,
-  ChevronRight,
-  Save,
-  Settings2,
   Search,
-  Bold,
-  Italic,
-  List,
-  Code,
-  Quote,
-  ToggleLeft,
-  ToggleRight,
+  Settings2,
   CheckSquare,
   X,
   Filter,
   ArrowUpDown,
   CheckCircle2,
   XCircle,
-  FolderPlus,
+  ToggleLeft,
+  ToggleRight,
+  Sparkles,
+  BarChart3,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,13 +32,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -76,596 +45,28 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Header } from '@/components/layout/Header'
 import { useProjectStore } from '@/stores/project-store'
-import { useSettingsStore, type SettingFilterStatus, type SettingSortBy, type SettingSortOrder, type SettingTreeNode } from '@/stores/settings-store'
+import { useSettingsStore, type SettingFilterStatus, type SettingSortBy, type SettingSortOrder } from '@/stores/settings-store'
 import { Tour } from '@/components/help/Tour'
 import { SETTINGS_TOUR_STEPS } from '@/tours'
-import { useDebouncedValue, cn } from '@/lib/utils'
+import { useDebouncedValue } from '@/lib/utils'
 import { toast } from 'sonner'
-import type { SettingCategory, Setting } from '@/types'
-import { parseContentToSections, type ContentSection } from '@/lib/markdown-headings'
+import type { SettingCategory, Setting, SettingInjectionMode, SettingPriority, GlobalConfig } from '@/types'
+import { getGlobalConfig } from '@/lib/db'
+import { handleAppError } from '@/lib/errors'
+import { getAssistantProviderName } from '@/lib/ai/setting-assistant'
+
+// 从拆分的组件中导入
+import { CATEGORIES, VirtualSettingsList } from '@/components/settings/SettingCard'
+import { SettingDetailPanel } from '@/components/settings/SettingDetail'
+import { SettingEditorSheet, PromptEditorSheet } from '@/components/settings/SettingEditor'
+import { NavItem, NavTreeItem } from '@/components/settings/SettingNav'
+import { SettingTreeItem } from '@/components/settings/SettingTree'
+import { SettingsDashboard } from '@/components/settings/SettingsDashboard'
 
 interface SettingsLibraryPageProps {
   projectId: string
   onNavigate: (path: string) => void
   initialTab?: SettingCategory
-}
-
-// 树形内容节点组件
-function ContentTreeNode({ section, depth = 0 }: { section: ContentSection; depth?: number }) {
-  const [collapsed, setCollapsed] = useState(false)
-  const hasChildren = section.children.length > 0
-
-  return (
-    <div id={section.id} style={{ paddingLeft: depth > 0 ? `${depth * 16}px` : undefined }}>
-      {section.title && (
-        <div className="flex items-center gap-1 py-1">
-          {hasChildren ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-5 w-5 p-0 shrink-0"
-              onClick={() => setCollapsed(!collapsed)}
-            >
-              {collapsed ? (
-                <ChevronRight className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          ) : (
-            <span className="w-5 shrink-0" />
-          )}
-          <span className={cn(
-            'font-semibold',
-            section.level === 1 && 'text-base',
-            section.level === 2 && 'text-sm',
-            section.level >= 3 && 'text-sm text-muted-foreground',
-          )}>
-            {section.title}
-          </span>
-        </div>
-      )}
-      {!collapsed && (
-        <>
-          {section.content && (
-            <div className={cn(
-              'text-sm whitespace-pre-wrap',
-              section.title ? 'pl-6 pb-1' : 'pb-1',
-            )}>
-              {section.content}
-            </div>
-          )}
-          {hasChildren && section.children.map((child) => (
-            <ContentTreeNode key={child.id} section={child} depth={depth + 1} />
-          ))}
-        </>
-      )}
-    </div>
-  )
-}
-
-// 设定内容树形展示
-function SettingContentTree({ content }: { content: string }) {
-  const sections = useMemo(() => parseContentToSections(content), [content])
-
-  if (sections.length === 0) return null
-
-  // 如果内容没有标题结构，使用原始展示
-  if (sections.length === 1 && !sections[0].title) {
-    return (
-      <div className="text-sm whitespace-pre-wrap">
-        {content}
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-0.5">
-      {sections.map((section) => (
-        <ContentTreeNode key={section.id} section={section} />
-      ))}
-    </div>
-  )
-}
-
-// 设定树形项组件（用于层级展示）
-function SettingTreeItem({
-  node,
-  depth,
-  selectionMode,
-  selectedIds,
-  selectedSettingId,
-  onEdit,
-  onDelete,
-  onToggle,
-  onSelect,
-  onShiftSelect,
-  onAddChild,
-  onSelectSetting,
-}: {
-  node: SettingTreeNode
-  depth: number
-  selectionMode: boolean
-  selectedIds: Set<string>
-  selectedSettingId: string | null
-  onEdit: (setting: Setting) => void
-  onDelete: (setting: Setting) => void
-  onToggle: (id: string) => void
-  onSelect: (id: string, selected: boolean) => void
-  onShiftSelect: (id: string) => void
-  onAddChild: (parentId: string) => void
-  onSelectSetting: (id: string) => void
-}) {
-  const [childrenCollapsed, setChildrenCollapsed] = useState(false)
-  const { setting, children } = node
-  const isSelected = selectedIds.has(setting.id)
-  const isActive = selectedSettingId === setting.id
-  const hasChildren = children.length > 0
-
-  const handleCardClick = (e: React.MouseEvent) => {
-    if (selectionMode && e.shiftKey) {
-      e.preventDefault()
-      onShiftSelect(setting.id)
-    } else {
-      onSelectSetting(setting.id)
-    }
-  }
-
-  return (
-    <div className="relative" style={{ paddingLeft: depth > 0 ? `${depth * 16}px` : undefined }}>
-      {/* 连接细线 */}
-      {depth > 0 && (
-        <div
-          className="absolute top-0 bottom-0 border-l border-border/50"
-          style={{ left: `${(depth - 1) * 16 + 7}px` }}
-        />
-      )}
-      <ContextMenu>
-        <ContextMenuTrigger className="block">
-          <Card
-            className={cn(
-              'transition-colors hover:border-primary/50 mb-1.5 py-0 gap-0',
-              !setting.enabled && 'opacity-60',
-              isSelected && 'border-primary ring-1 ring-primary/30 bg-primary/5',
-              isActive && !isSelected && 'border-primary/60 bg-primary/5'
-            )}
-            onClick={handleCardClick}
-          >
-            <CardHeader className="pb-0 pt-1.5 px-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {selectionMode && (
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={(checked) => onSelect(setting.id, !!checked)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="h-4 w-4"
-                    />
-                  )}
-                  {hasChildren && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-5 w-5 p-0"
-                      onClick={(e) => { e.stopPropagation(); setChildrenCollapsed(!childrenCollapsed) }}
-                    >
-                      {childrenCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                    </Button>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <CardTitle className="text-sm font-semibold">{setting.name}</CardTitle>
-                    {!setting.enabled && (
-                      <span className="text-[10px] bg-muted px-1.5 rounded text-muted-foreground">已禁用</span>
-                    )}
-                    {hasChildren && (
-                      <span className="text-[10px] bg-muted px-1.5 rounded text-muted-foreground">{children.length}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Switch
-                    id={`switch-${setting.id}`}
-                    checked={setting.enabled}
-                    onCheckedChange={() => onToggle(setting.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="scale-75 mr-2"
-                  />
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onAddChild(setting.id) }} title="添加子设定">
-                    <FolderPlus className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEdit(setting) }}>
-                    <Edit2 className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-destructive hover:text-destructive"
-                    onClick={(e) => { e.stopPropagation(); onDelete(setting) }}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-0 pb-1.5 px-3 ml-5">
-              <p className="line-clamp-2 text-xs text-muted-foreground">{setting.content}</p>
-            </CardContent>
-          </Card>
-        </ContextMenuTrigger>
-        <ContextMenuContent className="w-48">
-          <ContextMenuItem onClick={() => onEdit(setting)}>
-            <Edit2 className="mr-2 h-4 w-4" />
-            编辑设定
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => onAddChild(setting.id)}>
-            <FolderPlus className="mr-2 h-4 w-4" />
-            添加子设定
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={() => onToggle(setting.id)}>
-            {setting.enabled ? (
-              <>
-                <ToggleLeft className="mr-2 h-4 w-4" />
-                禁用设定
-              </>
-            ) : (
-              <>
-                <ToggleRight className="mr-2 h-4 w-4" />
-                启用设定
-              </>
-            )}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={() => onDelete(setting)} variant="destructive">
-            <Trash2 className="mr-2 h-4 w-4" />
-            删除设定
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-
-      {/* 子设定 */}
-      {!childrenCollapsed && children.map((child) => (
-        <SettingTreeItem
-          key={child.setting.id}
-          node={child}
-          depth={depth + 1}
-          selectionMode={selectionMode}
-          selectedIds={selectedIds}
-          selectedSettingId={selectedSettingId}
-          onEdit={onEdit}
-          onDelete={onDelete}
-          onToggle={onToggle}
-          onSelect={onSelect}
-          onShiftSelect={onShiftSelect}
-          onAddChild={onAddChild}
-          onSelectSetting={onSelectSetting}
-        />
-      ))}
-    </div>
-  )
-}
-
-// 左侧导航项
-function NavItem({ setting, depth, isActive, onClick }: {
-  setting: Setting
-  depth: number
-  isActive: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      className={cn(
-        'block w-full text-left text-xs truncate py-1.5 px-2 rounded transition-colors',
-        isActive
-          ? 'bg-primary/10 text-primary font-semibold'
-          : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-      )}
-      style={{ paddingLeft: `${depth * 12 + 8}px` }}
-      title={setting.name}
-      onClick={onClick}
-    >
-      {setting.name}
-    </button>
-  )
-}
-
-// 左侧导航树形项（递归）
-function NavTreeItem({ node, depth, selectedSettingId, onSelect }: {
-  node: SettingTreeNode
-  depth: number
-  selectedSettingId: string | null
-  onSelect: (id: string) => void
-}) {
-  return (
-    <>
-      <NavItem
-        setting={node.setting}
-        depth={depth}
-        isActive={selectedSettingId === node.setting.id}
-        onClick={() => onSelect(node.setting.id)}
-      />
-      {node.children.map((child) => (
-        <NavTreeItem
-          key={child.setting.id}
-          node={child}
-          depth={depth + 1}
-          selectedSettingId={selectedSettingId}
-          onSelect={onSelect}
-        />
-      ))}
-    </>
-  )
-}
-
-// 分类配置
-const CATEGORIES: Array<{
-  key: SettingCategory
-  label: string
-  icon: React.ElementType
-  description: string
-  defaultPrompt: string
-}> = [
-  {
-    key: 'character',
-    label: '角色',
-    icon: Users,
-    description: '定义故事中的角色设定，包括性格、外貌、背景等',
-    defaultPrompt: '【角色设定】\n{{#each items}}\n角色名：{{name}}\n{{content}}\n{{/each}}',
-  },
-  {
-    key: 'worldview',
-    label: '世界观',
-    icon: Globe,
-    description: '描述故事发生的世界背景、规则和设定',
-    defaultPrompt: '【世界观设定】\n{{#each items}}\n{{name}}：{{content}}\n{{/each}}',
-  },
-  {
-    key: 'style',
-    label: '笔触风格',
-    icon: Palette,
-    description: '定义写作风格、语言特点和叙事方式',
-    defaultPrompt: '【笔触风格】\n{{#each items}}\n{{name}}：{{content}}\n{{/each}}',
-  },
-  {
-    key: 'outline',
-    label: '大纲',
-    icon: FileText,
-    description: '故事的整体结构、章节规划和剧情走向',
-    defaultPrompt: '【故事大纲】\n{{#each items}}\n{{name}}：{{content}}\n{{/each}}',
-  },
-]
-
-// 虚拟设定列表组件
-function VirtualSettingsList({
-  settings,
-  selectedIds,
-  selectionMode,
-  selectedSettingId,
-  onEdit,
-  onDelete,
-  onToggle,
-  onSelect,
-  onShiftSelect,
-  onSelectSetting,
-}: {
-  settings: Setting[]
-  selectedIds: Set<string>
-  selectionMode: boolean
-  selectedSettingId: string | null
-  onEdit: (setting: Setting) => void
-  onDelete: (setting: Setting) => void
-  onToggle: (id: string) => void
-  onSelect: (id: string, selected: boolean) => void
-  onShiftSelect: (id: string) => void
-  onSelectSetting: (id: string) => void
-}) {
-  const parentRef = useRef<HTMLDivElement>(null)
-
-  const virtualizer = useVirtualizer({
-    count: settings.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 80,
-    overscan: 5,
-    getItemKey: (index) => settings[index].id,
-  })
-
-  const virtualItems = virtualizer.getVirtualItems()
-
-  // 如果设定数量较少（<20），直接渲染不使用虚拟化
-  if (settings.length < 20) {
-    return (
-      <div className="space-y-3">
-        <AnimatePresence mode="popLayout">
-          {settings.map((setting, index) => (
-            <SettingCard
-              key={setting.id}
-              setting={setting}
-              index={index}
-              isSelected={selectedIds.has(setting.id)}
-              isActive={selectedSettingId === setting.id}
-              selectionMode={selectionMode}
-              onEdit={() => onEdit(setting)}
-              onDelete={() => onDelete(setting)}
-              onToggle={() => onToggle(setting.id)}
-              onSelect={(selected) => onSelect(setting.id, selected)}
-              onShiftSelect={() => onShiftSelect(setting.id)}
-              onSelectSetting={() => onSelectSetting(setting.id)}
-            />
-          ))}
-        </AnimatePresence>
-      </div>
-    )
-  }
-
-  return (
-    <div
-      ref={parentRef}
-      className="h-[calc(100vh-320px)] min-h-[300px] overflow-auto"
-    >
-      <div
-        style={{
-          height: `${virtualizer.getTotalSize()}px`,
-          width: '100%',
-          position: 'relative',
-        }}
-      >
-        {virtualItems.map((virtualItem) => {
-          const setting = settings[virtualItem.index]
-          return (
-            <div
-              key={virtualItem.key}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                transform: `translateY(${virtualItem.start}px)`,
-                paddingBottom: '12px',
-              }}
-            >
-              <SettingCardVirtual
-                setting={setting}
-                isSelected={selectedIds.has(setting.id)}
-                isActive={selectedSettingId === setting.id}
-                selectionMode={selectionMode}
-                onEdit={() => onEdit(setting)}
-                onDelete={() => onDelete(setting)}
-                onToggle={() => onToggle(setting.id)}
-                onSelect={(selected) => onSelect(setting.id, selected)}
-                onShiftSelect={() => onShiftSelect(setting.id)}
-                onSelectSetting={() => onSelectSetting(setting.id)}
-              />
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// 虚拟列表专用的设定卡片（无动画版本，提高性能）
-function SettingCardVirtual({
-  setting,
-  isSelected,
-  isActive,
-  selectionMode,
-  onEdit,
-  onDelete,
-  onToggle,
-  onSelect,
-  onShiftSelect,
-  onSelectSetting,
-}: {
-  setting: Setting
-  isSelected: boolean
-  isActive: boolean
-  selectionMode: boolean
-  onEdit: () => void
-  onDelete: () => void
-  onToggle: () => void
-  onSelect: (selected: boolean) => void
-  onShiftSelect: () => void
-  onSelectSetting: () => void
-}) {
-  // 处理点击卡片（用于 Shift 选择）
-  const handleCardClick = (e: React.MouseEvent) => {
-    if (selectionMode && e.shiftKey) {
-      e.preventDefault()
-      onShiftSelect()
-    } else {
-      onSelectSetting()
-    }
-  }
-  const cardContent = (
-    <Card
-      className={cn(
-        'transition-colors hover:border-primary/50 py-0 gap-0',
-        !setting.enabled && 'opacity-60',
-        isSelected && 'border-primary ring-1 ring-primary/30 bg-primary/5',
-        isActive && !isSelected && 'border-primary/60 bg-primary/5'
-      )}
-      onClick={handleCardClick}
-    >
-      <CardHeader className="pb-0 pt-1.5 px-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {selectionMode && (
-              <Checkbox
-                checked={isSelected}
-                onCheckedChange={(checked) => onSelect(!!checked)}
-                onClick={(e) => e.stopPropagation()}
-                className="h-4 w-4"
-              />
-            )}
-            <div className="flex items-center gap-2">
-               <CardTitle className="text-sm font-semibold">{setting.name}</CardTitle>
-               {!setting.enabled && (
-                  <span className="text-[10px] bg-muted px-1.5 rounded text-muted-foreground">已禁用</span>
-               )}
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <Switch
-              id={`switch-${setting.id}`}
-              checked={setting.enabled}
-              onCheckedChange={onToggle}
-              onClick={(e) => e.stopPropagation()}
-              className="scale-75 mr-2"
-            />
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEdit() }}>
-              <Edit2 className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-destructive hover:text-destructive"
-              onClick={(e) => { e.stopPropagation(); onDelete() }}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className={cn("pt-0 pb-1.5 px-3", selectionMode ? "ml-[52px]" : "ml-3")}>
-        <p className="line-clamp-2 text-xs text-muted-foreground">
-          {setting.content}
-        </p>
-      </CardContent>
-    </Card>
-  )
-
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger className="block">
-        {cardContent}
-      </ContextMenuTrigger>
-      <ContextMenuContent className="w-48">
-        <ContextMenuItem onClick={onEdit}>
-          <Edit2 className="mr-2 h-4 w-4" />
-          编辑设定
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={onToggle}>
-          {setting.enabled ? (
-            <>
-              <ToggleLeft className="mr-2 h-4 w-4" />
-              禁用设定
-            </>
-          ) : (
-            <>
-              <ToggleRight className="mr-2 h-4 w-4" />
-              启用设定
-            </>
-          )}
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={onDelete} variant="destructive">
-          <Trash2 className="mr-2 h-4 w-4" />
-          删除设定
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
-  )
 }
 
 export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: SettingsLibraryPageProps) {
@@ -684,9 +85,10 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
     getFilteredAndSortedSettings,
     getSettingPromptByCategory,
     getSettingTree,
+    loadRelations,
   } = useSettingsStore()
 
-  const [activeTab, setActiveTab] = useState<SettingCategory>(initialTab || 'character')
+  const [activeTab, setActiveTab] = useState<SettingCategory | 'overview'>(initialTab || 'character')
   const [isSheetOpen, setIsSheetOpen] = useState(false)
   const [editingSetting, setEditingSetting] = useState<Setting | null>(null)
   const [deletingSetting, setDeletingSetting] = useState<Setting | null>(null)
@@ -710,8 +112,11 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
   const [formName, setFormName] = useState('')
   const [formContent, setFormContent] = useState('')
   const [formParentId, setFormParentId] = useState<string | null>(null)
-  const contentInputRef = useRef<HTMLTextAreaElement>(null)
-  const promptInputRef = useRef<HTMLTextAreaElement>(null)
+  const [formInjectionMode, setFormInjectionMode] = useState<SettingInjectionMode>('manual')
+  const [formPriority, setFormPriority] = useState<SettingPriority>('medium')
+  const [formKeywords, setFormKeywords] = useState('')
+  const [formSummary, setFormSummary] = useState('')
+  const [globalConfig, setGlobalConfig] = useState<GlobalConfig | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // 加载项目和设定
@@ -726,6 +131,13 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
         // 显式加载工作流，因为 setCurrentProject 会清空 workflows
         loadWorkflows(project.id)
       }
+      // 加载全局配置（用于 AI 助手）
+      try {
+        const config = await getGlobalConfig()
+        setGlobalConfig(config)
+      } catch (error) {
+        handleAppError({ error, context: '加载全局配置', silent: true })
+      }
     }
     loadData()
   }, [projectId, projects.length, loadProjects, setCurrentProject, loadWorkflows])
@@ -736,14 +148,29 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
   // 搜索和加载设定
   useEffect(() => {
     loadSettings(projectId, debouncedSearchQuery)
-  }, [projectId, debouncedSearchQuery, loadSettings])
+    loadRelations(projectId)
+  }, [projectId, debouncedSearchQuery, loadSettings, loadRelations])
 
   // 获取当前分类的设定（应用筛选和排序）
   const currentCategorySettings = useMemo(() => {
+    if (activeTab === 'overview') return []
     return getFilteredAndSortedSettings(activeTab, filterStatus, sortBy, sortOrder)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, filterStatus, sortBy, sortOrder, getFilteredAndSortedSettings, settings])
-  
+
+  // 每个分类的设定数量统计
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, { total: number; enabled: number }> = {}
+    for (const cat of CATEGORIES) {
+      const catSettings = settings.filter(s => s.category === cat.key)
+      counts[cat.key] = {
+        total: catSettings.length,
+        enabled: catSettings.filter(s => s.enabled).length,
+      }
+    }
+    return counts
+  }, [settings])
+
   const currentCategory = CATEGORIES.find((c) => c.key === activeTab)
 
   // 当前选中的设定（用于右侧详情面板）
@@ -757,7 +184,7 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
 
   // 树形结构
   const currentSettingTree = useMemo(() => {
-    if (isFilterMode) return []
+    if (isFilterMode || activeTab === 'overview') return []
     return getSettingTree(activeTab)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, isFilterMode, getSettingTree, settings])
@@ -905,6 +332,10 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
     setFormName('')
     setFormContent('')
     setFormParentId(parentId ?? null)
+    setFormInjectionMode('manual')
+    setFormPriority('medium')
+    setFormKeywords('')
+    setFormSummary('')
     setEditingSetting(null)
     setIsSheetOpen(true)
   }
@@ -914,6 +345,10 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
     setFormName(setting.name)
     setFormContent(setting.content)
     setFormParentId(setting.parent_id)
+    setFormInjectionMode(setting.injection_mode)
+    setFormPriority(setting.priority)
+    setFormKeywords(setting.keywords ? setting.keywords.join(', ') : '')
+    setFormSummary(setting.summary ?? '')
     setEditingSetting(setting)
     setIsSheetOpen(true)
   }
@@ -929,10 +364,18 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
       return
     }
 
+    const parsedKeywords = formKeywords.trim()
+      ? formKeywords.split(',').map(k => k.trim()).filter(Boolean)
+      : null
+
     if (editingSetting) {
-      const updates: Partial<Pick<Setting, 'name' | 'content' | 'parent_id'>> = {
+      const updates: Partial<Pick<Setting, 'name' | 'content' | 'parent_id' | 'injection_mode' | 'priority' | 'keywords' | 'summary'>> = {
         name: formName.trim(),
         content: formContent.trim(),
+        injection_mode: formInjectionMode,
+        priority: formPriority,
+        keywords: parsedKeywords,
+        summary: formSummary.trim() || null,
       }
       if (editingSetting.parent_id !== formParentId) {
         updates.parent_id = formParentId
@@ -940,7 +383,16 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
       await editSetting(editingSetting.id, updates)
       toast.success('设定已更新')
     } else {
-      await addSetting(activeTab, formName.trim(), formContent.trim(), formParentId)
+      const newSetting = await addSetting(activeTab, formName.trim(), formContent.trim(), formParentId)
+      if (newSetting) {
+        // 保存注入相关字段
+        await editSetting(newSetting.id, {
+          injection_mode: formInjectionMode,
+          priority: formPriority,
+          keywords: parsedKeywords,
+          summary: formSummary.trim() || null,
+        })
+      }
       toast.success('设定已创建')
     }
 
@@ -958,6 +410,7 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
 
   // 打开提示词编辑器
   const handleOpenPromptEditor = () => {
+    if (activeTab === 'overview') return
     const prompt = getSettingPromptByCategory(activeTab)
     setPromptTemplate(prompt?.prompt_template || currentCategory?.defaultPrompt || '')
     setIsPromptSheetOpen(true)
@@ -965,41 +418,10 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
 
   // 保存提示词模板
   const handleSavePrompt = async () => {
+    if (activeTab === 'overview') return
     await saveSettingPrompt(activeTab, promptTemplate)
     toast.success('注入提示词已保存')
     setIsPromptSheetOpen(false)
-  }
-
-  // 插入 Markdown 格式
-  const insertFormat = (start: string, end: string = '') => {
-    if (!contentInputRef.current) return
-    const input = contentInputRef.current
-    const startPos = input.selectionStart
-    const endPos = input.selectionEnd
-    const text = formContent
-    const selectedText = text.substring(startPos, endPos)
-    const replacement = `${start}${selectedText}${end}`
-    const newText = text.substring(0, startPos) + replacement + text.substring(endPos)
-    setFormContent(newText)
-    setTimeout(() => {
-      input.focus()
-      input.setSelectionRange(startPos + start.length, endPos + start.length)
-    }, 0)
-  }
-
-  // 插入变量到提示词
-  const insertVariable = (variable: string) => {
-    if (!promptInputRef.current) return
-    const input = promptInputRef.current
-    const startPos = input.selectionStart
-    const endPos = input.selectionEnd
-    const text = promptTemplate
-    const newText = text.substring(0, startPos) + variable + text.substring(endPos)
-    setPromptTemplate(newText)
-    setTimeout(() => {
-      input.focus()
-      input.setSelectionRange(startPos + variable.length, startPos + variable.length)
-    }, 0)
   }
 
   if (!currentProject) {
@@ -1144,8 +566,8 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                     className="h-4 w-4"
                   />
                   <span className="text-sm">
-                    {selectedIds.size > 0 
-                      ? `已选择 ${selectedIds.size} 项` 
+                    {selectedIds.size > 0
+                      ? `已选择 ${selectedIds.size} 项`
                       : '点击复选框选择设定，Shift+点击可范围选择'}
                   </span>
                   {selectedIds.size > 0 && (
@@ -1178,8 +600,12 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
               )}
             </AnimatePresence>
 
-            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SettingCategory)}>
-              <TabsList className="mb-6 grid w-full grid-cols-4" data-tour="settings-tabs">
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SettingCategory | 'overview')}>
+              <TabsList className="mb-6 grid w-full grid-cols-5" data-tour="settings-tabs">
+                <TabsTrigger value="overview" className="flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  <span className="hidden sm:inline">总览</span>
+                </TabsTrigger>
                 {CATEGORIES.map((category) => (
                   <TabsTrigger
                     key={category.key}
@@ -1188,9 +614,22 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                   >
                     <category.icon className="h-4 w-4" />
                     <span className="hidden sm:inline">{category.label}</span>
+                    {categoryCounts[category.key]?.total > 0 && (
+                      <Badge variant="secondary" className="h-4 min-w-4 px-1 text-[10px] leading-none">
+                        {categoryCounts[category.key].enabled}/{categoryCounts[category.key].total}
+                      </Badge>
+                    )}
                   </TabsTrigger>
                 ))}
               </TabsList>
+
+              <TabsContent value="overview">
+                <SettingsDashboard
+                  settings={settings}
+                  onSelectSetting={setSelectedSettingId}
+                  onSwitchTab={(tab) => setActiveTab(tab)}
+                />
+              </TabsContent>
 
               {CATEGORIES.map((category) => (
                 <TabsContent key={category.key} value={category.key}>
@@ -1227,9 +666,29 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                           {searchQuery || filterStatus !== 'all' ? '未找到匹配的设定' : `暂无${category.label}设定`}
                         </p>
                         {!searchQuery && filterStatus === 'all' && (
-                           <p className="text-sm text-muted-foreground/70">
-                              点击上方按钮添加{category.label}设定
-                           </p>
+                          <div className="space-y-3 mt-2">
+                            <p className="text-sm text-muted-foreground/70">
+                              {category.key === 'character' && '创建角色设定，定义人物外貌、性格、背景等信息'}
+                              {category.key === 'worldview' && '创建世界观设定，定义故事发生的世界规则'}
+                              {category.key === 'style' && '创建笔触风格设定，定义写作语言和叙事风格'}
+                              {category.key === 'outline' && '创建大纲设定，规划故事的结构和发展脉络'}
+                            </p>
+                            <div className="flex gap-2 justify-center">
+                              <Button size="sm" onClick={() => handleAdd()}>
+                                <Plus className="mr-1.5 h-4 w-4" />
+                                手动创建
+                              </Button>
+                              {globalConfig && getAssistantProviderName(globalConfig) && (
+                                <Button size="sm" variant="outline" onClick={() => {
+                                  handleAdd()
+                                  // Dialog 打开后用户可使用 AI 生成按钮
+                                }}>
+                                  <Sparkles className="mr-1.5 h-4 w-4" />
+                                  AI 辅助创建
+                                </Button>
+                              )}
+                            </div>
+                          </div>
                         )}
                       </CardContent>
                     </Card>
@@ -1304,47 +763,16 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
                         )}
                       </div>
                       {/* 右侧：详情面板 */}
-                      <div className="w-80 shrink-0">
-                        <div className="sticky top-4 max-h-[calc(100vh-280px)] overflow-y-auto rounded-lg border bg-card p-2.5">
-                          {selectedSetting ? (
-                            <div>
-                              {breadcrumbPath.length > 0 && (
-                                <div className="flex items-center gap-1 mb-1.5 text-[10px] text-muted-foreground flex-wrap">
-                                  {breadcrumbPath.map((ancestor, i) => (
-                                    <span key={ancestor.id} className="flex items-center gap-1">
-                                      {i > 0 && <ChevronRight className="h-2.5 w-2.5" />}
-                                      <button
-                                        type="button"
-                                        className="hover:text-foreground transition-colors hover:underline"
-                                        onClick={() => setSelectedSettingId(ancestor.id)}
-                                      >
-                                        {ancestor.name}
-                                      </button>
-                                    </span>
-                                  ))}
-                                  <ChevronRight className="h-2.5 w-2.5" />
-                                </div>
-                              )}
-                              <div className="flex items-center justify-between mb-2">
-                                <h3 className="text-sm font-semibold truncate" title={selectedSetting.name}>
-                                  {selectedSetting.name}
-                                </h3>
-                                {!selectedSetting.enabled && (
-                                  <span className="text-[10px] bg-muted px-1.5 rounded text-muted-foreground shrink-0 ml-2">已禁用</span>
-                                )}
-                              </div>
-                              <div className="rounded bg-muted/30 p-2">
-                                <SettingContentTree content={selectedSetting.content} />
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col items-center justify-center py-8 text-center">
-                              <FileText className="mb-3 h-8 w-8 text-muted-foreground/40" />
-                              <p className="text-xs text-muted-foreground">点击左侧设定查看详情</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      <SettingDetailPanel
+                        selectedSetting={selectedSetting}
+                        breadcrumbPath={breadcrumbPath}
+                        onSelectSetting={setSelectedSettingId}
+                        onEdit={handleEdit}
+                        onToggle={(s) => toggleSetting(s.id)}
+                        onDelete={setDeletingSetting}
+                        projectId={projectId}
+                        allSettings={settings}
+                      />
                     </div>
                   )}
                 </TabsContent>
@@ -1354,162 +782,42 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
         </div>
       </div>
 
-      {/* 编辑设定抽屉 (Sheet) */}
-      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent className="w-[400px] sm:w-[600px] flex flex-col">
-          <SheetHeader>
-            <SheetTitle>
-              {editingSetting ? '编辑设定' : `添加${currentCategory?.label}`}
-            </SheetTitle>
-            <SheetDescription>
-              {currentCategory?.description}
-            </SheetDescription>
-          </SheetHeader>
+      {/* 编辑设定 (Dialog 居中浮动窗) */}
+      <SettingEditorSheet
+        open={isSheetOpen}
+        onOpenChange={setIsSheetOpen}
+        editingSetting={editingSetting}
+        categoryLabel={currentCategory?.label}
+        categoryDescription={currentCategory?.description}
+        formName={formName}
+        setFormName={setFormName}
+        formContent={formContent}
+        setFormContent={setFormContent}
+        formParentId={formParentId}
+        setFormParentId={setFormParentId}
+        formInjectionMode={formInjectionMode}
+        setFormInjectionMode={setFormInjectionMode}
+        formPriority={formPriority}
+        setFormPriority={setFormPriority}
+        formKeywords={formKeywords}
+        setFormKeywords={setFormKeywords}
+        formSummary={formSummary}
+        setFormSummary={setFormSummary}
+        activeTab={activeTab}
+        settings={settings}
+        globalConfig={globalConfig}
+        onGlobalConfigChange={setGlobalConfig}
+        onSave={handleSave}
+      />
 
-          <div className="flex-1 overflow-y-auto py-4 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="setting-name">名称</Label>
-              <Input
-                id="setting-name"
-                placeholder="输入名称..."
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                autoComplete="off"
-              />
-            </div>
-            {/* 父设定选择 */}
-            <div className="space-y-2">
-              <Label htmlFor="setting-parent">父设定（可选）</Label>
-              <select
-                id="setting-parent"
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={formParentId ?? ''}
-                onChange={(e) => setFormParentId(e.target.value || null)}
-              >
-                <option value="">无（根级设定）</option>
-                {settings
-                  .filter((s) => {
-                    if (s.category !== activeTab) return false
-                    if (!editingSetting) return true
-                    // 排除自身及所有后代，防止循环引用
-                    const descendants = new Set<string>()
-                    function collectDesc(parentId: string) {
-                      descendants.add(parentId)
-                      settings.filter(c => c.parent_id === parentId).forEach(c => collectDesc(c.id))
-                    }
-                    collectDesc(editingSetting.id)
-                    return !descendants.has(s.id)
-                  })
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.parent_id ? '  └ ' : ''}{s.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="setting-content">内容</Label>
-                {/* Markdown Toolbar */}
-                <div className="flex items-center gap-1">
-                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => insertFormat('**', '**')} title="粗体">
-                      <Bold className="h-3 w-3" />
-                   </Button>
-                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => insertFormat('*', '*')} title="斜体">
-                      <Italic className="h-3 w-3" />
-                   </Button>
-                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => insertFormat('- ')} title="列表">
-                      <List className="h-3 w-3" />
-                   </Button>
-                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => insertFormat('`', '`')} title="代码">
-                      <Code className="h-3 w-3" />
-                   </Button>
-                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => insertFormat('> ')} title="引用">
-                      <Quote className="h-3 w-3" />
-                   </Button>
-                </div>
-              </div>
-              <Textarea
-                ref={contentInputRef}
-                id="setting-content"
-                placeholder="输入详细内容... (支持 Markdown)"
-                className="min-h-[400px] resize-none font-mono text-sm"
-                value={formContent}
-                onChange={(e) => setFormContent(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <SheetFooter>
-            <Button variant="outline" onClick={() => setIsSheetOpen(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSave}>
-              <Save className="mr-2 h-4 w-4" />
-              保存
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
-
-      {/* 注入提示词编辑器 (Sheet) */}
-      <Sheet open={isPromptSheetOpen} onOpenChange={setIsPromptSheetOpen}>
-        <SheetContent className="w-[400px] sm:w-[600px] flex flex-col">
-          <SheetHeader>
-            <SheetTitle>编辑注入提示词模板</SheetTitle>
-            <SheetDescription>
-              配置 AI 节点中引用此分类设定时的提示词格式。
-            </SheetDescription>
-          </SheetHeader>
-
-          <div className="flex-1 overflow-y-auto py-4 space-y-4">
-            <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-2">
-              <p className="font-medium">快速插入变量：</p>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" size="xs" onClick={() => insertVariable('{{#each items}}...{{/each}}')}>
-                   遍历循环
-                </Button>
-                <Button variant="secondary" size="xs" onClick={() => insertVariable('{{name}}')}>
-                   名称
-                </Button>
-                <Button variant="secondary" size="xs" onClick={() => insertVariable('{{content}}')}>
-                   内容
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2 flex-1 flex flex-col">
-              <Label htmlFor="prompt-template">提示词模板</Label>
-              <Textarea
-                ref={promptInputRef}
-                id="prompt-template"
-                placeholder="输入提示词模板..."
-                className="flex-1 min-h-[300px] font-mono text-sm resize-none"
-                value={promptTemplate}
-                onChange={(e) => setPromptTemplate(e.target.value)}
-              />
-            </div>
-            <div className="rounded-lg border p-3 bg-muted/10">
-               <Label className="mb-2 block text-xs text-muted-foreground">预览效果 (示例)</Label>
-               <div className="text-xs text-muted-foreground whitespace-pre-wrap font-mono max-h-[100px] overflow-y-auto">
-                  {promptTemplate
-                    .replace(/{{#each items}}([\s\S]*?){{\/each}}/g, '$1\n$1')
-                    .replace(/{{name}}/g, '示例设定名')
-                    .replace(/{{content}}/g, '示例设定内容...')}
-               </div>
-            </div>
-          </div>
-
-          <SheetFooter>
-            <Button variant="outline" onClick={() => setIsPromptSheetOpen(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSavePrompt}>
-              <Save className="mr-2 h-4 w-4" />
-              保存
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+      {/* 注入提示词编辑器 (Dialog 居中浮动窗) */}
+      <PromptEditorSheet
+        open={isPromptSheetOpen}
+        onOpenChange={setIsPromptSheetOpen}
+        promptTemplate={promptTemplate}
+        setPromptTemplate={setPromptTemplate}
+        onSave={handleSavePrompt}
+      />
 
       {/* 删除确认对话框 */}
       <AlertDialog open={!!deletingSetting} onOpenChange={() => setDeletingSetting(null)}>
@@ -1552,130 +860,3 @@ export function SettingsLibraryPage({ projectId, onNavigate, initialTab }: Setti
     </div>
   )
 }
-
-// 设定卡片组件
-interface SettingCardProps {
-  setting: Setting
-  index: number
-  isSelected: boolean
-  isActive: boolean
-  selectionMode: boolean
-  onEdit: () => void
-  onDelete: () => void
-  onToggle: () => void
-  onSelect: (selected: boolean) => void
-  onShiftSelect: () => void
-  onSelectSetting: () => void
-}
-
-function SettingCard({ setting, index, isSelected, isActive, selectionMode, onEdit, onDelete, onToggle, onSelect, onShiftSelect, onSelectSetting }: SettingCardProps) {
-  // 处理点击卡片（用于 Shift 选择）
-  const handleCardClick = (e: React.MouseEvent) => {
-    if (selectionMode && e.shiftKey) {
-      e.preventDefault()
-      onShiftSelect()
-    } else {
-      onSelectSetting()
-    }
-  }
-
-  const cardContent = (
-    <Card
-      className={cn(
-        'transition-colors hover:border-primary/50 py-0 gap-0',
-        !setting.enabled && 'opacity-60',
-        isSelected && 'border-primary ring-1 ring-primary/30 bg-primary/5',
-        isActive && !isSelected && 'border-primary/60 bg-primary/5'
-      )}
-      onClick={handleCardClick}
-    >
-      <CardHeader className="pb-0 pt-1.5 px-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {selectionMode && (
-              <Checkbox
-                checked={isSelected}
-                onCheckedChange={(checked) => onSelect(!!checked)}
-                onClick={(e) => e.stopPropagation()}
-                className="h-4 w-4"
-              />
-            )}
-            <div className="flex items-center gap-2">
-                <CardTitle className="text-sm font-semibold">{setting.name}</CardTitle>
-                {!setting.enabled && (
-                  <span className="text-[10px] bg-muted px-1.5 rounded text-muted-foreground">已禁用</span>
-                )}
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <Switch
-              id={`switch-${setting.id}`}
-              checked={setting.enabled}
-              onCheckedChange={onToggle}
-              onClick={(e) => e.stopPropagation()}
-              className="scale-75 mr-2"
-            />
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); onEdit() }}>
-              <Edit2 className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-destructive hover:text-destructive"
-              onClick={(e) => { e.stopPropagation(); onDelete() }}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className={cn("pt-0 pb-1.5 px-3", selectionMode ? "ml-[52px]" : "ml-3")}>
-        <p className="line-clamp-2 text-xs text-muted-foreground">
-          {setting.content}
-        </p>
-      </CardContent>
-    </Card>
-  )
-
-  return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      transition={{ delay: index * 0.05 }}
-    >
-      <ContextMenu>
-        <ContextMenuTrigger className="block">
-          {cardContent}
-        </ContextMenuTrigger>
-        <ContextMenuContent className="w-48">
-          <ContextMenuItem onClick={onEdit}>
-            <Edit2 className="mr-2 h-4 w-4" />
-            编辑设定
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={onToggle}>
-            {setting.enabled ? (
-              <>
-                <ToggleLeft className="mr-2 h-4 w-4" />
-                禁用设定
-              </>
-            ) : (
-              <>
-                <ToggleRight className="mr-2 h-4 w-4" />
-                启用设定
-              </>
-            )}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onClick={onDelete} variant="destructive">
-            <Trash2 className="mr-2 h-4 w-4" />
-            删除设定
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-    </motion.div>
-  )
-}
-

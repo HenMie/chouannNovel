@@ -1,7 +1,7 @@
 // AI 对话节点配置表单
 
 import React, { useEffect, useState, useMemo } from 'react'
-import { Users, Globe, Palette, FileText, Check, Settings2, ChevronDown, ChevronRight, AlertTriangle, Sparkles, Scale, Target } from 'lucide-react'
+import { Users, Globe, Palette, FileText, Check, Settings2, ChevronDown, ChevronRight, AlertTriangle, Sparkles, Scale, Target, Zap, Layers, Maximize } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { PromptInputField, type PromptInputMode } from '@/components/ui/prompt-input-field'
@@ -447,6 +447,50 @@ export function AIChatConfigForm({ config, globalConfig, projectId, nodes = [], 
                 已选择 {currentConfig.setting_ids.length} 个设定
               </p>
             )}
+
+            {/* 自动注入设定提示 */}
+            {settings.filter(s => s.enabled && s.injection_mode === 'auto').length > 0 && (
+              <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-2.5">
+                <div className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
+                  <Zap className="h-3.5 w-3.5" />
+                  <span>
+                    {settings.filter(s => s.enabled && s.injection_mode === 'auto').length} 个设定已开启自动注入，无需手动选择
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* 注入级别选择 */}
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">注入级别</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { key: 'minimal' as const, label: '精简', icon: Zap, desc: '~500 tokens' },
+                  { key: 'balanced' as const, label: '平衡', icon: Layers, desc: '~1500 tokens' },
+                  { key: 'full' as const, label: '完整', icon: Maximize, desc: '~3000 tokens' },
+                ]).map(({ key, label, icon: Icon, desc }) => {
+                  const isActive = (currentConfig.setting_injection_level ?? 'full') === key
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={cn(
+                        "flex flex-col items-center gap-0.5 rounded-lg border p-2 text-xs transition-all hover:bg-accent/50",
+                        isActive && "border-primary bg-primary/5 ring-1 ring-primary/20"
+                      )}
+                      onClick={() => updateConfig({ setting_injection_level: key })}
+                    >
+                      <Icon className={cn("h-3.5 w-3.5", isActive ? "text-primary" : "text-muted-foreground")} />
+                      <span className={cn("font-medium", isActive && "text-primary")}>{label}</span>
+                      <span className="text-[10px] text-muted-foreground">{desc}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                精简模式优先注入高优先级设定，完整模式注入全部选中设定
+              </p>
+            </div>
           </div>
         </>
       )}
