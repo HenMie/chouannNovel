@@ -439,9 +439,9 @@ export async function chat(
     content: result.text,
     usage: result.usage
       ? {
-          promptTokens: result.usage.inputTokens ?? 0,
-          completionTokens: result.usage.outputTokens ?? 0,
-          totalTokens: result.usage.totalTokens ?? 0,
+          promptTokens: (await result.usage).inputTokens ?? 0,
+          completionTokens: (await result.usage).outputTokens ?? 0,
+          totalTokens: (await result.usage).totalTokens ?? 0,
         }
       : undefined,
   }
@@ -494,9 +494,9 @@ export async function chatStream(
     done: true,
     usage: result.usage
       ? {
-          promptTokens: result.usage.inputTokens ?? 0,
-          completionTokens: result.usage.outputTokens ?? 0,
-          totalTokens: result.usage.totalTokens ?? 0,
+          promptTokens: (await result.usage).inputTokens ?? 0,
+          completionTokens: (await result.usage).outputTokens ?? 0,
+          totalTokens: (await result.usage).totalTokens ?? 0,
         }
       : undefined,
   })
@@ -546,9 +546,9 @@ export async function* chatStreamIterable(
     done: true,
     usage: result.usage
       ? {
-          promptTokens: result.usage.inputTokens ?? 0,
-          completionTokens: result.usage.outputTokens ?? 0,
-          totalTokens: result.usage.totalTokens ?? 0,
+          promptTokens: (await result.usage).inputTokens ?? 0,
+          completionTokens: (await result.usage).outputTokens ?? 0,
+          totalTokens: (await result.usage).totalTokens ?? 0,
         }
       : undefined,
   }

@@ -238,7 +238,7 @@ export class WorkflowExecutor {
           const errorMessage = this.toErrorMessage(error)
 
           // 暂停触发的流中断不视为失败，等待继续执行
-          if (errorMessage === '执行已暂停' && this.status === 'paused') {
+          if (errorMessage === '执行已暂停' && (this.status as ExecutorStatus) === 'paused') {
             continue
           }
 
