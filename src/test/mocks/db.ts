@@ -45,6 +45,7 @@ function createEmptyDatabase(): MockDatabase {
       theme: "system",
       default_loop_max: 10,
       default_timeout: 300,
+      setting_assistant: null,
     },
     executions: [],
     nodeResults: [],

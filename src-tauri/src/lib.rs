@@ -175,6 +175,48 @@ pub fn run() {
             ALTER TABLE node_results ADD COLUMN token_usage TEXT;
         "#,
         kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 4,
+        description: "add_settings_injection_fields",
+        sql: r#"
+            ALTER TABLE settings ADD COLUMN injection_mode TEXT DEFAULT 'manual';
+            ALTER TABLE settings ADD COLUMN priority TEXT DEFAULT 'medium';
+            ALTER TABLE settings ADD COLUMN keywords TEXT DEFAULT NULL;
+            ALTER TABLE settings ADD COLUMN summary TEXT DEFAULT NULL;
+        "#,
+        kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 5,
+        description: "add_setting_relations_table",
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS setting_relations (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                label TEXT DEFAULT NULL,
+                description TEXT DEFAULT NULL,
+                bidirectional INTEGER DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                FOREIGN KEY (source_id) REFERENCES settings(id) ON DELETE CASCADE,
+                FOREIGN KEY (target_id) REFERENCES settings(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_relations_source ON setting_relations(source_id);
+            CREATE INDEX IF NOT EXISTS idx_relations_target ON setting_relations(target_id);
+            CREATE INDEX IF NOT EXISTS idx_relations_project ON setting_relations(project_id);
+        "#,
+        kind: MigrationKind::Up,
+    },
+    Migration {
+        version: 6,
+        description: "add_setting_assistant_config",
+        sql: r#"
+            ALTER TABLE global_config ADD COLUMN setting_assistant TEXT DEFAULT NULL;
+        "#,
+        kind: MigrationKind::Up,
     }];
 
     tauri::Builder::default()

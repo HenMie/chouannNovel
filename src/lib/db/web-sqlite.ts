@@ -169,6 +169,10 @@ const MIGRATION_SQL = `
     enabled INTEGER DEFAULT 1,
     parent_id TEXT DEFAULT NULL,
     order_index INTEGER DEFAULT 0,
+    injection_mode TEXT DEFAULT 'manual',
+    priority TEXT DEFAULT 'medium',
+    keywords TEXT DEFAULT NULL,
+    summary TEXT DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -254,6 +258,23 @@ const MIGRATION_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_workflow_versions_workflow_id ON workflow_versions(workflow_id);
   CREATE INDEX IF NOT EXISTS idx_workflow_versions_number ON workflow_versions(workflow_id, version_number DESC);
+
+  CREATE TABLE IF NOT EXISTS setting_relations (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    label TEXT DEFAULT NULL,
+    description TEXT DEFAULT NULL,
+    bidirectional INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (source_id) REFERENCES settings(id) ON DELETE CASCADE,
+    FOREIGN KEY (target_id) REFERENCES settings(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_relations_source ON setting_relations(source_id);
+  CREATE INDEX IF NOT EXISTS idx_relations_target ON setting_relations(target_id);
+  CREATE INDEX IF NOT EXISTS idx_relations_project ON setting_relations(project_id);
 `
 
 

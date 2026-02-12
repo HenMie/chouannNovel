@@ -4,6 +4,7 @@ import type {
   Workflow,
   WorkflowNode,
   Setting,
+  SettingRelation,
   SettingPrompt,
   GlobalConfig,
   Execution,
@@ -466,7 +467,16 @@ export async function getSettings(
     sql,
     params
   )
-  return settings.map((s) => ({ ...s, enabled: Boolean(s.enabled), parent_id: s.parent_id ?? null, order_index: s.order_index ?? 0 }))
+  return settings.map((s) => ({
+    ...s,
+    enabled: Boolean(s.enabled),
+    parent_id: s.parent_id ?? null,
+    order_index: s.order_index ?? 0,
+    injection_mode: s.injection_mode ?? 'manual',
+    priority: s.priority ?? 'medium',
+    keywords: s.keywords ? JSON.parse(s.keywords as unknown as string) : null,
+    summary: s.summary ?? null,
+  }))
 }
 
 export async function createSetting(
@@ -475,18 +485,26 @@ export async function createSetting(
   name: string,
   content: string,
   parentId?: string | null,
-  orderIndex?: number
+  orderIndex?: number,
+  injectionMode?: Setting['injection_mode'],
+  priority?: Setting['priority'],
+  keywords?: string[] | null,
+  summary?: string | null
 ): Promise<Setting> {
   const db = await getDatabase()
   const id = generateId()
   const now = new Date().toISOString()
   const pId = parentId ?? null
   const oIdx = orderIndex ?? 0
+  const iMode = injectionMode ?? 'manual'
+  const pri = priority ?? 'medium'
+  const kw = keywords ? JSON.stringify(keywords) : null
+  const sum = summary ?? null
 
   await db.execute(
-    `INSERT INTO settings (id, project_id, category, name, content, enabled, parent_id, order_index, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
-    [id, projectId, category, name, content, pId, oIdx, now, now]
+    `INSERT INTO settings (id, project_id, category, name, content, enabled, parent_id, order_index, injection_mode, priority, keywords, summary, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, projectId, category, name, content, pId, oIdx, iMode, pri, kw, sum, now, now]
   )
 
   return {
@@ -498,6 +516,10 @@ export async function createSetting(
     enabled: true,
     parent_id: pId,
     order_index: oIdx,
+    injection_mode: iMode,
+    priority: pri,
+    keywords: keywords ?? null,
+    summary: sum,
     created_at: now,
     updated_at: now,
   }
@@ -505,7 +527,7 @@ export async function createSetting(
 
 export async function updateSetting(
   id: string,
-  data: Partial<Pick<Setting, 'name' | 'content' | 'enabled' | 'parent_id' | 'order_index'>>
+  data: Partial<Pick<Setting, 'name' | 'content' | 'enabled' | 'parent_id' | 'order_index' | 'injection_mode' | 'priority' | 'keywords' | 'summary'>>
 ): Promise<void> {
   const db = await getDatabase()
   const updates: string[] = []
@@ -530,6 +552,22 @@ export async function updateSetting(
   if (data.order_index !== undefined) {
     updates.push('order_index = ?')
     values.push(data.order_index)
+  }
+  if (data.injection_mode !== undefined) {
+    updates.push('injection_mode = ?')
+    values.push(data.injection_mode)
+  }
+  if (data.priority !== undefined) {
+    updates.push('priority = ?')
+    values.push(data.priority)
+  }
+  if (data.keywords !== undefined) {
+    updates.push('keywords = ?')
+    values.push(data.keywords ? JSON.stringify(data.keywords) : null)
+  }
+  if (data.summary !== undefined) {
+    updates.push('summary = ?')
+    values.push(data.summary)
   }
 
   updates.push('updated_at = ?')
@@ -650,7 +688,7 @@ const DEFAULT_ENABLED_MODELS = {
 export async function getGlobalConfig(): Promise<GlobalConfig> {
   const db = await getDatabase()
   const results = await db.select<
-    Array<Omit<GlobalConfig, 'ai_providers'> & { ai_providers: string }>
+    Array<Omit<GlobalConfig, 'ai_providers' | 'setting_assistant'> & { ai_providers: string; setting_assistant: string | null }>
   >('SELECT * FROM global_config WHERE id = 1')
 
   if (!results[0]) {
@@ -680,6 +718,7 @@ export async function getGlobalConfig(): Promise<GlobalConfig> {
       theme: 'system',
       default_loop_max: 10,
       default_timeout: 300,
+      setting_assistant: null,
     }
   }
 
@@ -707,6 +746,7 @@ export async function getGlobalConfig(): Promise<GlobalConfig> {
   return {
     ...results[0],
     ai_providers: mergedProviders,
+    setting_assistant: results[0].setting_assistant ? JSON.parse(results[0].setting_assistant) : null,
   }
 }
 
@@ -732,6 +772,10 @@ export async function updateGlobalConfig(
   if (data.default_timeout !== undefined) {
     updates.push('default_timeout = ?')
     values.push(data.default_timeout)
+  }
+  if (data.setting_assistant !== undefined) {
+    updates.push('setting_assistant = ?')
+    values.push(data.setting_assistant ? JSON.stringify(data.setting_assistant) : 'null')
   }
 
   if (updates.length > 0) {
@@ -1578,5 +1622,67 @@ export async function cleanupOldVersions(workflowId: string, keepCount: number =
   for (const version of versionsToDelete) {
     await db.execute('DELETE FROM workflow_versions WHERE id = ?', [version.id])
   }
+}
+
+// ========== 设定关系 ==========
+
+export async function getSettingRelations(projectId: string): Promise<SettingRelation[]> {
+  const db = await getDatabase()
+  const rows = await db.select<any[]>(
+    'SELECT * FROM setting_relations WHERE project_id = ? ORDER BY created_at DESC',
+    [projectId]
+  )
+  return rows.map(r => ({
+    ...r,
+    bidirectional: !!r.bidirectional,
+  }))
+}
+
+export async function getRelationsForSetting(settingId: string): Promise<SettingRelation[]> {
+  const db = await getDatabase()
+  const rows = await db.select<any[]>(
+    'SELECT * FROM setting_relations WHERE source_id = ? OR (target_id = ? AND bidirectional = 1) ORDER BY created_at DESC',
+    [settingId, settingId]
+  )
+  return rows.map(r => ({
+    ...r,
+    bidirectional: !!r.bidirectional,
+  }))
+}
+
+export async function createSettingRelation(
+  projectId: string,
+  sourceId: string,
+  targetId: string,
+  label?: string | null,
+  description?: string | null,
+  bidirectional: boolean = true,
+): Promise<SettingRelation> {
+  const db = await getDatabase()
+  const id = generateId()
+  await db.execute(
+    'INSERT INTO setting_relations (id, project_id, source_id, target_id, label, description, bidirectional) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [id, projectId, sourceId, targetId, label ?? null, description ?? null, bidirectional ? 1 : 0]
+  )
+  const rows = await db.select<any[]>('SELECT * FROM setting_relations WHERE id = ?', [id])
+  return { ...rows[0], bidirectional: !!rows[0].bidirectional }
+}
+
+export async function deleteSettingRelation(id: string): Promise<void> {
+  const db = await getDatabase()
+  await db.execute('DELETE FROM setting_relations WHERE id = ?', [id])
+}
+
+// 查询反向引用: 哪些工作流节点引用了该设定
+export async function getSettingUsageInNodes(settingId: string): Promise<Array<{ node_id: string; node_name: string; workflow_id: string; workflow_name: string }>> {
+  const db = await getDatabase()
+  const rows = await db.select<any[]>(
+    `SELECT n.id as node_id, n.name as node_name, w.id as workflow_id, w.name as workflow_name
+     FROM nodes n
+     JOIN workflows w ON n.workflow_id = w.id
+     WHERE n.config LIKE ?`,
+    [`%${settingId}%`]
+  )
+  return rows
 }
 

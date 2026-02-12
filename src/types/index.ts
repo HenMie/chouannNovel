@@ -160,6 +160,7 @@ export interface AIChatConfig {
   enable_history: boolean
   history_count: number
   setting_ids: string[]
+  setting_injection_level?: 'minimal' | 'balanced' | 'full'
 }
 
 export interface TokenUsage {
@@ -281,6 +282,12 @@ export type NodeConfig =
 // 设定分类
 export type SettingCategory = 'character' | 'worldview' | 'style' | 'outline'
 
+// 设定注入模式
+export type SettingInjectionMode = 'manual' | 'auto'
+
+// 设定优先级
+export type SettingPriority = 'high' | 'medium' | 'low'
+
 // 设定库类型
 export interface Setting {
   id: string
@@ -291,8 +298,24 @@ export interface Setting {
   enabled: boolean
   parent_id: string | null
   order_index: number
+  injection_mode: SettingInjectionMode
+  priority: SettingPriority
+  keywords: string[] | null
+  summary: string | null
   created_at: string
   updated_at: string
+}
+
+// 设定关系
+export interface SettingRelation {
+  id: string
+  project_id: string
+  source_id: string
+  target_id: string
+  label: string | null        // 关系标签(如"师徒"、"所在地")
+  description: string | null  // 关系描述
+  bidirectional: boolean      // 是否双向
+  created_at: string
 }
 
 // 设定注入提示词
@@ -329,6 +352,15 @@ export interface GlobalConfig {
   theme: 'light' | 'dark' | 'system'
   default_loop_max: number
   default_timeout: number
+  setting_assistant: {
+    provider: AIProvider
+    model: string
+    prompts?: {
+      expand?: string
+      generate?: string
+      summarize?: string
+    }
+  } | null
 }
 
 // 执行状态
@@ -427,6 +459,16 @@ export interface ProjectStats {
 export interface GlobalStats {
   active_projects: number
   today_word_count: number
+}
+
+// 设定 AI 助手动作
+export type SettingAIAction = 'expand' | 'generate' | 'summarize'
+
+// 设定 AI 请求
+export interface SettingAIRequest {
+  action: SettingAIAction
+  setting: Pick<Setting, 'name' | 'category' | 'content'>
+  contextSettings?: Pick<Setting, 'name' | 'content'>[]
 }
 
 // ========== 导入/导出类型 ==========
