@@ -2298,6 +2298,121 @@ describe("WorkflowExecutor - 工作流执行器", () => {
       expect(results).toBeDefined()
       expect(() => JSON.parse(results!)).not.toThrow()
     })
+
+    it("并发任务失败后应按配置重试并成功", async () => {
+      const blockId = "parallel-block-retry-success"
+      const attemptCounter = new Map<string, number>()
+
+      const nodes = [
+        createTestNode("start", "开始", {}, { id: "start-1", order_index: 0 }),
+        createTestNode("parallel_start", "并发开始", {
+          concurrency: 3,
+          output_mode: "concat",
+          retry_count: 3,
+        } as ParallelStartConfig, { id: "parallel-start-1", order_index: 1, block_id: blockId }),
+        createTestNode("ai_chat", "任务1", {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "",
+          user_prompt: "任务1",
+          temperature: 0.7,
+          max_tokens: 100,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: [],
+        } as AIChatConfig, { id: "task-1", order_index: 2, block_id: blockId }),
+        createTestNode("parallel_end", "并发结束", {}, { id: "parallel-end-1", order_index: 3, block_id: blockId }),
+      ]
+
+      mockChatStream.mockImplementation(async (options) => {
+        const key = JSON.stringify(options.messages)
+        const current = (attemptCounter.get(key) ?? 0) + 1
+        attemptCounter.set(key, current)
+
+        if (current < 3) {
+          throw new Error("模拟临时失败")
+        }
+      })
+
+      const executor = new WorkflowExecutor({ workflow, nodes, globalConfig })
+      const result = await executor.execute()
+
+      expect(result.status).toBe("completed")
+      expect(Array.from(attemptCounter.values())[0]).toBe(3)
+    })
+
+    it("并发任务重试耗尽后应失败", async () => {
+      const blockId = "parallel-block-retry-failed"
+
+      const nodes = [
+        createTestNode("start", "开始", {}, { id: "start-1", order_index: 0 }),
+        createTestNode("parallel_start", "并发开始", {
+          concurrency: 3,
+          output_mode: "concat",
+          retry_count: 2,
+        } as ParallelStartConfig, { id: "parallel-start-1", order_index: 1, block_id: blockId }),
+        createTestNode("ai_chat", "任务失败", {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "",
+          user_prompt: "任务失败",
+          temperature: 0.7,
+          max_tokens: 100,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: [],
+        } as AIChatConfig, { id: "task-fail", order_index: 2, block_id: blockId }),
+        createTestNode("parallel_end", "并发结束", {}, { id: "parallel-end-1", order_index: 3, block_id: blockId }),
+      ]
+
+      mockChatStream.mockRejectedValue(new Error("持续失败"))
+
+      const executor = new WorkflowExecutor({ workflow, nodes, globalConfig })
+      const result = await executor.execute()
+
+      expect(result.status).toBe("failed")
+      expect(result.error).toContain("重试 2 次后仍失败")
+    })
+
+    it("未配置 retry_count 时默认重试 3 次", async () => {
+      const blockId = "parallel-block-retry-default"
+      let attempts = 0
+
+      const nodes = [
+        createTestNode("start", "开始", {}, { id: "start-1", order_index: 0 }),
+        createTestNode("parallel_start", "并发开始", {
+          concurrency: 3,
+          output_mode: "concat",
+        } as ParallelStartConfig, { id: "parallel-start-1", order_index: 1, block_id: blockId }),
+        createTestNode("ai_chat", "任务默认重试", {
+          provider: "openai",
+          model: "gpt-4",
+          system_prompt: "",
+          user_prompt: "任务默认重试",
+          temperature: 0.7,
+          max_tokens: 100,
+          top_p: 1,
+          enable_history: false,
+          history_count: 0,
+          setting_ids: [],
+        } as AIChatConfig, { id: "task-default", order_index: 2, block_id: blockId }),
+        createTestNode("parallel_end", "并发结束", {}, { id: "parallel-end-1", order_index: 3, block_id: blockId }),
+      ]
+
+      mockChatStream.mockImplementation(async () => {
+        attempts++
+        throw new Error("持续失败")
+      })
+
+      const executor = new WorkflowExecutor({ workflow, nodes, globalConfig })
+      const result = await executor.execute()
+
+      expect(result.status).toBe("failed")
+      expect(attempts).toBe(4)
+      expect(result.error).toContain("重试 3 次后仍失败")
+    })
   })
 
   // ========== 超时测试 ==========

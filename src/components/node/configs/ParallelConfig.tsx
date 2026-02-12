@@ -29,6 +29,7 @@ export function ParallelConfigForm({
 }: ParallelConfigFormProps) {
   const concurrency = config.concurrency || 3
   const outputMode = config.output_mode || 'array'
+  const retryCount = config.retry_count ?? 3
 
   return (
     <div className="space-y-6">
@@ -96,6 +97,36 @@ export function ParallelConfigForm({
         </Select>
       </div>
 
+      {/* 失败重试次数 */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Label>失败重试次数</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                单个并发任务失败后自动重试。0 表示不重试，默认 3 次。
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <span className="text-sm font-medium tabular-nums">{retryCount} 次</span>
+        </div>
+        <Slider
+          value={[retryCount]}
+          onValueChange={([value]) => onChange({ ...config, retry_count: value })}
+          min={0}
+          max={10}
+          step={1}
+          className="py-2"
+        />
+        <div className="flex justify-between text-xs text-muted-foreground">
+          <span>0 次（不重试）</span>
+          <span>10 次（高容错）</span>
+        </div>
+      </div>
+
       {/* 拼接分隔符 */}
       {outputMode === 'concat' && (
         <div className="space-y-2">
@@ -121,6 +152,7 @@ export function ParallelConfigForm({
           <li>并发块内的节点会同时执行</li>
           <li>每个并发任务接收相同的输入</li>
           <li>所有任务完成后，结果会合并输出</li>
+          <li>单任务失败会按配置自动重试，耗尽后终止工作流</li>
           <li>适合对同一输入进行多种处理</li>
         </ul>
       </div>

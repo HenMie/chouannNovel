@@ -86,6 +86,7 @@ export interface ParallelStartConfig {
   concurrency: number              // 并发数限制
   output_mode: 'array' | 'concat'  // 输出模式
   output_separator?: string        // 输出分隔符
+  retry_count?: number             // 失败重试次数（默认 3）
 }
 
 // 并发结束节点配置
@@ -431,10 +432,20 @@ export interface ExportedWorkflow {
 }
 
 // 导出的设定数据格式
+export interface ExportedSettingItem {
+  id?: string
+  category: SettingCategory
+  name: string
+  content: string
+  enabled: boolean
+  parent_id?: string | null
+  order_index?: number
+}
+
 export interface ExportedSettings {
   version: string
   exported_at: string
-  settings: Array<Omit<Setting, 'id' | 'project_id' | 'created_at' | 'updated_at'>>
+  settings: ExportedSettingItem[]
   setting_prompts?: Array<Omit<SettingPrompt, 'id' | 'project_id'>>
 }
 
@@ -447,7 +458,7 @@ export interface ExportedProject {
     workflow: Omit<Workflow, 'id' | 'project_id' | 'created_at' | 'updated_at'>
     nodes: Array<Omit<WorkflowNode, 'id' | 'workflow_id' | 'created_at' | 'updated_at'>>
   }>
-  settings: Array<Omit<Setting, 'id' | 'project_id' | 'created_at' | 'updated_at'>>
+  settings: ExportedSettingItem[]
   setting_prompts: Array<Omit<SettingPrompt, 'id' | 'project_id'>>
 }
 

@@ -1304,6 +1304,7 @@ ${input}`
     
     // 并发执行所有节点
     const concurrency = config.concurrency || 3
+    const retryCount = Math.max(0, config.retry_count ?? 3)
     const results: string[] = []
     
     // 按批次并发执行
@@ -1312,14 +1313,7 @@ ${input}`
       
       const batchResults = await Promise.all(
         batch.map(async (parallelNode) => {
-          try {
-            await this.executeNode(parallelNode)
-            const nodeState = this.context.getNodeState(parallelNode.id)
-            return nodeState?.output || ''
-          } catch (error) {
-            logError({ error, context: `并发执行节点 ${parallelNode.name}` })
-            return ''
-          }
+          return this.executeParallelNodeWithRetry(parallelNode, retryCount)
         })
       )
       
@@ -1338,6 +1332,37 @@ ${input}`
     this.jumpTarget = this.nodes[endIndex].id
     
     return `并发执行 ${parallelNodes.length} 个任务完成`
+  }
+
+  /**
+   * 并发节点执行（带重试）
+   */
+  private async executeParallelNodeWithRetry(node: WorkflowNode, retryCount: number): Promise<string> {
+    let lastError: unknown = null
+
+    for (let attempt = 0; attempt <= retryCount; attempt++) {
+      try {
+        await this.executeNode(node)
+        const nodeState = this.context.getNodeState(node.id)
+        return nodeState?.output || ''
+      } catch (error) {
+        lastError = error
+        const currentAttempt = attempt + 1
+        const totalAttempt = retryCount + 1
+        logError({
+          error,
+          context: `并发执行节点 ${node.name} 失败（第 ${currentAttempt}/${totalAttempt} 次）`,
+        })
+
+        if (attempt === retryCount) {
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          throw new Error(`并发节点 ${node.name} 执行失败（重试 ${retryCount} 次后仍失败）: ${errorMessage}`)
+        }
+      }
+    }
+
+    const fallbackMessage = lastError instanceof Error ? lastError.message : String(lastError)
+    throw new Error(`并发节点 ${node.name} 执行失败: ${fallbackMessage}`)
   }
 
   /**
@@ -1529,6 +1554,7 @@ ${input}`
     // 同时更新节点输出映射（使用节点ID）
     if (nodeState.nodeId) {
       this.context.setNodeOutput(newOutput, nodeState.nodeId)
+      this.context.setVariable(nodeState.nodeId, newOutput)
     }
     
     // 如果是最后一个完成的节点，更新 lastOutput

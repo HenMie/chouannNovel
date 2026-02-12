@@ -1089,6 +1089,7 @@ export async function exportSettings(projectId: string): Promise<ExportedSetting
     version: EXPORT_VERSION,
     exported_at: new Date().toISOString(),
     settings: settings.map((s) => ({
+      id: s.id,
       category: s.category,
       name: s.name,
       content: s.content,
@@ -1122,13 +1123,49 @@ export async function importSettings(
     await db.execute('DELETE FROM setting_prompts WHERE project_id = ?', [projectId])
   }
 
-  // 导入设定
+  // 导入设定（两阶段：先插入，再更新 parent_id）
+  const settingIdMap = new Map<string, string>()
+
   for (const setting of data.settings) {
     const id = generateId()
+    const sourceId = (setting as Partial<{ id: string }>).id
+    if (sourceId) {
+      settingIdMap.set(sourceId, id)
+    }
+
     await db.execute(
-      `INSERT INTO settings (id, project_id, category, name, content, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, projectId, setting.category, setting.name, setting.content, setting.enabled ? 1 : 0, now, now]
+      `INSERT INTO settings (id, project_id, category, name, content, enabled, parent_id, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        projectId,
+        setting.category,
+        setting.name,
+        setting.content,
+        setting.enabled ? 1 : 0,
+        null,
+        setting.order_index ?? 0,
+        now,
+        now,
+      ]
+    )
+  }
+
+  for (const setting of data.settings) {
+    const sourceId = (setting as Partial<{ id: string }>).id
+    if (!sourceId) continue
+
+    const newId = settingIdMap.get(sourceId)
+    if (!newId) continue
+
+    let mappedParentId: string | null = null
+    if (setting.parent_id) {
+      mappedParentId = settingIdMap.get(setting.parent_id) ?? null
+    }
+
+    await db.execute(
+      'UPDATE settings SET parent_id = ?, updated_at = ? WHERE id = ?',
+      [mappedParentId, now, newId]
     )
   }
 
@@ -1197,6 +1234,7 @@ export async function exportProject(projectId: string): Promise<ExportedProject 
     },
     workflows: workflowsWithNodes,
     settings: settings.map((s) => ({
+      id: s.id,
       category: s.category,
       name: s.name,
       content: s.content,
@@ -1282,13 +1320,49 @@ export async function importProject(
     }
   }
 
-  // 导入设定
+  // 导入设定（两阶段：先插入，再更新 parent_id）
+  const settingIdMap = new Map<string, string>()
+
   for (const setting of data.settings) {
     const id = generateId()
+    const sourceId = (setting as Partial<{ id: string }>).id
+    if (sourceId) {
+      settingIdMap.set(sourceId, id)
+    }
+
     await db.execute(
-      `INSERT INTO settings (id, project_id, category, name, content, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, projectId, setting.category, setting.name, setting.content, setting.enabled ? 1 : 0, now, now]
+      `INSERT INTO settings (id, project_id, category, name, content, enabled, parent_id, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        projectId,
+        setting.category,
+        setting.name,
+        setting.content,
+        setting.enabled ? 1 : 0,
+        null,
+        setting.order_index ?? 0,
+        now,
+        now,
+      ]
+    )
+  }
+
+  for (const setting of data.settings) {
+    const sourceId = (setting as Partial<{ id: string }>).id
+    if (!sourceId) continue
+
+    const newId = settingIdMap.get(sourceId)
+    if (!newId) continue
+
+    let mappedParentId: string | null = null
+    if (setting.parent_id) {
+      mappedParentId = settingIdMap.get(setting.parent_id) ?? null
+    }
+
+    await db.execute(
+      'UPDATE settings SET parent_id = ?, updated_at = ? WHERE id = ?',
+      [mappedParentId, now, newId]
     )
   }
 

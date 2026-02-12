@@ -318,6 +318,26 @@ describe("lib/db - 导入导出", () => {
     expect(prompts[0].prompt_template).toBe("模板A")
   })
 
+  it("export/import settings 应保留 parent_id 与 order_index", async () => {
+    const projectA = await db.createProject("项目A")
+    const parent = await db.createSetting(projectA.id, "character", "父设定", "父内容", null, 5)
+    await db.createSetting(projectA.id, "character", "子设定", "子内容", parent.id, 7)
+
+    const data = await db.exportSettings(projectA.id)
+    const projectB = await db.createProject("项目B")
+    await db.importSettings(projectB.id, data, "replace")
+
+    const imported = await db.getSettings(projectB.id)
+    const importedParent = imported.find((s) => s.name === "父设定")
+    const importedChild = imported.find((s) => s.name === "子设定")
+
+    expect(importedParent).toBeDefined()
+    expect(importedParent?.order_index).toBe(5)
+    expect(importedChild).toBeDefined()
+    expect(importedChild?.order_index).toBe(7)
+    expect(importedChild?.parent_id).toBe(importedParent?.id)
+  })
+
   it("export/import project 应复制工作流与设定", async () => {
     const source = await db.createProject("源项目", "描述")
     const workflow = await db.createWorkflow(source.id, "源工作流")
@@ -331,6 +351,25 @@ describe("lib/db - 导入导出", () => {
     expect(workflows).toHaveLength(1)
     const settings = await db.getSettings(restored.id)
     expect(settings).toHaveLength(1)
+  })
+
+  it("export/import project 应保留设定层级结构", async () => {
+    const source = await db.createProject("源项目", "描述")
+    const parent = await db.createSetting(source.id, "character", "父设定", "父内容", null, 2)
+    await db.createSetting(source.id, "character", "子设定", "子内容", parent.id, 4)
+
+    const backup = await db.exportProject(source.id)
+    const restored = await db.importProject(backup!, "恢复后的项目")
+
+    const settings = await db.getSettings(restored.id)
+    const restoredParent = settings.find((s) => s.name === "父设定")
+    const restoredChild = settings.find((s) => s.name === "子设定")
+
+    expect(restoredParent).toBeDefined()
+    expect(restoredParent?.order_index).toBe(2)
+    expect(restoredChild).toBeDefined()
+    expect(restoredChild?.order_index).toBe(4)
+    expect(restoredChild?.parent_id).toBe(restoredParent?.id)
   })
 })
 
